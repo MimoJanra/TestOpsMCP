@@ -29,7 +29,7 @@ go build -o bin/server ./cmd/server
 
 ## Running
 
-### Stdio mode (default) — for Claude Desktop
+### Stdio mode (default) — for Claude Desktop (local development)
 
 ```bash
 cp .env.example .env        # fill in ALLURE_BASE_URL and ALLURE_TOKEN
@@ -55,13 +55,54 @@ Add to `claude_desktop_config.json`:
 
 Then restart Claude Desktop and the tools will appear.
 
-### HTTP mode — for web clients or external integration
+### HTTP mode — for shared server deployment
 
 ```bash
 source .env
 ./bin/server --http
 # listens on :3000 (configurable via PORT env)
 ```
+
+**Recommended setup for team use:**
+
+1. **On your server**, create a `.env` file with Allure credentials:
+   ```bash
+   ALLURE_BASE_URL=https://allure.example.com
+   ALLURE_TOKEN=your_allure_token
+   REQUEST_TIMEOUT=30
+   MCP_AUTH_TOKEN=your_shared_secret_for_team
+   CORS_ALLOWED_ORIGIN=*  # or restrict to specific domains
+   PORT=3000
+   LOG_LEVEL=INFO
+   ```
+
+2. **Run the server** (e.g., with systemd, docker, or process manager):
+   ```bash
+   ./bin/server --http
+   ```
+
+3. **Share the server URL with your team**: `http://your-server:3000`
+
+4. **Team members configure their Claude Desktop** to connect to the shared server:
+   ```json
+   {
+     "mcpServers": {
+       "allure": {
+         "url": "http://your-server:3000",
+         "env": {
+           "MCP_AUTH_TOKEN": "your_shared_secret_for_team"
+         }
+       }
+     }
+   }
+   ```
+
+5. **For production**, use HTTPS (self-signed cert + trusted CA, or ngrok):
+   ```bash
+   # Example with ngrok (https tunneling)
+   ngrok http 3000
+   # Share https://your-unique-id.ngrok.io with your team
+   ```
 
 ## Configuration
 
@@ -186,6 +227,67 @@ internal/
     registry.go          # tool registration & handlers
 ```
 
+## Deployment
+
+### Docker
+
+Create a `Dockerfile`:
+
+```dockerfile
+FROM golang:1.22 AS builder
+WORKDIR /build
+COPY . .
+RUN go build -o server ./cmd/server
+
+FROM scratch
+COPY --from=builder /build/server /server
+ENTRYPOINT ["/server"]
+```
+
+Build and run:
+
+```bash
+docker build -t allure-mcp .
+docker run -e ALLURE_BASE_URL=https://... \
+           -e ALLURE_TOKEN=... \
+           -e MCP_AUTH_TOKEN=... \
+           -e LOG_LEVEL=INFO \
+           -p 3000:3000 \
+           allure-mcp --http
+```
+
+### Systemd service
+
+Create `/etc/systemd/system/allure-mcp.service`:
+
+```ini
+[Unit]
+Description=Allure MCP Server
+After=network.target
+
+[Service]
+Type=simple
+User=allure-mcp
+WorkingDirectory=/opt/allure-mcp
+ExecStart=/opt/allure-mcp/bin/server --http
+Restart=on-failure
+RestartSec=10
+EnvironmentFile=/opt/allure-mcp/.env
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start:
+
+```bash
+sudo systemctl enable allure-mcp
+sudo systemctl start allure-mcp
+sudo journalctl -u allure-mcp -f  # tail logs
+```
+
 ## Allure TestOps integration
 
 The server communicates with Allure TestOps using the Report Service API:
@@ -208,12 +310,55 @@ Logs go to stderr as one JSON object per line.
 
 ## Security notes
 
-- **Stdio mode:** No auth (runs as subprocess with inherited privileges). Suitable for local development.
-- **HTTP mode:** Optional `MCP_AUTH_TOKEN` for Bearer-token auth on `/sse` and `/messages`. The server is
-  **not** hardened for public exposure — run it behind a reverse proxy or on a trusted network.
-- CORS: When `CORS_ALLOWED_ORIGIN=*`, any site a browser visits can call your server. Use a concrete
-  origin (or empty) for anything other than local development.
-- Allure token in `.env` is sensitive. `.env` is git-ignored; rotate the token if it ever leaks.
+### Stdio mode (local development)
+
+- No auth: runs as a subprocess with inherited privileges and direct stdin/stdout
+- Suitable only for local development (Claude Desktop)
+- No network exposure
+
+### HTTP mode (team/shared server)
+
+**Critical:** Always set `MCP_AUTH_TOKEN` when exposing the server over HTTP.
+
+- `MCP_AUTH_TOKEN`: Bearer-token auth on `/sse` and `/messages`; clients must send `Authorization: Bearer <token>`
+- Use **HTTPS** (or equivalent like ngrok) for production; HTTP plaintext exposes credentials
+- CORS: `CORS_ALLOWED_ORIGIN=*` allows any site to call your server; use a concrete origin for production
+  (e.g., `https://claude.ai` or your internal domain)
+- Place the server behind a **reverse proxy** (nginx, Caddy) with additional auth (mTLS, IP whitelist)
+- **Never** commit `.env` to git; use a secrets manager or `.env.local` (in .gitignore)
+- **Rotate credentials** regularly; if Allure token or `MCP_AUTH_TOKEN` leaks, regenerate immediately
+- **Monitor logs** for unauthorized access attempts
+
+### Example production setup (nginx reverse proxy with HTTPS)
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name allure-mcp.example.com;
+
+    ssl_certificate /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+
+    auth_request /auth;
+
+    location /sse {
+        proxy_pass http://localhost:3000/sse;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Authorization $http_authorization;
+        proxy_pass_header Authorization;
+    }
+
+    location /messages {
+        proxy_pass http://localhost:3000/messages;
+        proxy_set_header Authorization $http_authorization;
+        proxy_pass_header Authorization;
+    }
+}
+```
+
+Share `https://allure-mcp.example.com` with your team; they set it in their Claude Desktop config.
 
 ## License
 
