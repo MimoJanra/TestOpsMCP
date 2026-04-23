@@ -69,11 +69,55 @@ Restart Claude Desktop — Allure tools appear in the dropdown.
 
 ## Tools Available
 
-| Tool | Purpose | Use Case |
-|------|---------|----------|
-| **`run_allure_launch`** | Start a new test launch | Kick off smoke tests, regression suites, or custom test jobs |
-| **`get_launch_status`** | Check launch progress | Monitor running tests, check if complete |
-| **`get_launch_report`** | Get execution statistics | Retrieve pass/fail counts, broken test analysis |
+**32+ tools** for complete Allure TestOps automation:
+
+### Launch Management
+| Tool | Purpose |
+|------|---------|
+| `run_allure_launch` | Start a new test launch |
+| `get_launch_status` | Check launch progress and status |
+| `get_launch_report` | Get test statistics (pass/fail/broken) |
+| `list_launches` | List launches with pagination |
+| `get_launch_details` | Get comprehensive launch info |
+| `close_launch` | Close/finish an active launch |
+| `reopen_launch` | Reopen a closed launch |
+| `add_test_cases_to_launch` | Add test cases to a launch |
+| `add_test_plan_to_launch` | Add test plan to a launch |
+
+### Test Results Management
+| Tool | Purpose |
+|------|---------|
+| `list_test_results` | List test results with filter |
+| `get_test_result` | Get detailed test result info |
+| `assign_test_result` | Assign result to team member |
+| `mute_test_result` | Mute failing tests (mark known issues) |
+| `bulk_assign_test_results` | Bulk assign multiple results |
+| `bulk_mute_test_results` | Bulk mute results |
+| `bulk_unmute_test_results` | Bulk unmute results |
+| `bulk_resolve_test_results` | Bulk resolve results |
+
+### Test Cases & Management
+| Tool | Purpose |
+|------|---------|
+| `list_test_cases` | List test cases in project |
+| `get_test_case` | Get test case details |
+| `create_test_case` | Create new test case |
+| `update_test_case` | Update existing test case |
+| `delete_test_case` | Delete test case |
+| `run_test_case` | Start test case execution |
+| `bulk_set_test_case_status` | Bulk update test case status |
+| `bulk_add_test_case_tags` | Bulk add tags to test cases |
+| `bulk_remove_test_case_tags` | Bulk remove tags from test cases |
+
+### Projects & Analytics
+| Tool | Purpose |
+|------|---------|
+| `list_projects` | List all accessible projects |
+| `get_project` | Get project details |
+| `get_project_stats` | Get project statistics |
+| `get_launch_trend_analytics` | Get launch trend data (passed/failed/broken) |
+| `get_launch_duration_analytics` | Get execution time distribution |
+| `get_test_success_rate` | Get test case success rate metrics |
 
 ---
 

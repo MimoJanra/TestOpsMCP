@@ -12,7 +12,16 @@ Complete reference for Allure MCP Server tools and endpoints.
 
 ## Tools
 
-The server exposes three main tools:
+The server exposes **32+ tools** across 4 categories:
+
+- **Launch Management** (9 tools) — Create, monitor, close launches
+- **Test Results** (8 tools) — Manage test execution results
+- **Test Cases** (9 tools) — CRUD operations on test cases
+- **Analytics** (6 tools) — Projects, statistics, trends
+
+---
+
+## Launch Management Tools
 
 ### 1. `run_allure_launch`
 
@@ -58,95 +67,337 @@ curl -X POST http://localhost:3000/messages?sessionId=abc123 \
 
 ### 2. `get_launch_status`
 
-Get the current status of a launch.
+Get current launch status.
 
 #### Parameters
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `launch_id` | integer | ✓ | ID of the launch to check |
+| `launch_id` | integer | ✓ | Launch ID |
 
-#### Response
-
-```json
-{
-  "type": "text",
-  "text": "Launch ID=12345 Status=RUNNING, Tests: 42 total"
-}
-```
-
-Status values:
-- `CREATED` — Launch created but tests not yet collected
-- `RUNNING` — Tests are executing
-- `PAUSED` — Launch paused
-- `COMPLETED` — All tests executed
-- `SUBMITTED` — Results submitted to Allure Dashboard
-
-#### Example
-
-```bash
-curl -X POST http://localhost:3000/messages?sessionId=abc123 \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 2,
-    "method": "tools/call",
-    "params": {
-      "name": "get_launch_status",
-      "arguments": {
-        "launch_id": 12345
-      }
-    }
-  }'
-```
+#### Response: `CREATED`, `RUNNING`, `PAUSED`, `COMPLETED`, `SUBMITTED`
 
 ---
 
 ### 3. `get_launch_report`
 
-Get detailed execution statistics for a launch.
+Get execution statistics for a launch.
 
 #### Parameters
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `launch_id` | integer | ✓ | ID of the launch |
+| `launch_id` | integer | ✓ | Launch ID |
 
-#### Response
+#### Response Fields: `total`, `passed`, `failed`, `broken`, `skipped`
 
-```json
-{
-  "type": "text",
-  "text": "Launch 12345 Results: Total=42, Passed=38, Failed=3, Broken=1"
-}
-```
+---
 
-#### Fields
+### 4. `list_launches`
 
-- `total` — Total number of tests
-- `passed` — Tests passed
-- `failed` — Tests failed
-- `broken` — Tests broken (setup errors)
-- `skipped` — Tests skipped
-- `unknown` — Tests with unknown status
+List launches in a project with pagination.
 
-#### Example
+#### Parameters
 
-```bash
-curl -X POST http://localhost:3000/messages?sessionId=abc123 \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 3,
-    "method": "tools/call",
-    "params": {
-      "name": "get_launch_report",
-      "arguments": {
-        "launch_id": 12345
-      }
-    }
-  }'
-```
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | integer | ✓ | Project ID |
+| `page` | integer | | Page number (0-based, default: 0) |
+| `size` | integer | | Items per page (default: 10, max: 100) |
+
+---
+
+### 5. `get_launch_details`
+
+Get comprehensive launch information.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `launch_id` | integer | ✓ | Launch ID |
+
+---
+
+### 6. `close_launch`
+
+Close/finish an active launch.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `launch_id` | integer | ✓ | Launch ID |
+
+---
+
+### 7. `reopen_launch`
+
+Reopen a closed launch for additional test results.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `launch_id` | integer | ✓ | Launch ID |
+
+---
+
+### 8. `add_test_cases_to_launch`
+
+Add test cases to a launch.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `launch_id` | integer | ✓ | Launch ID |
+| `project_id` | integer | ✓ | Project ID |
+| `test_case_ids` | array | ✓ | Test case IDs |
+| `assignees` | array | | Usernames to assign to |
+
+---
+
+### 9. `add_test_plan_to_launch`
+
+Add a test plan to a launch.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `launch_id` | integer | ✓ | Launch ID |
+| `test_plan_id` | integer | ✓ | Test plan ID |
+
+---
+
+## Test Results Management Tools
+
+### 10. `list_test_results`
+
+List test results in a launch with optional status filter.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `launch_id` | integer | ✓ | Launch ID |
+| `status` | string | | Filter: PASSED, FAILED, BROKEN, SKIPPED |
+| `page` | integer | | Page number (0-based) |
+| `size` | integer | | Items per page |
+
+---
+
+### 11. `get_test_result`
+
+Get detailed information about a single test result.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `test_result_id` | integer | ✓ | Test result ID |
+
+---
+
+### 12. `assign_test_result`
+
+Assign a test result to a team member.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `test_result_id` | integer | ✓ | Test result ID |
+| `username` | string | ✓ | Username to assign to |
+
+---
+
+### 13. `mute_test_result`
+
+Mute a failing test result (mark as known issue).
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `test_result_id` | integer | ✓ | Test result ID |
+| `reason` | string | | Reason for muting |
+
+---
+
+### 14-17. Bulk Test Result Operations
+
+- **`bulk_assign_test_results`** — Assign multiple results at once
+- **`bulk_mute_test_results`** — Mute multiple results
+- **`bulk_unmute_test_results`** — Unmute multiple results
+- **`bulk_resolve_test_results`** — Resolve multiple results
+
+All take: `launch_id`, `test_result_ids` (array), and optional parameters.
+
+---
+
+## Test Cases Management Tools
+
+### 18. `list_test_cases`
+
+List test cases in a project.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | integer | ✓ | Project ID |
+| `page` | integer | | Page (0-based) |
+| `size` | integer | | Items per page |
+
+---
+
+### 19. `get_test_case`
+
+Get test case details and steps.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `test_case_id` | integer | ✓ | Test case ID |
+
+---
+
+### 20. `create_test_case`
+
+Create a new test case in a project.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | integer | ✓ | Project ID |
+| `name` | string | ✓ | Test case name |
+| `description` | string | | Description (optional) |
+
+---
+
+### 21. `update_test_case`
+
+Update an existing test case.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `test_case_id` | integer | ✓ | Test case ID |
+| `name` | string | | New name |
+| `description` | string | | New description |
+
+---
+
+### 22. `delete_test_case`
+
+Delete a test case.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `test_case_id` | integer | ✓ | Test case ID |
+
+---
+
+### 23. `run_test_case`
+
+Start a test run for a specific test case.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `test_case_id` | integer | ✓ | Test case ID |
+| `launch_id` | integer | ✓ | Launch ID to run in |
+
+---
+
+### 24-26. Bulk Test Case Operations
+
+- **`bulk_set_test_case_status`** — Update status for multiple cases
+- **`bulk_add_test_case_tags`** — Add tags to multiple cases
+- **`bulk_remove_test_case_tags`** — Remove tags from multiple cases
+
+---
+
+## Projects & Analytics Tools
+
+### 27. `list_projects`
+
+List all accessible projects.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `page` | integer | | Page (0-based) |
+| `size` | integer | | Items per page |
+
+---
+
+### 28. `get_project`
+
+Get project details and settings.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | integer | ✓ | Project ID |
+
+---
+
+### 29. `get_project_stats`
+
+Get project statistics (test count, runs, automation %).
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | integer | ✓ | Project ID |
+
+---
+
+### 30. `get_launch_trend_analytics`
+
+Get launch trend data over time (passed/failed/broken/skipped).
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | integer | ✓ | Project ID |
+
+---
+
+### 31. `get_launch_duration_analytics`
+
+Get launch execution time distribution.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | integer | ✓ | Project ID |
+
+---
+
+### 32. `get_test_success_rate`
+
+Get test case success rate metrics.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | integer | ✓ | Project ID |
 
 ---
 
@@ -321,23 +572,22 @@ The server implements **MCP Protocol 2024-11-05** (JSON-RPC 2.0 subset).
 
 ## Examples
 
-### Complete Flow: Create Launch and Check Status
+### Example: Launch, Run Tests, and Report
 
 ```bash
 #!/bin/bash
+# See examples/launch-tests.sh for complete automation script
 
 BASE_URL="http://localhost:3000"
 AUTH_TOKEN="your_mcp_auth_token"
 
-# 1. Open SSE stream (in background)
+# 1. Open SSE stream
 SESSION_ID=$(curl -s "$BASE_URL/sse" \
   -H "Authorization: Bearer $AUTH_TOKEN" | \
   grep -oP '(?<=sessionId=)[^"]+' | head -1)
 
-echo "Session ID: $SESSION_ID"
-
 # 2. Create launch
-curl -s -X POST "$BASE_URL/messages?sessionId=$SESSION_ID" \
+LAUNCH=$(curl -s -X POST "$BASE_URL/messages?sessionId=$SESSION_ID" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -346,17 +596,13 @@ curl -s -X POST "$BASE_URL/messages?sessionId=$SESSION_ID" \
     "method": "tools/call",
     "params": {
       "name": "run_allure_launch",
-      "arguments": {
-        "project_id": 1,
-        "launch_name": "E2E Tests"
-      }
+      "arguments": {"project_id": 1, "launch_name": "Regression"}
     }
-  }'
+  }')
 
-# 3. Wait for response and extract launch ID
-sleep 2
+LAUNCH_ID=$(echo $LAUNCH | grep -o '"launch_id":[0-9]*' | grep -o '[0-9]*')
 
-# 4. Check status (assuming launch_id=12345)
+# 3. Add test cases
 curl -s -X POST "$BASE_URL/messages?sessionId=$SESSION_ID" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
@@ -365,11 +611,25 @@ curl -s -X POST "$BASE_URL/messages?sessionId=$SESSION_ID" \
     "id": 2,
     "method": "tools/call",
     "params": {
-      "name": "get_launch_status",
+      "name": "add_test_cases_to_launch",
       "arguments": {
-        "launch_id": 12345
+        "launch_id": '$LAUNCH_ID',
+        "project_id": 1,
+        "test_case_ids": [1, 2, 3]
       }
     }
+  }'
+
+# 4. Monitor and close
+sleep 60  # Wait for execution
+curl -s -X POST "$BASE_URL/messages?sessionId=$SESSION_ID" \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 3,
+    "method": "tools/call",
+    "params": {"name": "close_launch", "arguments": {"launch_id": '$LAUNCH_ID'}}
   }'
 ```
 
