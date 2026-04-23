@@ -36,7 +36,7 @@ jobs:
 
       - name: Upload coverage
         if: matrix.go == '1.22'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage
           path: coverage.out
@@ -78,7 +78,7 @@ jobs:
           go build -ldflags="-s -w" -o bin/server-${{ matrix.goos }}-${{ matrix.goarch }}${EXT} ./cmd/server/
 
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: server-${{ matrix.goos }}-${{ matrix.goarch }}
           path: bin/server-${{ matrix.goos }}-${{ matrix.goarch }}*
