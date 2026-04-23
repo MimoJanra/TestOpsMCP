@@ -1,0 +1,31 @@
+name-template: 'v$RESOLVED_VERSION'
+tag-template: 'v$RESOLVED_VERSION'
+
+categories:
+  - title: 'New Features'
+    labels: [ 'enhancement', 'feature' ]
+  - title: 'Bug Fixes'
+    labels: [ 'bug', 'fix' ]
+  - title: 'Dependencies'
+    labels: [ 'dependencies' ]
+  - title: 'Documentation'
+    labels: [ 'documentation' ]
+
+version-resolver:
+  major:
+    labels: [ 'major', 'breaking-change' ]
+  minor:
+    labels: [ 'minor', 'enhancement', 'feature' ]
+  patch:
+    labels: [ 'patch', 'bug', 'fix', 'dependencies', 'documentation' ]
+  default: patch
+
+change-template: '- $TITLE @$AUTHOR (#$NUMBER)'
+change-title-escapes: '\<*_&'
+
+template: |
+  ## What's Changed
+
+  $CHANGES
+
+  **Full Changelog**: https://github.com/MimoJanra/TestOpsMCP/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
