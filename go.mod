@@ -1,3 +1,3 @@
-module github.com/example/allure-mcp-server
+module github.com/MimoJanra/TestOpsMCP
 
 go 1.22

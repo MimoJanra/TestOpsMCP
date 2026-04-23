@@ -6,11 +6,11 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/example/allure-mcp-server/internal/adapters/allure"
-	"github.com/example/allure-mcp-server/internal/config"
-	"github.com/example/allure-mcp-server/internal/core"
-	"github.com/example/allure-mcp-server/internal/mcp"
-	"github.com/example/allure-mcp-server/internal/tools"
+	"github.com/MimoJanra/TestOpsMCP/internal/adapters/allure"
+	"github.com/MimoJanra/TestOpsMCP/internal/config"
+	"github.com/MimoJanra/TestOpsMCP/internal/core"
+	"github.com/MimoJanra/TestOpsMCP/internal/mcp"
+	"github.com/MimoJanra/TestOpsMCP/internal/tools"
 )
 
 func main() {

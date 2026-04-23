@@ -9,8 +9,8 @@ import (
 	"os"
 	"sync"
 
-	"github.com/example/allure-mcp-server/internal/core"
-	"github.com/example/allure-mcp-server/internal/tools"
+	"github.com/MimoJanra/TestOpsMCP/internal/core"
+	"github.com/MimoJanra/TestOpsMCP/internal/tools"
 )
 
 type Server struct {

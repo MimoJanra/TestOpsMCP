@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/example/allure-mcp-server/internal/adapters/allure"
-	"github.com/example/allure-mcp-server/internal/core"
+	"github.com/MimoJanra/TestOpsMCP/internal/adapters/allure"
+	"github.com/MimoJanra/TestOpsMCP/internal/core"
 )
 
 type HandlerFunc func(ctx context.Context, input json.RawMessage) (interface{}, error)
