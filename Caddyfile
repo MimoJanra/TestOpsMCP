@@ -1,0 +1,64 @@
+# Example Caddyfile for Allure MCP Server with automatic HTTPS
+# Install Caddy: https://caddyserver.com/docs/install
+
+# Development (auto-HTTPS via local CA)
+allure-mcp.local {
+    reverse_proxy localhost:3000 {
+        header_up Upgrade websocket
+        header_up Connection upgrade
+        header_up X-Real-IP {remote}
+        header_up X-Forwarded-For {remote}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    # Rate limiting (10 requests per second, burst of 20)
+    rate_limit 10r/s burst=20
+
+    # Disable automatic redirects for SSE connections
+    log {
+        output stdout
+        level debug
+    }
+}
+
+# Production example (replace with your domain)
+# allure-mcp.example.com {
+#     reverse_proxy localhost:3000 {
+#         header_up Upgrade websocket
+#         header_up Connection upgrade
+#         header_up X-Real-IP {remote}
+#         header_up X-Forwarded-For {remote}
+#         header_up X-Forwarded-Proto {scheme}
+#     }
+#
+#     # Restrict CORS to specific domain
+#     header / {
+#         Access-Control-Allow-Origin "https://claude.ai"
+#         Access-Control-Allow-Methods "GET,POST,OPTIONS"
+#         Access-Control-Allow-Headers "Content-Type,Authorization"
+#     }
+#
+#     # Rate limiting
+#     rate_limit 20r/s burst=50
+#
+#     # Compression
+#     encode gzip
+#
+#     # Security headers
+#     header / {
+#         Strict-Transport-Security "max-age=31536000; includeSubDomains"
+#         X-Content-Type-Options "nosniff"
+#         X-Frame-Options "DENY"
+#         X-XSS-Protection "1; mode=block"
+#         Referrer-Policy "strict-origin-when-cross-origin"
+#         Permissions-Policy "geolocation=(), microphone=(), camera=()"
+#     }
+#
+#     log {
+#         output file /var/log/caddy/allure-mcp.log {
+#             roll_size 100mb
+#             roll_max_backups 10
+#         }
+#         level info
+#     }
+# }

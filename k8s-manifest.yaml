@@ -1,0 +1,248 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: allure-mcp
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: allure-mcp-config
+  namespace: allure-mcp
+data:
+  LOG_LEVEL: "INFO"
+  REQUEST_TIMEOUT: "30"
+  CORS_ALLOWED_ORIGIN: "*"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: allure-credentials
+  namespace: allure-mcp
+type: Opaque
+stringData:
+  # Replace with actual values
+  ALLURE_BASE_URL: "https://allure.example.com"
+  ALLURE_TOKEN: "your_token_here"
+  MCP_AUTH_TOKEN: "your_shared_secret_here"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: allure-mcp
+  namespace: allure-mcp
+  labels:
+    app: allure-mcp
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: allure-mcp
+  template:
+    metadata:
+      labels:
+        app: allure-mcp
+      annotations:
+        prometheus.io/scrape: "false"
+    spec:
+      containers:
+      - name: allure-mcp
+        image: allure-mcp:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000
+          name: http
+          protocol: TCP
+
+        # Environment variables from ConfigMap
+        envFrom:
+        - configMapRef:
+            name: allure-mcp-config
+
+        # Environment variables from Secret
+        - secretRef:
+            name: allure-credentials
+
+        # Additional environment
+        env:
+        - name: PORT
+          value: "3000"
+
+        # Health checks
+        livenessProbe:
+          httpGet:
+            path: /sse
+            port: 3000
+            scheme: HTTP
+          initialDelaySeconds: 15
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        readinessProbe:
+          httpGet:
+            path: /messages
+            port: 3000
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 2
+
+        # Resource requests and limits
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "256Mi"
+
+        # Security context
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+              - ALL
+
+        # Logging
+        volumeMounts:
+        - name: log-volume
+          mountPath: /var/log/allure-mcp
+
+      # Pod security and networking
+      securityContext:
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Volume for logs
+      volumes:
+      - name: log-volume
+        emptyDir: {}
+
+      # Node affinity (optional)
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - allure-mcp
+              topologyKey: kubernetes.io/hostname
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: allure-mcp
+  namespace: allure-mcp
+  labels:
+    app: allure-mcp
+spec:
+  type: LoadBalancer
+  selector:
+    app: allure-mcp
+  ports:
+  - name: http
+    port: 80
+    targetPort: 3000
+    protocol: TCP
+  sessionAffinity: None
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: allure-mcp-hpa
+  namespace: allure-mcp
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: allure-mcp
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 30
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: allure-mcp-pdb
+  namespace: allure-mcp
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: allure-mcp
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allure-mcp-network-policy
+  namespace: allure-mcp
+spec:
+  podSelector:
+    matchLabels:
+      app: allure-mcp
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 3000
+  egress:
+  # Allow DNS
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: UDP
+      port: 53
+  # Allow HTTP/HTTPS to Allure
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 80
+    - protocol: TCP
+      port: 443

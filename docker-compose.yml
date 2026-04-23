@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  allure-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: allure-mcp-server
+    ports:
+      - "3000:3000"
+    environment:
+      # Allure TestOps configuration
+      ALLURE_BASE_URL: ${ALLURE_BASE_URL}
+      ALLURE_TOKEN: ${ALLURE_TOKEN}
+
+      # Server configuration
+      PORT: 3000
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      REQUEST_TIMEOUT: ${REQUEST_TIMEOUT:-30}
+
+      # Security
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN}
+      CORS_ALLOWED_ORIGIN: ${CORS_ALLOWED_ORIGIN:-*}
+
+    # Load from .env file
+    env_file:
+      - .env
+
+    restart: unless-stopped
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 256M
+        reservations:
+          cpus: '0.5'
+          memory: 128M
+
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=allure-mcp"
+
+    networks:
+      - mcp-network
+
+networks:
+  mcp-network:
+    driver: bridge

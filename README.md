@@ -1,107 +1,178 @@
 # Allure MCP Server
 
-A [Model Context Protocol](https://spec.modelcontextprotocol.io/) (MCP) server that integrates with
-[Allure TestOps](https://qameta.io/allure-testops/) to launch test runs and fetch execution reports.
+**AI-powered test orchestration for Allure TestOps via Claude**
 
-The server supports **two transport modes**:
-- **stdio** (default) — reads JSON-RPC 2.0 requests from stdin, writes responses to stdout
-- **HTTP** (with `--http` flag) — exposes SSE + JSON-RPC endpoints over HTTP
+A production-ready [Model Context Protocol](https://spec.modelcontextprotocol.io/) (MCP) server that seamlessly integrates Claude with [Allure TestOps](https://qameta.io/allure-testops/), enabling AI-assisted test launch management and execution reporting.
 
-## Tools
+**Key Features:**
+- 🚀 **Launch Test Runs** — Start Allure TestOps launches directly from Claude
+- 📊 **Real-time Status Tracking** — Monitor launch progress and test execution
+- 📈 **Execution Reports** — Get detailed statistics (pass/fail/broken/skipped rates)
+- 🔌 **Two Transport Modes** — stdio (local) and HTTP (team/shared deployment)
+- 🐳 **Docker Ready** — Production-grade Dockerfile and docker-compose config
+- 🔐 **Enterprise Security** — Comprehensive auth, CORS, and TLS support
+- 🌐 **SEO-Friendly** — Discoverable documentation and API reference
 
-| Tool | Description |
-|------|-------------|
-| `run_allure_launch` | Start a test launch in Allure TestOps |
-| `get_launch_status` | Get the current status of a launch |
-| `get_launch_report` | Get test execution statistics (total / passed / failed / broken) |
+**Supported Platforms:**
+- Claude Desktop (macOS, Windows, Linux)
+- Claude Web (claude.ai)
+- Custom MCP clients
 
-## Requirements
+---
 
-- Go 1.22+
-- Access to an Allure TestOps instance
-- Valid Allure API token
+## Quick Start (2 Minutes)
 
-## Quick Start
+### 1. Clone & Build
 
 ```bash
-# Build
+git clone https://github.com/MimoJanra/TestOpsMCP.git
+cd TestOpsMCP
 make build
-
-# Run (loads .env automatically)
-make run
 ```
 
-Then restart Claude Desktop — tools appear in dropdown.
+### 2. Configure
 
-## Configure Claude Desktop
+```bash
+cp .env.example .env
+# Edit .env with your Allure credentials
+```
 
-Edit `%APPDATA%\Claude\claude_desktop_config.json`:
+### 3. Run
+
+```bash
+make run  # Local development
+# or
+make run-http  # Team/server mode
+```
+
+### 4. Connect Claude Desktop
+
+Edit your Claude config (Windows: `%APPDATA%\Claude\claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
     "allure": {
-      "command": "C:\\Users\\Pilot\\GolandProjects\\mcpTestOps\\bin\\server.exe",
+      "command": "C:\\Users\\YourName\\TestOpsMCP\\bin\\server.exe",
       "env": {
-        "ALLURE_BASE_URL": "https://your-allure-domain.com",
-        "ALLURE_TOKEN": "your-allure-api-token-here"
+        "ALLURE_BASE_URL": "https://your-allure.com",
+        "ALLURE_TOKEN": "your_token"
       }
     }
   }
 }
 ```
 
-Then restart Claude Desktop.
+Restart Claude Desktop — Allure tools appear in the dropdown.
 
-## HTTP Mode (Team Deployment)
+---
 
-For shared server or team use:
+## Tools Available
+
+| Tool | Purpose | Use Case |
+|------|---------|----------|
+| **`run_allure_launch`** | Start a new test launch | Kick off smoke tests, regression suites, or custom test jobs |
+| **`get_launch_status`** | Check launch progress | Monitor running tests, check if complete |
+| **`get_launch_report`** | Get execution statistics | Retrieve pass/fail counts, broken test analysis |
+
+---
+
+## Documentation
+
+- **[Installation Guide](./docs/INSTALLATION.md)** — Detailed setup for local, Docker, Kubernetes
+- **[Deployment Guide](./docs/DEPLOYMENT.md)** — Production patterns, reverse proxy, monitoring
+- **[API Reference](./docs/API.md)** — Complete tool & endpoint documentation
+- **[Architecture](./README.md#architecture)** — Code organization and design
+
+---
+
+## Requirements
+
+- **Go 1.22+** — [Download](https://golang.org/dl/)
+- **Allure TestOps** — Instance with API access
+- **Claude Desktop** or MCP-compatible client
+
+Optional:
+- **Docker** — For containerized deployment
+- **Docker Compose** — For team deployment
+
+## Getting Started by Deployment Type
+
+### 🖥️ Local Development (Claude Desktop)
+
+See [Installation Guide](./docs/INSTALLATION.md#local-development) for step-by-step setup.
 
 ```bash
-make run-http
-# Listens on :3000
+make build && make run
 ```
 
-**Team setup:**
+### 🐳 Docker (Single Instance)
 
-1. **On your server**, create a `.env` file with Allure credentials:
-   ```bash
-   ALLURE_BASE_URL=https://allure.example.com
-   ALLURE_TOKEN=your_allure_token
-   REQUEST_TIMEOUT=30
-   MCP_AUTH_TOKEN=your_shared_secret_for_team
-   CORS_ALLOWED_ORIGIN=*  # or restrict to specific domains
-   PORT=3000
-   LOG_LEVEL=INFO
-   ```
+```bash
+docker build -t allure-mcp .
+docker run -e ALLURE_BASE_URL=https://your-allure.com \
+           -e ALLURE_TOKEN=your_token \
+           -p 3000:3000 \
+           allure-mcp --http
+```
 
-2. **Run the server** (e.g., with systemd, docker, or process manager):
-   ```bash
-   ./bin/server --http
-   ```
+### 🔄 Docker Compose (Team)
 
-3. **Share the server URL with your team**: `http://your-server:3000`
+```bash
+cp .env.example .env
+# Edit .env with your credentials
+docker-compose up -d
+```
 
-4. **Team members configure their Claude Desktop** to connect to the shared server:
-   ```json
-   {
-     "mcpServers": {
-       "allure": {
-         "url": "http://your-server:3000",
-         "env": {
-           "MCP_AUTH_TOKEN": "your_shared_secret_for_team"
-         }
-       }
-     }
-   }
-   ```
+### ☁️ Production (Kubernetes, Systemd, etc.)
 
-5. **For production**, use HTTPS (self-signed cert + trusted CA, or ngrok):
-   ```bash
-   # Example with ngrok (https tunneling)
-   ngrok http 3000
-   # Share https://your-unique-id.ngrok.io with your team
-   ```
+See [Deployment Guide](./docs/DEPLOYMENT.md) for:
+- Nginx reverse proxy with HTTPS
+- Kubernetes manifests with auto-scaling
+- Systemd service files
+- Monitoring & health checks
+
+## Team Deployment (HTTP Mode)
+
+For shared server or team use, run in HTTP mode:
+
+```bash
+docker-compose up -d
+# Server listens on :3000
+```
+
+**Team members connect via:**
+
+```json
+{
+  "mcpServers": {
+    "allure": {
+      "url": "http://your-server:3000",
+      "env": {
+        "MCP_AUTH_TOKEN": "your_shared_secret_from_team"
+      }
+    }
+  }
+}
+```
+
+**For production HTTPS:**
+
+Use Nginx reverse proxy (nginx config in [Deployment Guide](./docs/DEPLOYMENT.md#reverse-proxy-setup)):
+
+```bash
+# With Caddy (automatic HTTPS)
+caddy run  # Reads from Caddyfile
+```
+
+Or use ngrok for quick HTTPS tunneling:
+
+```bash
+ngrok http 3000
+# Share https://your-unique-id.ngrok.io with your team
+```
+
+📚 **Full setup:** [Deployment Guide](./docs/DEPLOYMENT.md)
 
 ## Configuration
 
@@ -226,90 +297,97 @@ internal/
     registry.go          # tool registration & handlers
 ```
 
-## Deployment
+## Deployment Options
 
-### Docker
+| Method | Best For | Setup Time |
+|--------|----------|-----------|
+| **Docker Compose** | Teams, quick setup | ~5 min |
+| **Kubernetes** | Large deployments, scaling | ~15 min |
+| **Systemd** | Linux servers | ~10 min |
+| **ngrok** | Quick HTTPS testing | ~1 min |
+| **Nginx reverse proxy** | Production, custom domains | ~10 min |
 
-Create a `Dockerfile`:
-
-```dockerfile
-FROM golang:1.22 AS builder
-WORKDIR /build
-COPY . .
-RUN go build -o server.exe ./cmd/server
-
-FROM scratch
-COPY --from=builder /build/server.exe /server.exe
-ENTRYPOINT ["/server.exe"]
-```
-
-Build and run:
+**Docker Compose** (Recommended for teams):
 
 ```bash
-docker build -t allure-mcp .
-docker run -e ALLURE_BASE_URL=https://your-allure-domain.com \
-           -e ALLURE_TOKEN=your-token \
-           -e MCP_AUTH_TOKEN=shared-secret \
-           -e LOG_LEVEL=INFO \
-           -p 3000:3000 \
-           allure-mcp --http
+docker-compose up -d
+docker-compose logs -f
 ```
 
-### Systemd service
-
-Create `/etc/systemd/system/allure-mcp.service`:
-
-```ini
-[Unit]
-Description=Allure MCP Server
-After=network.target
-
-[Service]
-Type=simple
-User=allure-mcp
-WorkingDirectory=/opt/allure-mcp
-ExecStart=/opt/allure-mcp/bin/server.exe --http
-Restart=on-failure
-RestartSec=10
-EnvironmentFile=/opt/allure-mcp/.env
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable and start:
+**Kubernetes:**
 
 ```bash
-sudo systemctl enable allure-mcp
-sudo systemctl start allure-mcp
-sudo journalctl -u allure-mcp -f  # tail logs
+kubectl apply -f <(curl -s https://raw.githubusercontent.com/MimoJanra/TestOpsMCP/main/k8s-manifest.yaml)
 ```
 
-## Allure TestOps integration
+**Systemd (Linux):**
 
-The server communicates with Allure TestOps using the Report Service API:
+```bash
+sudo cp allure-mcp.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl start allure-mcp
+```
 
-- `POST /api/rs/launch` — create launch
-- `GET /api/rs/launch/{id}` — launch details
-- `GET /api/rs/launch/{id}/statistic` — launch statistics
+📚 **Full deployment guide with reverse proxy, monitoring, and scaling:** [Deployment Guide](./docs/DEPLOYMENT.md)
 
-See [Allure TestOps API](https://docs.qameta.io/allure-testops/advanced/api/) for details.
+## API Reference
+
+### Tools
+
+Complete tool parameter reference and examples in [API.md](./docs/API.md#tools):
+
+- **`run_allure_launch(project_id, launch_name)`** → Starts a test launch
+- **`get_launch_status(launch_id)`** → Returns current status (CREATED, RUNNING, COMPLETED, etc.)
+- **`get_launch_report(launch_id)`** → Returns statistics (total, passed, failed, broken, skipped)
+
+### HTTP Endpoints
+
+**For HTTP mode (`--http`):**
+
+- `GET /sse` — Opens SSE stream for responses
+- `POST /messages?sessionId=<id>` — Sends JSON-RPC requests
+- `OPTIONS *` — CORS preflight
+
+See [API.md](./docs/API.md#http-endpoints) for details.
+
+### Allure TestOps Integration
+
+The server uses the Allure Report Service API:
+
+- `POST /api/rs/launch` — Create launch
+- `GET /api/rs/launch/{id}` — Fetch launch details
+- `GET /api/rs/launch/{id}/statistic` — Get statistics
+
+📚 [Allure TestOps API Docs](https://docs.qameta.io/allure-testops/advanced/api/)
 
 ## Development
 
 ```bash
-make build      # Build binary
-make run        # Run stdio mode
-make run-http   # Run HTTP mode
-make test       # Run tests
-make lint       # Lint code
+make build      # Compile binary to bin/server.exe
+make run        # Run stdio mode (for Claude Desktop testing)
+make run-http   # Run HTTP mode on :3000
+make test       # Run unit tests
+make lint       # Check code quality
 make fmt        # Format code
+make check      # Run lint + tests
 make help       # Show all commands
 ```
 
-Logs are JSON formatted, one object per line to stderr.
+### Logs
+
+All output is JSON-formatted, one object per line to stderr:
+
+```json
+{"level":"INFO","msg":"Starting MCP server","mode":"http","port":3000,"timestamp":"2025-01-15T10:30:00Z"}
+{"level":"DEBUG","msg":"Tool called","tool":"run_allure_launch","project_id":1}
+```
+
+Capture with:
+
+```bash
+docker-compose logs -f allure-mcp
+# or
+journalctl -u allure-mcp -f
+```
 
 ## Security notes
 
@@ -363,6 +441,92 @@ server {
 
 Share `https://allure-mcp.example.com` with your team; they set it in their Claude Desktop config.
 
+## Comparison: Why Allure MCP?
+
+| Feature | Allure MCP | Manual API | Manual Dashboard |
+|---------|-----------|-----------|-----------------|
+| Launch tests from Claude | ✓ | ✗ | ✗ |
+| Check status in chat | ✓ | ✗ | ✗ |
+| Get reports without switching apps | ✓ | Partial | ✗ |
+| Team-ready deployment | ✓ | Requires integration | N/A |
+| Local + server modes | ✓ | ✗ | ✗ |
+| Docker + K8s ready | ✓ | ✗ | ✗ |
+| Production-grade security | ✓ | Depends | N/A |
+
+---
+
+## Examples
+
+### In Claude Desktop
+
+Ask Claude:
+
+> "Run the smoke tests for project 1 in Allure"
+
+Claude uses the `run_allure_launch` tool automatically.
+
+Or:
+
+> "Check the status of launch 12345"
+
+Claude uses `get_launch_status` and reports results.
+
+### Via API (Programmatic)
+
+See [API Reference](./docs/API.md#examples) for Python, Bash, cURL examples.
+
+---
+
+## Community & Support
+
+- **Issues & Feature Requests:** [GitHub Issues](https://github.com/MimoJanra/TestOpsMCP/issues)
+- **Questions:** Open a GitHub Discussion
+- **Security Issues:** Email alk@tassta.com (do not open public issues)
+
+---
+
+## Related Projects
+
+- **[Model Context Protocol Spec](https://spec.modelcontextprotocol.io/)** — MCP standard
+- **[Claude Desktop Docs](https://claude.ai/docs)** — How to configure MCP servers
+- **[Allure TestOps](https://qameta.io/allure-testops/)** — Test execution & reporting
+- **[MCP Ecosystem](https://modelcontextprotocol.io/servers)** — Other available MCP servers
+
+---
+
+## Contributing
+
+Contributions welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/my-feature`)
+3. Commit changes (`git commit -m "Add my feature"`)
+4. Push to branch (`git push origin feature/my-feature`)
+5. Open a Pull Request
+
+### Development Setup
+
+```bash
+git clone https://github.com/MimoJanra/TestOpsMCP.git
+cd TestOpsMCP
+make check   # Run tests + linting
+```
+
+---
+
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE).
+[Apache License 2.0](LICENSE) — See [LICENSE](LICENSE) for full details.
+
+---
+
+## Keywords
+
+`test-orchestration`, `allure`, `mcp`, `claude`, `ai`, `testing`, `qa`, `automation`, `go`, `golang`, `docker`, `kubernetes`
+
+**Useful searches:**
+- Allure TestOps MCP integration
+- Claude AI test orchestration
+- Model Context Protocol test runner
+- AI-powered test automation
+- Allure TestOps + Claude Desktop integration

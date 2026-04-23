@@ -3,21 +3,22 @@
 # Build the server binary
 build:
 	@echo "Building Allure MCP server..."
-	go build -o bin/server ./cmd/server
-	@echo "✓ Server built successfully at bin/server"
+	mkdir -p bin
+	go build -o bin/server.exe ./cmd/server
+	@echo "✓ Server built successfully at bin/server.exe"
 
 # Run server in stdio mode (default)
 run: build
 	@echo "Running server in stdio mode..."
 	@echo "Make sure environment variables are set:"
 	@echo "  ALLURE_BASE_URL, ALLURE_TOKEN"
-	@./run-server.sh
+	@./bin/server.exe
 
 # Run server in HTTP mode (for testing)
 run-http: build
 	@echo "Running server in HTTP mode on :3000..."
 	@echo "Loading environment from .env..."
-	@. ./.env && ./bin/server --http
+	@if [ -f .env ]; then set -a; . ./.env; set +a; fi; ./bin/server.exe --http
 
 # Run tests
 test:
@@ -40,7 +41,7 @@ clean:
 	@echo "Cleaning build artifacts..."
 	rm -rf bin/
 	go clean
-	@echo "✓ Clean complete"
+	@echo "✓ Clean complete - bin/ directory removed"
 
 # Full rebuild
 rebuild: clean build

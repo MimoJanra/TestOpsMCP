@@ -7,22 +7,76 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
+	"net/url"
 	"strings"
 	"time"
 )
 
 type Client struct {
-	baseURL    string
-	token      string
-	httpClient *http.Client
+	baseURL      string
+	userToken    string
+	jwtToken     string
+	jwtExpiresAt time.Time
+	httpClient   *http.Client
 }
 
 func NewClient(baseURL, token string, timeout time.Duration) *Client {
+	jar, _ := cookiejar.New(nil)
 	return &Client{
-		baseURL:    strings.TrimRight(baseURL, "/"),
-		token:      token,
-		httpClient: &http.Client{Timeout: timeout},
+		baseURL:   strings.TrimRight(baseURL, "/"),
+		userToken: token,
+		httpClient: &http.Client{
+			Timeout: timeout,
+			Jar:     jar,
+		},
 	}
+}
+
+func (c *Client) getJWTToken(ctx context.Context) (string, error) {
+	if c.jwtToken != "" && time.Now().Before(c.jwtExpiresAt) {
+		return c.jwtToken, nil
+	}
+
+	values := url.Values{}
+	values.Set("grant_type", "apitoken")
+	values.Set("scope", "openid")
+	values.Set("token", c.userToken)
+
+	body := strings.NewReader(values.Encode())
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/uaa/oauth/token"), body)
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	httpReq.Header.Set("Expect", "")
+	httpReq.Header.Set("Accept", "application/json")
+	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return "", fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", errFromResponse(resp)
+	}
+
+	var result struct {
+		AccessToken string `json:"access_token"`
+		ExpiresIn   int    `json:"expires_in"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("decode response: %w", err)
+	}
+
+	c.jwtToken = result.AccessToken
+	if result.ExpiresIn > 0 {
+		c.jwtExpiresAt = time.Now().Add(time.Duration(result.ExpiresIn) * time.Second)
+	} else {
+		c.jwtExpiresAt = time.Now().Add(1 * time.Hour)
+	}
+	return c.jwtToken, nil
 }
 
 func (c *Client) CreateLaunch(ctx context.Context, projectID int64, launchName string) (*LaunchResponse, error) {
@@ -38,7 +92,9 @@ func (c *Client) CreateLaunch(ctx context.Context, projectID int64, launchName s
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	c.setAuthHeader(httpReq)
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json")
 
@@ -60,27 +116,29 @@ func (c *Client) CreateLaunch(ctx context.Context, projectID int64, launchName s
 	return &result, nil
 }
 
-func (c *Client) GetLaunchStatus(ctx context.Context, launchID int64) (string, error) {
+func (c *Client) GetLaunchStatus(ctx context.Context, launchID int64) (interface{}, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/rs/launch/%d", launchID)), nil)
 	if err != nil {
-		return "", fmt.Errorf("create request: %w", err)
+		return nil, fmt.Errorf("create request: %w", err)
 	}
-	c.setAuthHeader(httpReq)
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
 	httpReq.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return "", fmt.Errorf("http request: %w", err)
+		return nil, fmt.Errorf("http request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", errFromResponse(resp)
+		return nil, errFromResponse(resp)
 	}
 
 	var result LaunchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("decode response: %w", err)
+		return nil, fmt.Errorf("decode response: %w", err)
 	}
 
 	return result.Status, nil
@@ -91,7 +149,9 @@ func (c *Client) GetLaunchStatistics(ctx context.Context, launchID int64) (*Stat
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	c.setAuthHeader(httpReq)
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
 	httpReq.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
@@ -117,7 +177,9 @@ func (c *Client) CloseLaunch(ctx context.Context, launchID int64) error {
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
-	c.setAuthHeader(httpReq)
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
@@ -138,7 +200,9 @@ func (c *Client) ReopenLaunch(ctx context.Context, launchID int64) error {
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
-	c.setAuthHeader(httpReq)
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
@@ -160,7 +224,9 @@ func (c *Client) ListLaunches(ctx context.Context, projectID int64, page, size i
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	c.setAuthHeader(httpReq)
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
 	httpReq.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
@@ -186,7 +252,9 @@ func (c *Client) GetLaunchDetails(ctx context.Context, launchID int64) (*LaunchD
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	c.setAuthHeader(httpReq)
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
 	httpReq.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
@@ -217,7 +285,9 @@ func (c *Client) ListTestResults(ctx context.Context, launchID int64, status str
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	c.setAuthHeader(httpReq)
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
 	httpReq.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
@@ -243,7 +313,9 @@ func (c *Client) GetTestResult(ctx context.Context, testResultID int64) (*TestRe
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	c.setAuthHeader(httpReq)
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
 	httpReq.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
@@ -274,7 +346,9 @@ func (c *Client) AssignTestResult(ctx context.Context, testResultID int64, usern
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
-	c.setAuthHeader(httpReq)
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
@@ -300,7 +374,9 @@ func (c *Client) MuteTestResult(ctx context.Context, testResultID int64, reason 
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
-	c.setAuthHeader(httpReq)
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
@@ -322,7 +398,9 @@ func (c *Client) ListTestCases(ctx context.Context, projectID int64, page, size 
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	c.setAuthHeader(httpReq)
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
 	httpReq.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
@@ -348,7 +426,9 @@ func (c *Client) GetTestCase(ctx context.Context, testCaseID int64) (*TestCaseDe
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	c.setAuthHeader(httpReq)
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
 	httpReq.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
@@ -382,7 +462,9 @@ func (c *Client) RunTestCase(ctx context.Context, testCaseID, launchID int64) er
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
-	c.setAuthHeader(httpReq)
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
@@ -404,7 +486,9 @@ func (c *Client) ListProjects(ctx context.Context, page, size int) (*ProjectList
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	c.setAuthHeader(httpReq)
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
 	httpReq.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
@@ -430,7 +514,9 @@ func (c *Client) GetProject(ctx context.Context, projectID int64) (*ProjectDetai
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	c.setAuthHeader(httpReq)
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
 	httpReq.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
@@ -456,7 +542,9 @@ func (c *Client) GetProjectStats(ctx context.Context, projectID int64) (*Project
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	c.setAuthHeader(httpReq)
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
 	httpReq.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
@@ -482,7 +570,9 @@ func (c *Client) GetLaunchTrendAnalytics(ctx context.Context, projectID int64) (
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	c.setAuthHeader(httpReq)
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
 	httpReq.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
@@ -508,7 +598,9 @@ func (c *Client) GetLaunchDurationAnalytics(ctx context.Context, projectID int64
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	c.setAuthHeader(httpReq)
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
 	httpReq.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
@@ -534,7 +626,9 @@ func (c *Client) GetTestSuccessRateAnalytics(ctx context.Context, projectID int6
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	c.setAuthHeader(httpReq)
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
 	httpReq.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
@@ -569,7 +663,9 @@ func (c *Client) CreateTestCase(ctx context.Context, projectID int64, name, desc
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	c.setAuthHeader(httpReq)
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json")
 
@@ -609,7 +705,9 @@ func (c *Client) UpdateTestCase(ctx context.Context, testCaseID int64, name, des
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
-	c.setAuthHeader(httpReq)
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
@@ -630,7 +728,9 @@ func (c *Client) DeleteTestCase(ctx context.Context, testCaseID int64) error {
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
-	c.setAuthHeader(httpReq)
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -645,6 +745,374 @@ func (c *Client) DeleteTestCase(ctx context.Context, testCaseID int64) error {
 	return nil
 }
 
+func (c *Client) BulkSetTestCaseStatus(ctx context.Context, projectID, statusID, workflowID int64, testCaseIDs []int64) error {
+	selection := TestCaseTreeSelectionDto{
+		ProjectID:    projectID,
+		LeafsInclude: testCaseIDs,
+	}
+	body, err := json.Marshal(TestCaseBulkStatusDto{
+		Selection:  selection,
+		StatusID:   statusID,
+		WorkflowID: workflowID,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/testcase/bulk/status/set"), bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
+func (c *Client) BulkAddTestCaseTags(ctx context.Context, projectID int64, testCaseIDs []int64, tags []TestTagDto) error {
+	selection := TestCaseTreeSelectionDto{
+		ProjectID:    projectID,
+		LeafsInclude: testCaseIDs,
+	}
+	body, err := json.Marshal(TestCaseBulkTagDto{
+		Selection: selection,
+		Tags:      tags,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/testcase/bulk/tag/add"), bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
+func (c *Client) BulkRemoveTestCaseTags(ctx context.Context, projectID int64, testCaseIDs []int64, tags []TestTagDto) error {
+	selection := TestCaseTreeSelectionDto{
+		ProjectID:    projectID,
+		LeafsInclude: testCaseIDs,
+	}
+	body, err := json.Marshal(TestCaseBulkTagDto{
+		Selection: selection,
+		Tags:      tags,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/testcase/bulk/tag/remove"), bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
+func (c *Client) BulkAddTestCaseMembers(ctx context.Context, projectID int64, testCaseIDs []int64, members []MemberDto) error {
+	selection := TestCaseTreeSelectionDto{
+		ProjectID:    projectID,
+		LeafsInclude: testCaseIDs,
+	}
+	body, err := json.Marshal(TestCaseBulkMemberDto{
+		Selection: selection,
+		Members:   members,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/testcase/bulk/member/add"), bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
+func (c *Client) BulkRemoveTestCaseMembers(ctx context.Context, projectID int64, testCaseIDs []int64, members []MemberDto) error {
+	selection := TestCaseTreeSelectionDto{
+		ProjectID:    projectID,
+		LeafsInclude: testCaseIDs,
+	}
+	body, err := json.Marshal(TestCaseBulkMemberDto{
+		Selection: selection,
+		Members:   members,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/testcase/bulk/member/remove"), bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
+func (c *Client) BulkAssignTestResults(ctx context.Context, launchID int64, testResultIDs []int64, assignees []string) error {
+	selection := TestResultTreeSelectionDto{
+		LaunchID:     launchID,
+		LeafsInclude: testResultIDs,
+	}
+	body, err := json.Marshal(TestResultBulkAssignDto{
+		Selection: selection,
+		Assignees: assignees,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/testresult/bulk/assign"), bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
+func (c *Client) BulkMuteTestResults(ctx context.Context, launchID int64, testResultIDs []int64, reason string) error {
+	selection := TestResultTreeSelectionDto{
+		LaunchID:     launchID,
+		LeafsInclude: testResultIDs,
+	}
+	body, err := json.Marshal(TestResultBulkMuteDto{
+		Selection: selection,
+		Reason:    reason,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/testresult/bulk/mute"), bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
+func (c *Client) BulkUnmuteTestResults(ctx context.Context, launchID int64, testResultIDs []int64) error {
+	selection := TestResultTreeSelectionDto{
+		LaunchID:     launchID,
+		LeafsInclude: testResultIDs,
+	}
+	body, err := json.Marshal(map[string]interface{}{
+		"selection": selection,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/testresult/bulk/unmute"), bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
+func (c *Client) BulkResolveTestResults(ctx context.Context, launchID int64, testResultIDs []int64) error {
+	selection := TestResultTreeSelectionDto{
+		LaunchID:     launchID,
+		LeafsInclude: testResultIDs,
+	}
+	body, err := json.Marshal(TestResultBulkResolveDto{
+		Selection: selection,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/testresult/bulk/resolve"), bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
+func (c *Client) AddTestCasesToLaunch(ctx context.Context, launchID int64, projectID int64, testCaseIDs []int64, assignees []string) error {
+	selection := TestCaseTreeSelectionDto{
+		ProjectID:    projectID,
+		LeafsInclude: testCaseIDs,
+	}
+	body, err := json.Marshal(LaunchTestCasesAddDto{
+		Selection: selection,
+		Assignees: assignees,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/launch/%d/testcase/add", launchID)), bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
+func (c *Client) AddTestPlanToLaunch(ctx context.Context, launchID int64, testPlanID int64) error {
+	body, err := json.Marshal(LaunchTestPlanAddDto{
+		TestPlanID: testPlanID,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/launch/%d/testplan/add", launchID)), bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
 func (c *Client) url(path string) string {
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
@@ -652,8 +1120,23 @@ func (c *Client) url(path string) string {
 	return c.baseURL + path
 }
 
-func (c *Client) setAuthHeader(req *http.Request) {
-	req.Header.Set("Authorization", "Bearer "+c.token)
+func (c *Client) setAuthHeader(ctx context.Context, req *http.Request) error {
+	jwt, err := c.getJWTToken(ctx)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+jwt)
+
+	if c.httpClient.Jar != nil {
+		cookies := c.httpClient.Jar.Cookies(req.URL)
+		for _, cookie := range cookies {
+			if cookie.Name == "XSRF-TOKEN" {
+				req.Header.Set("X-XSRF-TOKEN", cookie.Value)
+				break
+			}
+		}
+	}
+	return nil
 }
 
 func errFromResponse(resp *http.Response) error {

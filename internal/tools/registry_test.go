@@ -45,8 +45,23 @@ func TestRegistry_HasExpectedTools(t *testing.T) {
 			t.Errorf("tool %q not registered", name)
 		}
 	}
-	if got := len(r.ListTools()); got != 23 {
-		t.Errorf("ListTools() count = %d, want 23", got)
+	for _, name := range []string{
+		"bulk_set_test_case_status",
+		"bulk_add_test_case_tags",
+		"bulk_remove_test_case_tags",
+		"bulk_assign_test_results",
+		"bulk_mute_test_results",
+		"bulk_unmute_test_results",
+		"bulk_resolve_test_results",
+		"add_test_cases_to_launch",
+		"add_test_plan_to_launch",
+	} {
+		if r.GetTool(name) == nil {
+			t.Errorf("tool %q not registered", name)
+		}
+	}
+	if got := len(r.ListTools()); got != 32 {
+		t.Errorf("ListTools() count = %d, want 32", got)
 	}
 }
 
