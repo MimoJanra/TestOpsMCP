@@ -1,15 +1,19 @@
 # Allure MCP Server
 
-A Model Context Protocol (MCP) server that integrates with Allure TestOps to manage test launches and generate test reports.
+A [Model Context Protocol](https://spec.modelcontextprotocol.io/) (MCP) server that integrates with
+[Allure TestOps](https://qameta.io/allure-testops/) to launch test runs and fetch execution reports.
 
-## Overview
+The server uses the **MCP SSE transport over HTTP**: clients connect to `GET /sse` to receive a
+per-session endpoint URL, then POST JSON-RPC 2.0 requests to `POST /messages?sessionId=<id>`.
+Responses are delivered back through the SSE stream.
 
-This server implements the MCP specification and provides tools for:
-- Creating test launches in Allure TestOps
-- Retrieving launch status
-- Fetching test execution reports and statistics
+## Tools
 
-It communicates via stdin/stdout using the JSON-RPC 2.0 protocol, making it compatible with any MCP client.
+| Tool | Description |
+|------|-------------|
+| `run_allure_launch` | Start a test launch in Allure TestOps |
+| `get_launch_status` | Get the current status of a launch |
+| `get_launch_report` | Get test execution statistics (total / passed / failed / broken) |
 
 ## Requirements
 
@@ -17,167 +21,81 @@ It communicates via stdin/stdout using the JSON-RPC 2.0 protocol, making it comp
 - Access to an Allure TestOps instance
 - Valid Allure API token
 
-## Installation
-
-### Build from source
+## Build & run
 
 ```bash
 go build -o bin/server ./cmd/server
+cp .env.example .env        # fill in ALLURE_BASE_URL and ALLURE_TOKEN
+set -a && source .env && set +a
+./bin/server
 ```
 
-### Dependencies
+On Windows with PowerShell:
 
-```bash
-go mod tidy
+```powershell
+go build -o bin/server.exe ./cmd/server
+Copy-Item .env.example .env
+# edit .env, then export variables into the process or use a loader
+./bin/server.exe
 ```
 
 ## Configuration
 
-Set the following environment variables:
+All configuration is via environment variables.
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `ALLURE_BASE_URL` | Base URL of your Allure TestOps instance (e.g., `https://allure.example.com`) | Yes |
-| `ALLURE_TOKEN` | Allure API token for authentication | Yes |
-| `REQUEST_TIMEOUT` | HTTP request timeout in seconds (default: 30) | No |
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `ALLURE_BASE_URL` | yes | — | http(s) URL of your Allure TestOps instance |
+| `ALLURE_TOKEN` | yes | — | API token used as `Authorization: Bearer <token>` |
+| `REQUEST_TIMEOUT` | no | `30` | HTTP timeout for Allure calls, in seconds (1..600) |
+| `PORT` | no | `3000` | Port the MCP server listens on; accepts `3000` or `:3000` |
+| `LOG_LEVEL` | no | `INFO` | One of `DEBUG`, `INFO`, `WARN`, `ERROR` |
+| `MCP_AUTH_TOKEN` | no | — | If set, clients must send `Authorization: Bearer <token>` to `/sse` and `/messages` |
+| `CORS_ALLOWED_ORIGIN` | no | `*` | Value for `Access-Control-Allow-Origin`; empty disables CORS headers |
 
-### Example
+The server fails fast on startup if a required variable is missing or invalid.
 
-```bash
-export ALLURE_BASE_URL=https://allure.example.com
-export ALLURE_TOKEN=your_api_token
-export REQUEST_TIMEOUT=30
-```
+## HTTP endpoints
 
-## Usage
+### `GET /sse`
 
-Run the server:
-
-```bash
-./bin/server
-```
-
-The server listens on stdin and outputs responses to stdout following the MCP protocol.
-
-### Integration
-
-Connect your MCP client to this server. The client will communicate via JSON-RPC 2.0 requests formatted as newline-delimited JSON.
-
-## Available Tools
-
-### `run_allure_launch`
-
-Start a new test launch in Allure TestOps.
-
-**Parameters:**
-- `project_id` (integer, required): Allure project ID
-- `launch_name` (string, required): Name for the test launch
-
-**Response:**
-```json
-{
-  "launch_id": 12345,
-  "status": "started"
-}
-```
-
-### `get_launch_status`
-
-Retrieve the current status of a test launch.
-
-**Parameters:**
-- `launch_id` (integer, required): Allure launch ID
-
-**Response:**
-```json
-{
-  "status": "RUNNING"
-}
-```
-
-**Possible statuses:** `CREATED`, `RUNNING`, `STOPPED`, `CLOSED`
-
-### `get_launch_report`
-
-Get test execution statistics for a launch.
-
-**Parameters:**
-- `launch_id` (integer, required): Allure launch ID
-
-**Response:**
-```json
-{
-  "total": 100,
-  "passed": 85,
-  "failed": 10,
-  "broken": 5
-}
-```
-
-## API Endpoints
-
-The server communicates with Allure TestOps using the Report Service API:
-
-- `POST /api/rs/launch` — Create a launch
-- `GET /api/rs/launch/{id}` — Get launch details
-- `GET /api/rs/launch/{id}/statistic` — Get launch statistics
-
-See [Allure TestOps API documentation](https://docs.qameta.io/allure-testops/advanced/api/) for more details.
-
-## Architecture
+Opens a Server-Sent Events stream. The first event carries the per-session message endpoint:
 
 ```
-cmd/
-  server/
-    main.go              # Entry point, initialization
-
-internal/
-  adapters/
-    allure/
-      client.go          # Allure API client
-      models.go          # Request/response structures
-  config/
-    config.go            # Configuration loading
-  core/
-    logger.go            # Structured logging
-  mcp/
-    server.go            # MCP protocol server
-    protocol.go          # JSON-RPC types
-  tools/
-    registry.go          # Tool registration and handlers
+event: endpoint
+data: /messages?sessionId=<hex-id>
 ```
 
-## Logging
+Subsequent JSON-RPC responses are delivered as:
 
-All logs are written to stderr in JSON format for structured logging. stdout is reserved for MCP protocol messages.
-
-## Protocol Details
-
-The server implements MCP 2024-11-05 and follows the [Model Context Protocol specification](https://spec.modelcontextprotocol.io/).
-
-### Initialization
-
-Clients must call `initialize` before using tools:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "initialize",
-  "params": {
-    "protocolVersion": "2024-11-05",
-    "capabilities": {},
-    "clientInfo": {
-      "name": "client-name",
-      "version": "1.0.0"
-    }
-  }
-}
+```
+event: message
+data: {"jsonrpc":"2.0","id":1,"result":{...}}
 ```
 
-### Tool Execution
+The stream also emits `:` ping comments every 25s as heartbeat.
 
-To execute a tool, send a `tools/call` request:
+### `POST /messages?sessionId=<id>`
+
+Accepts a single JSON-RPC 2.0 request. Responses are *not* returned in the HTTP body — the server
+replies with `202 Accepted` and pushes the JSON-RPC response to the SSE stream bound to the session.
+
+Missing or unknown `sessionId` yields `400` / `404` respectively. Payloads are limited to 1 MiB.
+
+### `OPTIONS`
+
+Both endpoints respond to CORS preflight when `CORS_ALLOWED_ORIGIN` is set.
+
+## Protocol
+
+The server implements MCP protocol version `2024-11-05`. The expected client sequence is:
+
+1. Open `GET /sse`, read the `endpoint` event.
+2. POST `initialize` request, wait for `initialize` result via SSE.
+3. POST `notifications/initialized` (no response expected).
+4. POST `tools/list` to discover tools; POST `tools/call` to invoke them.
+
+### Example — `tools/call`
 
 ```json
 {
@@ -186,61 +104,76 @@ To execute a tool, send a `tools/call` request:
   "method": "tools/call",
   "params": {
     "name": "run_allure_launch",
-    "arguments": {
-      "project_id": 1,
-      "launch_name": "Smoke Tests"
-    }
+    "arguments": { "project_id": 1, "launch_name": "Smoke Tests" }
   }
 }
 ```
 
-## Error Handling
+### Tool errors
 
-Errors during tool execution are returned with `isError: true` in the response content:
+Tool-level failures are returned as a successful JSON-RPC result with `isError: true`:
 
 ```json
 {
   "jsonrpc": "2.0",
   "id": 2,
   "result": {
-    "content": [
-      {
-        "type": "text",
-        "text": "Tool execution failed: invalid project_id"
-      }
-    ],
+    "content": [{ "type": "text", "text": "Tool execution failed: project_id must be positive" }],
     "isError": true
   }
 }
 ```
 
+Protocol errors (parse error, method not found, invalid params) use the standard JSON-RPC `error`
+object with codes `-32700`, `-32600`, `-32601`, `-32602`.
+
+## Architecture
+
+```
+cmd/
+  server/
+    main.go              # entry point, graceful shutdown
+internal/
+  adapters/allure/
+    client.go            # Allure TestOps HTTP client (with timeout)
+    models.go            # request/response DTOs
+  config/
+    config.go            # env parsing & validation
+  core/
+    logger.go            # leveled structured JSON logger (stderr)
+  mcp/
+    protocol.go          # JSON-RPC 2.0 & MCP types
+    server.go            # SSE transport, sessions, auth, CORS
+  tools/
+    registry.go          # tool registration & handlers
+```
+
+## Security notes
+
+- `MCP_AUTH_TOKEN` is the only built-in authentication. The server is **not** hardened for public
+  exposure — run it behind a reverse proxy or on a trusted network.
+- When `CORS_ALLOWED_ORIGIN=*`, any site a browser visits can call your server. Use a concrete origin
+  (or empty) for anything other than local development.
+- The Allure token in `.env` is sensitive. `.env` is git-ignored; rotate the token if it ever leaks.
+
+## Allure TestOps endpoints used
+
+- `POST /api/rs/launch` — create launch
+- `GET /api/rs/launch/{id}` — launch details
+- `GET /api/rs/launch/{id}/statistic` — launch statistics
+
+See [Allure TestOps API](https://docs.qameta.io/allure-testops/advanced/api/) for details.
+
 ## Development
 
-### Running tests
-
 ```bash
+go vet ./...
 go test ./...
+go build ./cmd/server
 ```
 
-### Building
-
-```bash
-go build -o bin/server ./cmd/server
-```
-
-### Code structure
-
-- Uses `sync.RWMutex` for thread-safe tool registry access
-- Implements graceful shutdown via signal handling (SIGINT, SIGTERM)
-- Context propagation throughout the call stack for timeout support
-- Structured logging with correlation metadata
+Logs go to stderr as one JSON object per line. stdout is unused.
 
 ## License
 
-See LICENSE file for details.
-
-## References
-
-- [Model Context Protocol Specification](https://spec.modelcontextprotocol.io/)
-- [Allure TestOps API Documentation](https://docs.qameta.io/allure-testops/advanced/api/)
-- [Allure TestOps User Guide](https://docs.qameta.io/allure-testops/)
+Apache License 2.0. See [LICENSE](LICENSE).

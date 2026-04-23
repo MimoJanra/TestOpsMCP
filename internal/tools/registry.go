@@ -10,20 +10,23 @@ import (
 	"github.com/MimoJanra/TestOpsMCP/internal/core"
 )
 
-type HandlerFunc func(ctx context.Context, input json.RawMessage) (interface{}, error)
+type HandlerFunc func(ctx context.Context, input json.RawMessage) (any, error)
 
 type Tool struct {
 	Name        string
 	Description string
-	InputSchema interface{}
+	InputSchema any
 	Handler     HandlerFunc
 }
 
+// Registry holds the set of tools exposed by the MCP server.
+// Tools are registered once during NewRegistry and must not be mutated
+// afterwards; ListTools therefore returns shared pointers without copying.
 type Registry struct {
-	tools      map[string]*Tool
-	allure     *allure.Client
-	logger     *core.Logger
-	mu         sync.RWMutex
+	tools  map[string]*Tool
+	allure *allure.Client
+	logger *core.Logger
+	mu     sync.RWMutex
 }
 
 func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
@@ -40,14 +43,14 @@ func (r *Registry) registerTools() {
 	r.register(&Tool{
 		Name:        "run_allure_launch",
 		Description: "Start a test launch in Allure TestOps",
-		InputSchema: map[string]interface{}{
+		InputSchema: map[string]any{
 			"type": "object",
-			"properties": map[string]interface{}{
-				"project_id": map[string]interface{}{
+			"properties": map[string]any{
+				"project_id": map[string]any{
 					"type":        "integer",
 					"description": "Allure project ID",
 				},
-				"launch_name": map[string]interface{}{
+				"launch_name": map[string]any{
 					"type":        "string",
 					"description": "Name of the launch",
 				},
@@ -60,10 +63,10 @@ func (r *Registry) registerTools() {
 	r.register(&Tool{
 		Name:        "get_launch_status",
 		Description: "Get the status of a test launch",
-		InputSchema: map[string]interface{}{
+		InputSchema: map[string]any{
 			"type": "object",
-			"properties": map[string]interface{}{
-				"launch_id": map[string]interface{}{
+			"properties": map[string]any{
+				"launch_id": map[string]any{
 					"type":        "integer",
 					"description": "Allure launch ID",
 				},
@@ -76,10 +79,10 @@ func (r *Registry) registerTools() {
 	r.register(&Tool{
 		Name:        "get_launch_report",
 		Description: "Get the test report for a launch",
-		InputSchema: map[string]interface{}{
+		InputSchema: map[string]any{
 			"type": "object",
-			"properties": map[string]interface{}{
-				"launch_id": map[string]interface{}{
+			"properties": map[string]any{
+				"launch_id": map[string]any{
 					"type":        "integer",
 					"description": "Allure launch ID",
 				},
@@ -105,7 +108,7 @@ func (r *Registry) GetTool(name string) *Tool {
 func (r *Registry) ListTools() []*Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	tools := make([]*Tool, 0, len(r.tools))
 	for _, tool := range r.tools {
 		tools = append(tools, tool)
@@ -113,7 +116,7 @@ func (r *Registry) ListTools() []*Tool {
 	return tools
 }
 
-func (r *Registry) runAllureLaunch(ctx context.Context, input json.RawMessage) (interface{}, error) {
+func (r *Registry) runAllureLaunch(ctx context.Context, input json.RawMessage) (any, error) {
 	var params struct {
 		ProjectID  int64  `json:"project_id"`
 		LaunchName string `json:"launch_name"`
@@ -131,30 +134,28 @@ func (r *Registry) runAllureLaunch(ctx context.Context, input json.RawMessage) (
 		return nil, fmt.Errorf("launch_name is required")
 	}
 
-	r.logger.Info("Starting Allure launch", map[string]interface{}{
+	r.logger.Info("starting Allure launch", map[string]any{
 		"project_id":  params.ProjectID,
 		"launch_name": params.LaunchName,
 	})
 
 	launch, err := r.allure.CreateLaunch(ctx, params.ProjectID, params.LaunchName)
 	if err != nil {
-		r.logger.Error("Failed to create launch", err, map[string]interface{}{
+		r.logger.Error("create launch", err, map[string]any{
 			"project_id": params.ProjectID,
 		})
 		return nil, fmt.Errorf("create launch: %w", err)
 	}
 
-	r.logger.Info("Launch created successfully", map[string]interface{}{
-		"launch_id": launch.ID,
-	})
+	r.logger.Info("launch created", map[string]any{"launch_id": launch.ID})
 
-	return map[string]interface{}{
+	return map[string]any{
 		"launch_id": launch.ID,
 		"status":    "started",
 	}, nil
 }
 
-func (r *Registry) getLaunchStatus(ctx context.Context, input json.RawMessage) (interface{}, error) {
+func (r *Registry) getLaunchStatus(ctx context.Context, input json.RawMessage) (any, error) {
 	var params struct {
 		LaunchID int64 `json:"launch_id"`
 	}
@@ -167,24 +168,18 @@ func (r *Registry) getLaunchStatus(ctx context.Context, input json.RawMessage) (
 		return nil, fmt.Errorf("launch_id must be positive")
 	}
 
-	r.logger.Info("Fetching launch status", map[string]interface{}{
-		"launch_id": params.LaunchID,
-	})
+	r.logger.Info("fetching launch status", map[string]any{"launch_id": params.LaunchID})
 
 	status, err := r.allure.GetLaunchStatus(ctx, params.LaunchID)
 	if err != nil {
-		r.logger.Error("Failed to get launch status", err, map[string]interface{}{
-			"launch_id": params.LaunchID,
-		})
+		r.logger.Error("get launch status", err, map[string]any{"launch_id": params.LaunchID})
 		return nil, fmt.Errorf("get launch status: %w", err)
 	}
 
-	return map[string]interface{}{
-		"status": status,
-	}, nil
+	return map[string]any{"status": status}, nil
 }
 
-func (r *Registry) getLaunchReport(ctx context.Context, input json.RawMessage) (interface{}, error) {
+func (r *Registry) getLaunchReport(ctx context.Context, input json.RawMessage) (any, error) {
 	var params struct {
 		LaunchID int64 `json:"launch_id"`
 	}
@@ -197,22 +192,18 @@ func (r *Registry) getLaunchReport(ctx context.Context, input json.RawMessage) (
 		return nil, fmt.Errorf("launch_id must be positive")
 	}
 
-	r.logger.Info("Fetching launch report", map[string]interface{}{
-		"launch_id": params.LaunchID,
-	})
+	r.logger.Info("fetching launch report", map[string]any{"launch_id": params.LaunchID})
 
 	stats, err := r.allure.GetLaunchStatistics(ctx, params.LaunchID)
 	if err != nil {
-		r.logger.Error("Failed to get launch statistics", err, map[string]interface{}{
-			"launch_id": params.LaunchID,
-		})
+		r.logger.Error("get launch statistics", err, map[string]any{"launch_id": params.LaunchID})
 		return nil, fmt.Errorf("get launch statistics: %w", err)
 	}
 
-	return map[string]interface{}{
-		"total":   stats.Total,
-		"passed":  stats.Passed,
-		"failed":  stats.Failed,
-		"broken":  stats.Broken,
+	return map[string]any{
+		"total":  stats.Total,
+		"passed": stats.Passed,
+		"failed": stats.Failed,
+		"broken": stats.Broken,
 	}, nil
 }

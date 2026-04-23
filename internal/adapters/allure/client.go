@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -14,36 +15,32 @@ type Client struct {
 	baseURL    string
 	token      string
 	httpClient *http.Client
-	timeout    time.Duration
 }
 
 func NewClient(baseURL, token string, timeout time.Duration) *Client {
 	return &Client{
-		baseURL:    baseURL,
+		baseURL:    strings.TrimRight(baseURL, "/"),
 		token:      token,
-		httpClient: &http.Client{},
-		timeout:    timeout,
+		httpClient: &http.Client{Timeout: timeout},
 	}
 }
 
 func (c *Client) CreateLaunch(ctx context.Context, projectID int64, launchName string) (*LaunchResponse, error) {
-	req := LaunchCreateRequest{
+	body, err := json.Marshal(LaunchCreateRequest{
 		Name:      launchName,
 		ProjectID: projectID,
-	}
-
-	body, err := json.Marshal(req)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/api/rs/launch", c.baseURL), bytes.NewBuffer(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/rs/launch"), bytes.NewBuffer(body))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-
 	c.setAuthHeader(httpReq)
 	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -52,8 +49,7 @@ func (c *Client) CreateLaunch(ctx context.Context, projectID int64, launchName s
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		bodyText, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(bodyText))
+		return nil, errFromResponse(resp)
 	}
 
 	var result LaunchResponse
@@ -65,12 +61,12 @@ func (c *Client) CreateLaunch(ctx context.Context, projectID int64, launchName s
 }
 
 func (c *Client) GetLaunchStatus(ctx context.Context, launchID int64) (string, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("%s/api/rs/launch/%d", c.baseURL, launchID), nil)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/rs/launch/%d", launchID)), nil)
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
 	}
-
 	c.setAuthHeader(httpReq)
+	httpReq.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -79,8 +75,7 @@ func (c *Client) GetLaunchStatus(ctx context.Context, launchID int64) (string, e
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		bodyText, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(bodyText))
+		return "", errFromResponse(resp)
 	}
 
 	var result LaunchResponse
@@ -92,12 +87,12 @@ func (c *Client) GetLaunchStatus(ctx context.Context, launchID int64) (string, e
 }
 
 func (c *Client) GetLaunchStatistics(ctx context.Context, launchID int64) (*StatisticsResponse, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("%s/api/rs/launch/%d/statistic", c.baseURL, launchID), nil)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/rs/launch/%d/statistic", launchID)), nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-
 	c.setAuthHeader(httpReq)
+	httpReq.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -106,8 +101,7 @@ func (c *Client) GetLaunchStatistics(ctx context.Context, launchID int64) (*Stat
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		bodyText, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(bodyText))
+		return nil, errFromResponse(resp)
 	}
 
 	var result StatisticsResponse
@@ -118,6 +112,26 @@ func (c *Client) GetLaunchStatistics(ctx context.Context, launchID int64) (*Stat
 	return &result, nil
 }
 
+func (c *Client) url(path string) string {
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return c.baseURL + path
+}
+
 func (c *Client) setAuthHeader(req *http.Request) {
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.token))
+	req.Header.Set("Authorization", "Bearer "+c.token)
+}
+
+func errFromResponse(resp *http.Response) error {
+	const limit = 4 * 1024
+	body, err := io.ReadAll(io.LimitReader(resp.Body, limit))
+	if err != nil {
+		return fmt.Errorf("unexpected status %d: read body: %w", resp.StatusCode, err)
+	}
+	text := strings.TrimSpace(string(body))
+	if text == "" {
+		return fmt.Errorf("unexpected status %d", resp.StatusCode)
+	}
+	return fmt.Errorf("unexpected status %d: %s", resp.StatusCode, text)
 }

@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/MimoJanra/TestOpsMCP/internal/adapters/allure"
 	"github.com/MimoJanra/TestOpsMCP/internal/config"
@@ -13,43 +16,72 @@ import (
 	"github.com/MimoJanra/TestOpsMCP/internal/tools"
 )
 
+const shutdownTimeout = 10 * time.Second
+
 func main() {
-	cfg := config.Load()
-	logger := core.NewLogger()
+	bootLogger := core.NewLogger(core.LevelInfo)
 
-	if cfg.AllureBaseURL == "" {
-		logger.Error("ALLURE_BASE_URL not set", nil, nil)
+	cfg, err := config.Load()
+	if err != nil {
+		bootLogger.Error("load config", err, nil)
 		os.Exit(1)
 	}
 
-	if cfg.AllureToken == "" {
-		logger.Error("ALLURE_TOKEN not set", nil, nil)
-		os.Exit(1)
-	}
-
-	logger.Info("Starting Allure MCP Server", map[string]interface{}{
-		"base_url": cfg.AllureBaseURL,
-		"timeout":  cfg.RequestTimeout.String(),
-	})
+	logger := core.NewLogger(core.ParseLevel(cfg.LogLevel))
 
 	allureClient := allure.NewClient(cfg.AllureBaseURL, cfg.AllureToken, cfg.RequestTimeout)
 	registry := tools.NewRegistry(allureClient, logger)
-	server := mcp.NewServer(registry, logger)
+	server := mcp.NewServer(registry, logger, mcp.Options{
+		AuthToken:       cfg.AuthToken,
+		CORSAllowOrigin: cfg.CORSAllowOrigin,
+	})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	logger.Info("starting Allure MCP HTTP server", map[string]any{
+		"base_url":  cfg.AllureBaseURL,
+		"timeout":   cfg.RequestTimeout.String(),
+		"port":      cfg.Port,
+		"log_level": cfg.LogLevel,
+		"auth":      cfg.AuthToken != "",
+		"cors":      cfg.CORSAllowOrigin,
+	})
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/sse", server.HandleSSE)
+	mux.HandleFunc("/messages", server.HandleMessages)
+
+	httpServer := &http.Server{
+		Addr:              cfg.Port,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
+	serverErr := make(chan error, 1)
 	go func() {
-		<-sigChan
-		logger.Info("Shutdown signal received", nil)
-		cancel()
+		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErr <- err
+		}
+		close(serverErr)
 	}()
 
-	if err := server.Start(ctx); err != nil {
-		logger.Error("Server error", err, nil)
-		os.Exit(1)
+	logger.Info("server listening", map[string]any{"addr": cfg.Port})
+
+	select {
+	case err := <-serverErr:
+		if err != nil {
+			logger.Error("server error", err, nil)
+			os.Exit(1)
+		}
+	case sig := <-sigChan:
+		logger.Info("shutdown signal received", map[string]any{"signal": sig.String()})
+		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		if err := httpServer.Shutdown(ctx); err != nil {
+			logger.Error("graceful shutdown", err, nil)
+			os.Exit(1)
+		}
+		logger.Info("server stopped", nil)
 	}
 }

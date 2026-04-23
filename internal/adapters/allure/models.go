@@ -12,10 +12,6 @@ type LaunchResponse struct {
 	Status string `json:"status"`
 }
 
-type LaunchStatusResponse struct {
-	Status string `json:"status"`
-}
-
 type StatisticsResponse struct {
 	Total  int64 `json:"total"`
 	Passed int64 `json:"passed"`
