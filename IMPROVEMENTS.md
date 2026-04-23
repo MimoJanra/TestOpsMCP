@@ -219,7 +219,7 @@ The project is now discoverable via:
 - 📖 All documentation in `docs/` and this file
 - 🐛 See [CONTRIBUTING.md](CONTRIBUTING.md) for development
 - 💬 GitHub Issues & Discussions for support
-- 📧 Contact: alk@tassta.com
+- 📧 Contact: mimojanra@gmail.com
 
 ---
 

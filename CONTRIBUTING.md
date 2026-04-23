@@ -328,7 +328,7 @@ docker push registry.example.com/allure-mcp:1.1.0
 ## Questions?
 
 - Open a GitHub Discussion
-- Email: alk@tassta.com
+- Email: mimojanra@gmail.com
 - Check existing issues/PRs for similar topics
 
 ---

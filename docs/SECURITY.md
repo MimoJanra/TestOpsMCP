@@ -421,7 +421,7 @@ Send logs to centralized system:
 
 **Do NOT open public GitHub issues for security vulnerabilities.**
 
-Email security concerns to: alk@tassta.com
+Email security concerns to: mimojanra@gmail.com
 
 Include:
 - Description of vulnerability

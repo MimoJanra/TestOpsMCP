@@ -280,6 +280,6 @@ kubectl delete namespace allure-mcp            # Remove
 - 📖 Check [docs/](.) for detailed guides
 - 🐛 [Report bugs on GitHub](https://github.com/MimoJanra/TestOpsMCP/issues)
 - 💬 [Start a GitHub Discussion](https://github.com/MimoJanra/TestOpsMCP/discussions)
-- 📧 Email: alk@tassta.com
+- 📧 Email: mimojanra@gmail.com
 
 **Happy testing! 🚀**

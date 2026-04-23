@@ -1,0 +1,53 @@
+name: Feature Request
+description: Suggest a new tool, capability, or improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Got an idea to make Allure MCP Server better? Describe it below.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - New MCP tool
+        - Existing tool improvement
+        - Authentication / security
+        - Deployment / Docker / Kubernetes
+        - Documentation
+        - Developer experience
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or motivation
+      description: What are you trying to do that is currently hard or impossible?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe the feature you'd like and how it should work.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds you use today?
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and discussions before opening this one
+          required: true

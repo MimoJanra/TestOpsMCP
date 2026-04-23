@@ -1,4 +1,4 @@
-# Build artifacts
+# ── Build artifacts ──────────────────────────────────────────────────────────
 bin/
 dist/
 *.exe
@@ -8,69 +8,76 @@ dist/
 *.so
 *.so.*
 
-# Test binaries & coverage
+# ── Go toolchain ─────────────────────────────────────────────────────────────
+vendor/
+go.work
+go.work.sum
+
+# ── Test & coverage ───────────────────────────────────────────────────────────
 *.test
 *.out
 *.cover
 *.coverprofile
-coverage.html
 *.cov
+coverage.html
+coverage.out
 
-# IDE & Editors
-.idea/
-.vscode/
-.vscode-settings.json
-*.swp
-*.swo
-*~
-*.sublime-project
-*.sublime-workspace
-.DS_Store
-Thumbs.db
-*.iml
-*.ipr
-*.iws
-
-# Go
-vendor/
-go.work
-go.work.sum
-.go/
-
-# Environment & Secrets (IMPORTANT: Never commit real credentials)
+# ── Environment & secrets (never commit real credentials) ─────────────────────
 .env
 .env.local
 .env.*.local
 .env.*.secret
-.env.production.local
+.env.production
+.env.staging
+secrets/
+*.pem
+*.key
+*.p12
 
-# Logs
+# ── Logs ──────────────────────────────────────────────────────────────────────
 logs/
 *.log
-server.log
-debug.log
 
-# Claude Code & development
-.claude/settings.local.json
+# ── Docker & Compose overrides ────────────────────────────────────────────────
+docker-compose.override.yml
+docker-compose.local.yml
 
-# Temporary files
-*.tmp
-*.temp
-\#*#
-.#*
-
-# OS specific
+# ── OS-generated ─────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
 ._*
 .Spotlight-V100
 .Trashes
+Thumbs.db
 ehthumbs.db
+desktop.ini
 
-# Local development
-local/
-tmp/
-temp/
-
-# IDE project files
+# ── Editors & IDEs ────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+\#*#
+.#*
+*.sublime-project
+*.sublime-workspace
+*.iml
+*.ipr
+*.iws
 .classpath
 .project
 .settings/
+
+# ── Temporary ─────────────────────────────────────────────────────────────────
+*.tmp
+*.temp
+tmp/
+temp/
+local/
+
+# ── Scripts (local tooling, not part of the project) ─────────────────────────
+scripts/
+
+# ── Claude Code ───────────────────────────────────────────────────────────────
+.claude/settings.local.json

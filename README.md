@@ -525,7 +525,7 @@ See [API Reference](./docs/API.md#examples) for Python, Bash, cURL examples.
 
 - **Issues & Feature Requests:** [GitHub Issues](https://github.com/MimoJanra/TestOpsMCP/issues)
 - **Questions:** Open a GitHub Discussion
-- **Security Issues:** Email alk@tassta.com (do not open public issues)
+- **Security Issues:** Email mimojanra@gmail.com (do not open public issues)
 
 ---
 
