@@ -1,33 +1,76 @@
-# Binaries and build artifacts
+# Build artifacts
 bin/
 dist/
 *.exe
+*.exe~
 *.dll
-*.so
 *.dylib
+*.so
+*.so.*
 
-# Test binaries
+# Test binaries & coverage
 *.test
+*.out
+*.cover
+*.coverprofile
+coverage.html
+*.cov
 
-# IDE
+# IDE & Editors
 .idea/
 .vscode/
+.vscode-settings.json
 *.swp
 *.swo
 *~
+*.sublime-project
+*.sublime-workspace
 .DS_Store
-
-# Claude Code settings
-.claude/
-
-# Environment variables
-.env
-.env.local
-.env.*.local
+Thumbs.db
+*.iml
+*.ipr
+*.iws
 
 # Go
 vendor/
 go.work
+go.work.sum
+.go/
 
-# OS
-Thumbs.db
+# Environment & Secrets (IMPORTANT: Never commit real credentials)
+.env
+.env.local
+.env.*.local
+.env.*.secret
+.env.production.local
+
+# Logs
+logs/
+*.log
+server.log
+debug.log
+
+# Claude Code & development
+.claude/settings.local.json
+
+# Temporary files
+*.tmp
+*.temp
+\#*#
+.#*
+
+# OS specific
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+# Local development
+local/
+tmp/
+temp/
+
+# IDE project files
+.classpath
+.project
+.settings/

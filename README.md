@@ -21,49 +21,48 @@ The server supports **two transport modes**:
 - Access to an Allure TestOps instance
 - Valid Allure API token
 
-## Build
+## Quick Start
 
 ```bash
-go build -o bin/server ./cmd/server
+# Build
+make build
+
+# Run (loads .env automatically)
+make run
 ```
 
-## Running
+Then restart Claude Desktop — tools appear in dropdown.
 
-### Stdio mode (default) — for Claude Desktop (local development)
+## Configure Claude Desktop
 
-```bash
-cp .env.example .env        # fill in ALLURE_BASE_URL and ALLURE_TOKEN
-source .env                 # load env vars
-./bin/server
-```
-
-Add to `claude_desktop_config.json`:
+Edit `%APPDATA%\Claude\claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "allure": {
-      "command": "/path/to/bin/server",
+      "command": "C:\\Users\\Pilot\\GolandProjects\\mcpTestOps\\bin\\server.exe",
       "env": {
         "ALLURE_BASE_URL": "https://your-allure-domain.com",
-        "ALLURE_TOKEN": "your_token"
+        "ALLURE_TOKEN": "your-allure-api-token-here"
       }
     }
   }
 }
 ```
 
-Then restart Claude Desktop and the tools will appear.
+Then restart Claude Desktop.
 
-### HTTP mode — for shared server deployment
+## HTTP Mode (Team Deployment)
+
+For shared server or team use:
 
 ```bash
-source .env
-./bin/server --http
-# listens on :3000 (configurable via PORT env)
+make run-http
+# Listens on :3000
 ```
 
-**Recommended setup for team use:**
+**Team setup:**
 
 1. **On your server**, create a `.env` file with Allure credentials:
    ```bash
@@ -237,20 +236,20 @@ Create a `Dockerfile`:
 FROM golang:1.22 AS builder
 WORKDIR /build
 COPY . .
-RUN go build -o server ./cmd/server
+RUN go build -o server.exe ./cmd/server
 
 FROM scratch
-COPY --from=builder /build/server /server
-ENTRYPOINT ["/server"]
+COPY --from=builder /build/server.exe /server.exe
+ENTRYPOINT ["/server.exe"]
 ```
 
 Build and run:
 
 ```bash
 docker build -t allure-mcp .
-docker run -e ALLURE_BASE_URL=https://... \
-           -e ALLURE_TOKEN=... \
-           -e MCP_AUTH_TOKEN=... \
+docker run -e ALLURE_BASE_URL=https://your-allure-domain.com \
+           -e ALLURE_TOKEN=your-token \
+           -e MCP_AUTH_TOKEN=shared-secret \
            -e LOG_LEVEL=INFO \
            -p 3000:3000 \
            allure-mcp --http
@@ -269,7 +268,7 @@ After=network.target
 Type=simple
 User=allure-mcp
 WorkingDirectory=/opt/allure-mcp
-ExecStart=/opt/allure-mcp/bin/server --http
+ExecStart=/opt/allure-mcp/bin/server.exe --http
 Restart=on-failure
 RestartSec=10
 EnvironmentFile=/opt/allure-mcp/.env
@@ -301,12 +300,16 @@ See [Allure TestOps API](https://docs.qameta.io/allure-testops/advanced/api/) fo
 ## Development
 
 ```bash
-go vet ./...
-go test ./...
-go build ./cmd/server
+make build      # Build binary
+make run        # Run stdio mode
+make run-http   # Run HTTP mode
+make test       # Run tests
+make lint       # Lint code
+make fmt        # Format code
+make help       # Show all commands
 ```
 
-Logs go to stderr as one JSON object per line.
+Logs are JSON formatted, one object per line to stderr.
 
 ## Security notes
 
