@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,6 +20,9 @@ import (
 const shutdownTimeout = 10 * time.Second
 
 func main() {
+	httpMode := flag.Bool("http", false, "run in HTTP mode (default: stdio)")
+	flag.Parse()
+
 	bootLogger := core.NewLogger(core.LevelInfo)
 
 	cfg, err := config.Load()
@@ -31,11 +35,19 @@ func main() {
 
 	allureClient := allure.NewClient(cfg.AllureBaseURL, cfg.AllureToken, cfg.RequestTimeout)
 	registry := tools.NewRegistry(allureClient, logger)
-	server := mcp.NewServer(registry, logger, mcp.Options{
+	mcpServer := mcp.NewServer(registry, logger, mcp.Options{
 		AuthToken:       cfg.AuthToken,
 		CORSAllowOrigin: cfg.CORSAllowOrigin,
 	})
 
+	if *httpMode {
+		runHTTP(mcpServer, cfg, logger)
+	} else {
+		runStdio(mcpServer, logger)
+	}
+}
+
+func runHTTP(mcpServer *mcp.Server, cfg *config.Config, logger *core.Logger) {
 	logger.Info("starting Allure MCP HTTP server", map[string]any{
 		"base_url":  cfg.AllureBaseURL,
 		"timeout":   cfg.RequestTimeout.String(),
@@ -46,8 +58,8 @@ func main() {
 	})
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/sse", server.HandleSSE)
-	mux.HandleFunc("/messages", server.HandleMessages)
+	mux.HandleFunc("/sse", mcpServer.HandleSSE)
+	mux.HandleFunc("/messages", mcpServer.HandleMessages)
 
 	httpServer := &http.Server{
 		Addr:              cfg.Port,
@@ -83,5 +95,15 @@ func main() {
 			os.Exit(1)
 		}
 		logger.Info("server stopped", nil)
+	}
+}
+
+func runStdio(mcpServer *mcp.Server, logger *core.Logger) {
+	logger.Info("starting Allure MCP stdio server", nil)
+
+	handler := mcp.NewStdioHandler(mcpServer, logger)
+	if err := handler.Run(); err != nil {
+		logger.Error("stdio handler error", err, nil)
+		os.Exit(1)
 	}
 }
