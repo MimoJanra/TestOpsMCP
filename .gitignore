@@ -1,0 +1,33 @@
+# Binaries and build artifacts
+bin/
+dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Claude Code settings
+.claude/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Go
+vendor/
+go.work
+
+# OS
+Thumbs.db
