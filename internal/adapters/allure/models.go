@@ -183,10 +183,41 @@ type CreateTestCaseRequest struct {
 }
 
 type UpdateTestCaseRequest struct {
-	Name             string `json:"name,omitempty"`
-	Description      string `json:"description,omitempty"`
-	Status           string `json:"status,omitempty"`
-	AutomationStatus string `json:"automationStatus,omitempty"`
+	Name           string            `json:"name,omitempty"`
+	Description    string            `json:"description,omitempty"`
+	FullName       string            `json:"fullName,omitempty"`
+	Precondition   string            `json:"precondition,omitempty"`
+	ExpectedResult string            `json:"expectedResult,omitempty"`
+	Automated      *bool             `json:"automated,omitempty"`
+	External       *bool             `json:"external,omitempty"`
+	Deleted        *bool             `json:"deleted,omitempty"`
+	StatusID       *int64            `json:"statusId,omitempty"`
+	TestLayerID    *int64            `json:"testLayerId,omitempty"`
+	WorkflowID     *int64            `json:"workflowId,omitempty"`
+	Tags           []TestTagDto      `json:"tags,omitempty"`
+	Members        []MemberDto       `json:"members,omitempty"`
+	Links          []ExternalLinkDto `json:"links,omitempty"`
+}
+
+type ExternalLinkDto struct {
+	Name string `json:"name,omitempty"`
+	Type string `json:"type,omitempty"`
+	URL  string `json:"url,omitempty"`
+}
+
+type ScenarioStepCreateRequest struct {
+	TestCaseID int64  `json:"testCaseId"`
+	Body       string `json:"body,omitempty"`
+	ParentID   int64  `json:"parentId,omitempty"`
+}
+
+type ScenarioStepPatchRequest struct {
+	Body           string `json:"body,omitempty"`
+	ExpectedResult string `json:"expectedResult,omitempty"`
+}
+
+type ScenarioStepCreatedResponse struct {
+	CreatedStepID int64 `json:"createdStepId"`
 }
 
 type TestCaseTreeSelectionDto struct {
