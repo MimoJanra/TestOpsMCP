@@ -1378,6 +1378,13 @@ func (r *Registry) getTestCase(ctx context.Context, input json.RawMessage) (any,
 		return nil, fmt.Errorf("get test case: %w", err)
 	}
 
+	scenario, err := r.allure.GetTestCaseScenario(ctx, params.TestCaseID)
+	if err != nil {
+		r.logger.Info("scenario not available", map[string]any{"test_case_id": params.TestCaseID})
+	} else if scenario != nil {
+		tc["manual_scenario"] = scenario
+	}
+
 	return tc, nil
 }
 
