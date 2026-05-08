@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-05-08
+
+### Added
+- **Full test case field editing** — Extended `update_test_case` tool to support all fields from TestCasePatchV2Dto:
+  - Text fields: `description`, `precondition`, `expected_result`, `full_name`
+  - Boolean flags: `automated`, `external`, `deleted`
+  - Resource IDs: `status_id`, `test_layer_id`, `workflow_id`
+  - Collections: `tags` (array of tag objects), `members` (array of member objects), `links` (array of external links)
+- **Step management tools** — Full CRUD operations for test case steps:
+  - `create_test_case_step` — Create a new step with optional positioning (`after_id`) and nesting (`parent_id`)
+  - `update_test_case_step` — Update step body and expected results
+  - `delete_test_case_step` — Delete a step from a test case
+- **Extended models** — New DTOs for step operations and external links support
+
+### Changed
+- `update_test_case` handler refactored to accept struct-based request instead of individual parameters
+- Tool count increased from 32 to 35
+
 ## [1.0.0] - 2026-04-23
 
 ### Added
