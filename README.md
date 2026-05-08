@@ -20,7 +20,40 @@ A production-ready [Model Context Protocol](https://spec.modelcontextprotocol.io
 
 ---
 
-## Quick Start (2 Minutes)
+## ⚡ Quick Start with Pre-built Binary (1 Minute)
+
+### Step 1: Download Binary
+
+Download the latest release for your platform:
+- **Windows**: `testops-windows-amd64.exe`
+- **macOS Intel**: `testops-darwin-amd64`
+- **macOS Apple Silicon**: `testops-darwin-arm64`
+- **Linux**: `testops-linux-amd64`
+
+[👉 Get Latest Release](https://github.com/MimoJanra/TestOpsMCP/releases/latest)
+
+### Step 2: Set Environment Variables
+
+```bash
+export ALLURE_BASE_URL="https://your-testops-instance.com"
+export ALLURE_TOKEN="your-api-token"
+```
+
+### Step 3: Run
+
+```bash
+# macOS/Linux
+./testops-darwin-amd64 --http
+
+# Windows
+testops-windows-amd64.exe --http
+```
+
+Server runs on `http://localhost:3000`
+
+---
+
+## Build from Source
 
 ### 1. Clone & Build
 

@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-05-08
+
+### Added
+- **21 new MCP tools** for comprehensive test case management
+- Complete defect management: `add_test_case_defect`, `remove_test_case_defect`, `get_test_case_defects`, `get_launch_defects`
+- Team collaboration: `get_test_case_members`, `add_test_case_members`, `remove_test_case_members`
+- External links: `get_test_case_external_links`, `add_test_case_external_link`, `delete_test_case_external_link`
+- Enhanced test case operations: `clone_test_case`, `restore_test_case`, `get_test_case_history`
+- Advanced launch operations: `copy_launch`, `merge_launches`
+- Environment management: `get_launch_environment`, `update_launch_environment`
+- Bulk operations: `bulk_clone_test_cases`
+- Single test result operations: `resolve_test_result`, `unmute_test_result`
+- Manual scenario update support via `update_test_case` tool
+
+### Changed
+- Tool count: 35 → 55 (added 20 new tools)
+- Release distribution: pre-built binaries for Windows, macOS (Intel & ARM), and Linux
+- Updated README with quick start for pre-built binaries
+
+### Added Documentation
+- New `RELEASES.md` file with detailed setup instructions for all platforms
+- Platform-specific guides: Windows, macOS, Linux
+- Troubleshooting section for common issues
+- API token retrieval instructions
+
+### Features
+- ✅ Support for `manual_scenario` update in test case updates
+- ✅ Comprehensive test case lifecycle management
+- ✅ Full defect tracking integration
+- ✅ Team member assignment and management
+- ✅ External link/relation support (GitHub, Jira, etc.)
+- ✅ Launch environment variable management
+- ✅ Test case cloning and restoration
+- ✅ Launch merging capabilities
+
 ## [1.1.2] - 2026-05-08
 
 ### Fixed

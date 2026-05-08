@@ -426,6 +426,10 @@ func (r *Registry) registerTools() {
 						},
 					},
 				},
+				"manual_scenario": map[string]any{
+					"type":        "object",
+					"description": "Manual scenario with test execution steps (optional). Contains steps array with step definitions.",
+				},
 			},
 			"required": []string{"test_case_id"},
 		},
@@ -825,6 +829,416 @@ func (r *Registry) registerTools() {
 			"required": []string{"launch_id", "test_result_ids"},
 		},
 		Handler: r.bulkResolveTestResults,
+	})
+
+	r.register(&Tool{
+		Name:        "clone_test_case",
+		Description: "Clone an existing test case",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"test_case_id": map[string]any{
+					"type":        "integer",
+					"description": "Allure test case ID to clone",
+				},
+			},
+			"required": []string{"test_case_id"},
+		},
+		Handler: r.cloneTestCase,
+	})
+
+	r.register(&Tool{
+		Name:        "copy_launch",
+		Description: "Copy/duplicate a launch",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"launch_id": map[string]any{
+					"type":        "integer",
+					"description": "Allure launch ID to copy",
+				},
+			},
+			"required": []string{"launch_id"},
+		},
+		Handler: r.copyLaunch,
+	})
+
+	r.register(&Tool{
+		Name:        "resolve_test_result",
+		Description: "Resolve a test result (mark as resolved/fixed)",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"test_result_id": map[string]any{
+					"type":        "integer",
+					"description": "Allure test result ID",
+				},
+			},
+			"required": []string{"test_result_id"},
+		},
+		Handler: r.resolveTestResult,
+	})
+
+	r.register(&Tool{
+		Name:        "unmute_test_result",
+		Description: "Unmute a test result",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"test_result_id": map[string]any{
+					"type":        "integer",
+					"description": "Allure test result ID",
+				},
+			},
+			"required": []string{"test_result_id"},
+		},
+		Handler: r.unmuteTestResult,
+	})
+
+	r.register(&Tool{
+		Name:        "get_launch_environment",
+		Description: "Get launch environment variables",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"launch_id": map[string]any{
+					"type":        "integer",
+					"description": "Allure launch ID",
+				},
+			},
+			"required": []string{"launch_id"},
+		},
+		Handler: r.getLaunchEnvironment,
+	})
+
+	r.register(&Tool{
+		Name:        "update_launch_environment",
+		Description: "Update launch environment variables",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"launch_id": map[string]any{
+					"type":        "integer",
+					"description": "Allure launch ID",
+				},
+				"environment": map[string]any{
+					"type":        "object",
+					"description": "Environment variables as key-value pairs",
+				},
+			},
+			"required": []string{"launch_id", "environment"},
+		},
+		Handler: r.updateLaunchEnvironment,
+	})
+
+	r.register(&Tool{
+		Name:        "get_test_case_history",
+		Description: "Get test case change history and versions",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"test_case_id": map[string]any{
+					"type":        "integer",
+					"description": "Allure test case ID",
+				},
+				"page": map[string]any{
+					"type":        "integer",
+					"description": "Page number (0-based)",
+					"default":     0,
+				},
+				"size": map[string]any{
+					"type":        "integer",
+					"description": "Items per page",
+					"default":     10,
+				},
+			},
+			"required": []string{"test_case_id"},
+		},
+		Handler: r.getTestCaseHistory,
+	})
+
+	r.register(&Tool{
+		Name:        "get_launch_defects",
+		Description: "Get defects linked to a launch",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"launch_id": map[string]any{
+					"type":        "integer",
+					"description": "Allure launch ID",
+				},
+				"page": map[string]any{
+					"type":        "integer",
+					"description": "Page number (0-based)",
+					"default":     0,
+				},
+				"size": map[string]any{
+					"type":        "integer",
+					"description": "Items per page",
+					"default":     10,
+				},
+			},
+			"required": []string{"launch_id"},
+		},
+		Handler: r.getLaunchDefects,
+	})
+
+	r.register(&Tool{
+		Name:        "get_test_case_defects",
+		Description: "Get defects linked to a test case",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"test_case_id": map[string]any{
+					"type":        "integer",
+					"description": "Allure test case ID",
+				},
+				"page": map[string]any{
+					"type":        "integer",
+					"description": "Page number (0-based)",
+					"default":     0,
+				},
+				"size": map[string]any{
+					"type":        "integer",
+					"description": "Items per page",
+					"default":     10,
+				},
+			},
+			"required": []string{"test_case_id"},
+		},
+		Handler: r.getTestCaseDefects,
+	})
+
+	r.register(&Tool{
+		Name:        "merge_launches",
+		Description: "Merge multiple launches into a single launch",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"launch_ids": map[string]any{
+					"type": "array",
+					"items": map[string]any{
+						"type": "integer",
+					},
+					"description": "IDs of launches to merge",
+				},
+				"launch_name": map[string]any{
+					"type":        "string",
+					"description": "Name for the merged launch",
+				},
+			},
+			"required": []string{"launch_ids", "launch_name"},
+		},
+		Handler: r.mergeLaunches,
+	})
+
+	r.register(&Tool{
+		Name:        "add_test_case_defect",
+		Description: "Link a defect to a test case",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"test_case_id": map[string]any{
+					"type":        "integer",
+					"description": "Allure test case ID",
+				},
+				"defect_id": map[string]any{
+					"type":        "integer",
+					"description": "Defect ID to link",
+				},
+			},
+			"required": []string{"test_case_id", "defect_id"},
+		},
+		Handler: r.addTestCaseDefect,
+	})
+
+	r.register(&Tool{
+		Name:        "remove_test_case_defect",
+		Description: "Unlink a defect from a test case",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"test_case_id": map[string]any{
+					"type":        "integer",
+					"description": "Allure test case ID",
+				},
+				"defect_id": map[string]any{
+					"type":        "integer",
+					"description": "Defect ID to unlink",
+				},
+			},
+			"required": []string{"test_case_id", "defect_id"},
+		},
+		Handler: r.removeTestCaseDefect,
+	})
+
+	r.register(&Tool{
+		Name:        "get_test_case_members",
+		Description: "Get team members assigned to a test case",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"test_case_id": map[string]any{
+					"type":        "integer",
+					"description": "Allure test case ID",
+				},
+			},
+			"required": []string{"test_case_id"},
+		},
+		Handler: r.getTestCaseMembers,
+	})
+
+	r.register(&Tool{
+		Name:        "add_test_case_members",
+		Description: "Add team members to a test case",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"test_case_id": map[string]any{
+					"type":        "integer",
+					"description": "Allure test case ID",
+				},
+				"members": map[string]any{
+					"type":        "array",
+					"description": "Members to add (with id and name)",
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"id":   map[string]any{"type": "integer"},
+							"name": map[string]any{"type": "string"},
+						},
+					},
+				},
+			},
+			"required": []string{"test_case_id", "members"},
+		},
+		Handler: r.addTestCaseMembers,
+	})
+
+	r.register(&Tool{
+		Name:        "remove_test_case_members",
+		Description: "Remove team members from a test case",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"test_case_id": map[string]any{
+					"type":        "integer",
+					"description": "Allure test case ID",
+				},
+				"member_ids": map[string]any{
+					"type": "array",
+					"items": map[string]any{
+						"type": "integer",
+					},
+					"description": "Member IDs to remove",
+				},
+			},
+			"required": []string{"test_case_id", "member_ids"},
+		},
+		Handler: r.removeTestCaseMembers,
+	})
+
+	r.register(&Tool{
+		Name:        "get_test_case_external_links",
+		Description: "Get external links and relations for a test case",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"test_case_id": map[string]any{
+					"type":        "integer",
+					"description": "Allure test case ID",
+				},
+			},
+			"required": []string{"test_case_id"},
+		},
+		Handler: r.getTestCaseExternalLinks,
+	})
+
+	r.register(&Tool{
+		Name:        "add_test_case_external_link",
+		Description: "Add an external link/relation to a test case",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"test_case_id": map[string]any{
+					"type":        "integer",
+					"description": "Allure test case ID",
+				},
+				"name": map[string]any{
+					"type":        "string",
+					"description": "Link name/title",
+				},
+				"type": map[string]any{
+					"type":        "string",
+					"description": "Link type (e.g., GITHUB, JIRA, ISSUE)",
+				},
+				"url": map[string]any{
+					"type":        "string",
+					"description": "Link URL",
+				},
+			},
+			"required": []string{"test_case_id", "url"},
+		},
+		Handler: r.addTestCaseExternalLink,
+	})
+
+	r.register(&Tool{
+		Name:        "delete_test_case_external_link",
+		Description: "Delete an external link/relation from a test case",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"test_case_id": map[string]any{
+					"type":        "integer",
+					"description": "Allure test case ID",
+				},
+				"relation_id": map[string]any{
+					"type":        "integer",
+					"description": "Relation/link ID to delete",
+				},
+			},
+			"required": []string{"test_case_id", "relation_id"},
+		},
+		Handler: r.deleteTestCaseExternalLink,
+	})
+
+	r.register(&Tool{
+		Name:        "restore_test_case",
+		Description: "Restore a deleted test case",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"test_case_id": map[string]any{
+					"type":        "integer",
+					"description": "Allure test case ID to restore",
+				},
+			},
+			"required": []string{"test_case_id"},
+		},
+		Handler: r.restoreTestCase,
+	})
+
+	r.register(&Tool{
+		Name:        "bulk_clone_test_cases",
+		Description: "Bulk clone multiple test cases",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"project_id": map[string]any{
+					"type":        "integer",
+					"description": "Allure project ID",
+				},
+				"test_case_ids": map[string]any{
+					"type": "array",
+					"items": map[string]any{
+						"type": "integer",
+					},
+					"description": "Test case IDs to clone",
+				},
+			},
+			"required": []string{"project_id", "test_case_ids"},
+		},
+		Handler: r.bulkCloneTestCases,
 	})
 
 	r.register(&Tool{
@@ -1651,21 +2065,22 @@ func (r *Registry) createTestCase(ctx context.Context, input json.RawMessage) (a
 
 func (r *Registry) updateTestCase(ctx context.Context, input json.RawMessage) (any, error) {
 	var params struct {
-		TestCaseID   int64                     `json:"test_case_id"`
-		Name         string                    `json:"name"`
-		Description  string                    `json:"description"`
-		FullName     string                    `json:"full_name"`
-		Precondition string                    `json:"precondition"`
-		ExpectedResult string                  `json:"expected_result"`
-		Automated    *bool                     `json:"automated"`
-		External     *bool                     `json:"external"`
-		Deleted      *bool                     `json:"deleted"`
-		StatusID     *int64                    `json:"status_id"`
-		TestLayerID  *int64                    `json:"test_layer_id"`
-		WorkflowID   *int64                    `json:"workflow_id"`
-		Tags         []allure.TestTagDto       `json:"tags"`
-		Members      []allure.MemberDto        `json:"members"`
-		Links        []allure.ExternalLinkDto  `json:"links"`
+		TestCaseID    int64                     `json:"test_case_id"`
+		Name          string                    `json:"name"`
+		Description   string                    `json:"description"`
+		FullName      string                    `json:"full_name"`
+		Precondition  string                    `json:"precondition"`
+		ExpectedResult string                   `json:"expected_result"`
+		Automated     *bool                     `json:"automated"`
+		External      *bool                     `json:"external"`
+		Deleted       *bool                     `json:"deleted"`
+		StatusID      *int64                    `json:"status_id"`
+		TestLayerID   *int64                    `json:"test_layer_id"`
+		WorkflowID    *int64                    `json:"workflow_id"`
+		Tags          []allure.TestTagDto       `json:"tags"`
+		Members       []allure.MemberDto        `json:"members"`
+		Links         []allure.ExternalLinkDto  `json:"links"`
+		ManualScenario map[string]any           `json:"manual_scenario"`
 	}
 
 	if err := json.Unmarshal(input, &params); err != nil {
@@ -1680,27 +2095,29 @@ func (r *Registry) updateTestCase(ctx context.Context, input json.RawMessage) (a
 		params.Precondition != "" || params.ExpectedResult != "" ||
 		params.Automated != nil || params.External != nil || params.Deleted != nil ||
 		params.StatusID != nil || params.TestLayerID != nil || params.WorkflowID != nil ||
-		len(params.Tags) > 0 || len(params.Members) > 0 || len(params.Links) > 0
+		len(params.Tags) > 0 || len(params.Members) > 0 || len(params.Links) > 0 ||
+		len(params.ManualScenario) > 0
 
 	if !hasFields {
 		return nil, fmt.Errorf("at least one field must be provided")
 	}
 
 	req := allure.UpdateTestCaseRequest{
-		Name:           params.Name,
-		Description:    params.Description,
-		FullName:       params.FullName,
-		Precondition:   params.Precondition,
-		ExpectedResult: params.ExpectedResult,
-		Automated:      params.Automated,
-		External:       params.External,
-		Deleted:        params.Deleted,
-		StatusID:       params.StatusID,
-		TestLayerID:    params.TestLayerID,
-		WorkflowID:     params.WorkflowID,
-		Tags:           params.Tags,
-		Members:        params.Members,
-		Links:          params.Links,
+		Name:            params.Name,
+		Description:     params.Description,
+		FullName:        params.FullName,
+		Precondition:    params.Precondition,
+		ExpectedResult:  params.ExpectedResult,
+		Automated:       params.Automated,
+		External:        params.External,
+		Deleted:         params.Deleted,
+		StatusID:        params.StatusID,
+		TestLayerID:     params.TestLayerID,
+		WorkflowID:      params.WorkflowID,
+		Tags:            params.Tags,
+		Members:         params.Members,
+		Links:           params.Links,
+		ManualScenario:  params.ManualScenario,
 	}
 
 	r.logger.Info("updating test case", map[string]any{
@@ -1736,6 +2153,615 @@ func (r *Registry) deleteTestCase(ctx context.Context, input json.RawMessage) (a
 	}
 
 	return map[string]any{"status": "deleted"}, nil
+}
+
+func (r *Registry) cloneTestCase(ctx context.Context, input json.RawMessage) (any, error) {
+	var params struct {
+		TestCaseID int64 `json:"test_case_id"`
+	}
+
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if params.TestCaseID <= 0 {
+		return nil, fmt.Errorf("test_case_id must be positive")
+	}
+
+	r.logger.Info("cloning test case", map[string]any{"test_case_id": params.TestCaseID})
+
+	newID, err := r.allure.CloneTestCase(ctx, params.TestCaseID)
+	if err != nil {
+		r.logger.Error("clone test case", err, map[string]any{"test_case_id": params.TestCaseID})
+		return nil, fmt.Errorf("clone test case: %w", err)
+	}
+
+	return map[string]any{"cloned_test_case_id": newID, "status": "cloned"}, nil
+}
+
+func (r *Registry) copyLaunch(ctx context.Context, input json.RawMessage) (any, error) {
+	var params struct {
+		LaunchID int64 `json:"launch_id"`
+	}
+
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if params.LaunchID <= 0 {
+		return nil, fmt.Errorf("launch_id must be positive")
+	}
+
+	r.logger.Info("copying launch", map[string]any{"launch_id": params.LaunchID})
+
+	launch, err := r.allure.CopyLaunch(ctx, params.LaunchID)
+	if err != nil {
+		r.logger.Error("copy launch", err, map[string]any{"launch_id": params.LaunchID})
+		return nil, fmt.Errorf("copy launch: %w", err)
+	}
+
+	return map[string]any{
+		"launch_id": launch.ID,
+		"name":      launch.Name,
+		"status":    "copied",
+	}, nil
+}
+
+func (r *Registry) resolveTestResult(ctx context.Context, input json.RawMessage) (any, error) {
+	var params struct {
+		TestResultID int64 `json:"test_result_id"`
+	}
+
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if params.TestResultID <= 0 {
+		return nil, fmt.Errorf("test_result_id must be positive")
+	}
+
+	r.logger.Info("resolving test result", map[string]any{"test_result_id": params.TestResultID})
+
+	if err := r.allure.ResolveTestResult(ctx, params.TestResultID); err != nil {
+		r.logger.Error("resolve test result", err, map[string]any{"test_result_id": params.TestResultID})
+		return nil, fmt.Errorf("resolve test result: %w", err)
+	}
+
+	return map[string]any{"status": "resolved"}, nil
+}
+
+func (r *Registry) unmuteTestResult(ctx context.Context, input json.RawMessage) (any, error) {
+	var params struct {
+		TestResultID int64 `json:"test_result_id"`
+	}
+
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if params.TestResultID <= 0 {
+		return nil, fmt.Errorf("test_result_id must be positive")
+	}
+
+	r.logger.Info("unmuting test result", map[string]any{"test_result_id": params.TestResultID})
+
+	if err := r.allure.UnmuteTestResult(ctx, params.TestResultID); err != nil {
+		r.logger.Error("unmute test result", err, map[string]any{"test_result_id": params.TestResultID})
+		return nil, fmt.Errorf("unmute test result: %w", err)
+	}
+
+	return map[string]any{"status": "unmuted"}, nil
+}
+
+func (r *Registry) getLaunchEnvironment(ctx context.Context, input json.RawMessage) (any, error) {
+	var params struct {
+		LaunchID int64 `json:"launch_id"`
+	}
+
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if params.LaunchID <= 0 {
+		return nil, fmt.Errorf("launch_id must be positive")
+	}
+
+	r.logger.Info("fetching launch environment", map[string]any{"launch_id": params.LaunchID})
+
+	env, err := r.allure.GetLaunchEnvironment(ctx, params.LaunchID)
+	if err != nil {
+		r.logger.Error("get launch environment", err, map[string]any{"launch_id": params.LaunchID})
+		return nil, fmt.Errorf("get launch environment: %w", err)
+	}
+
+	return map[string]any{"environment": env}, nil
+}
+
+func (r *Registry) updateLaunchEnvironment(ctx context.Context, input json.RawMessage) (any, error) {
+	var params struct {
+		LaunchID    int64          `json:"launch_id"`
+		Environment map[string]any `json:"environment"`
+	}
+
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if params.LaunchID <= 0 {
+		return nil, fmt.Errorf("launch_id must be positive")
+	}
+
+	if len(params.Environment) == 0 {
+		return nil, fmt.Errorf("environment must not be empty")
+	}
+
+	r.logger.Info("updating launch environment", map[string]any{"launch_id": params.LaunchID})
+
+	if err := r.allure.UpdateLaunchEnvironment(ctx, params.LaunchID, params.Environment); err != nil {
+		r.logger.Error("update launch environment", err, map[string]any{"launch_id": params.LaunchID})
+		return nil, fmt.Errorf("update launch environment: %w", err)
+	}
+
+	return map[string]any{"status": "updated"}, nil
+}
+
+func (r *Registry) getTestCaseHistory(ctx context.Context, input json.RawMessage) (any, error) {
+	var params struct {
+		TestCaseID int64 `json:"test_case_id"`
+		Page       int   `json:"page"`
+		Size       int   `json:"size"`
+	}
+
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if params.TestCaseID <= 0 {
+		return nil, fmt.Errorf("test_case_id must be positive")
+	}
+
+	if params.Size == 0 {
+		params.Size = 10
+	}
+	if params.Size > 100 {
+		params.Size = 100
+	}
+
+	r.logger.Info("fetching test case history", map[string]any{
+		"test_case_id": params.TestCaseID,
+		"page":         params.Page,
+		"size":         params.Size,
+	})
+
+	history, err := r.allure.GetTestCaseHistory(ctx, params.TestCaseID, params.Page, params.Size)
+	if err != nil {
+		r.logger.Error("get test case history", err, map[string]any{"test_case_id": params.TestCaseID})
+		return nil, fmt.Errorf("get test case history: %w", err)
+	}
+
+	return history, nil
+}
+
+func (r *Registry) getLaunchDefects(ctx context.Context, input json.RawMessage) (any, error) {
+	var params struct {
+		LaunchID int64 `json:"launch_id"`
+		Page     int   `json:"page"`
+		Size     int   `json:"size"`
+	}
+
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if params.LaunchID <= 0 {
+		return nil, fmt.Errorf("launch_id must be positive")
+	}
+
+	if params.Size == 0 {
+		params.Size = 10
+	}
+	if params.Size > 100 {
+		params.Size = 100
+	}
+
+	r.logger.Info("fetching launch defects", map[string]any{
+		"launch_id": params.LaunchID,
+		"page":      params.Page,
+		"size":      params.Size,
+	})
+
+	defects, err := r.allure.GetLaunchDefects(ctx, params.LaunchID, params.Page, params.Size)
+	if err != nil {
+		r.logger.Error("get launch defects", err, map[string]any{"launch_id": params.LaunchID})
+		return nil, fmt.Errorf("get launch defects: %w", err)
+	}
+
+	return defects, nil
+}
+
+func (r *Registry) getTestCaseDefects(ctx context.Context, input json.RawMessage) (any, error) {
+	var params struct {
+		TestCaseID int64 `json:"test_case_id"`
+		Page       int   `json:"page"`
+		Size       int   `json:"size"`
+	}
+
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if params.TestCaseID <= 0 {
+		return nil, fmt.Errorf("test_case_id must be positive")
+	}
+
+	if params.Size == 0 {
+		params.Size = 10
+	}
+	if params.Size > 100 {
+		params.Size = 100
+	}
+
+	r.logger.Info("fetching test case defects", map[string]any{
+		"test_case_id": params.TestCaseID,
+		"page":         params.Page,
+		"size":         params.Size,
+	})
+
+	defects, err := r.allure.GetTestCaseDefects(ctx, params.TestCaseID, params.Page, params.Size)
+	if err != nil {
+		r.logger.Error("get test case defects", err, map[string]any{"test_case_id": params.TestCaseID})
+		return nil, fmt.Errorf("get test case defects: %w", err)
+	}
+
+	return defects, nil
+}
+
+func (r *Registry) mergeLaunches(ctx context.Context, input json.RawMessage) (any, error) {
+	var params struct {
+		LaunchIDs  []int64 `json:"launch_ids"`
+		LaunchName string  `json:"launch_name"`
+	}
+
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if len(params.LaunchIDs) == 0 {
+		return nil, fmt.Errorf("launch_ids must not be empty")
+	}
+
+	if params.LaunchName == "" {
+		return nil, fmt.Errorf("launch_name is required")
+	}
+
+	r.logger.Info("merging launches", map[string]any{
+		"count": len(params.LaunchIDs),
+		"name":  params.LaunchName,
+	})
+
+	launchID, err := r.allure.MergeLaunches(ctx, params.LaunchIDs, params.LaunchName)
+	if err != nil {
+		r.logger.Error("merge launches", err, map[string]any{"count": len(params.LaunchIDs)})
+		return nil, fmt.Errorf("merge launches: %w", err)
+	}
+
+	return map[string]any{
+		"merged_launch_id": launchID,
+		"status":           "merged",
+	}, nil
+}
+
+func (r *Registry) addTestCaseDefect(ctx context.Context, input json.RawMessage) (any, error) {
+	var params struct {
+		TestCaseID int64 `json:"test_case_id"`
+		DefectID   int64 `json:"defect_id"`
+	}
+
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if params.TestCaseID <= 0 {
+		return nil, fmt.Errorf("test_case_id must be positive")
+	}
+
+	if params.DefectID <= 0 {
+		return nil, fmt.Errorf("defect_id must be positive")
+	}
+
+	r.logger.Info("adding defect to test case", map[string]any{
+		"test_case_id": params.TestCaseID,
+		"defect_id":    params.DefectID,
+	})
+
+	if err := r.allure.AddTestCaseDefect(ctx, params.TestCaseID, params.DefectID); err != nil {
+		r.logger.Error("add test case defect", err, map[string]any{"test_case_id": params.TestCaseID})
+		return nil, fmt.Errorf("add test case defect: %w", err)
+	}
+
+	return map[string]any{"status": "defect_added"}, nil
+}
+
+func (r *Registry) removeTestCaseDefect(ctx context.Context, input json.RawMessage) (any, error) {
+	var params struct {
+		TestCaseID int64 `json:"test_case_id"`
+		DefectID   int64 `json:"defect_id"`
+	}
+
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if params.TestCaseID <= 0 {
+		return nil, fmt.Errorf("test_case_id must be positive")
+	}
+
+	if params.DefectID <= 0 {
+		return nil, fmt.Errorf("defect_id must be positive")
+	}
+
+	r.logger.Info("removing defect from test case", map[string]any{
+		"test_case_id": params.TestCaseID,
+		"defect_id":    params.DefectID,
+	})
+
+	if err := r.allure.RemoveTestCaseDefect(ctx, params.TestCaseID, params.DefectID); err != nil {
+		r.logger.Error("remove test case defect", err, map[string]any{"test_case_id": params.TestCaseID})
+		return nil, fmt.Errorf("remove test case defect: %w", err)
+	}
+
+	return map[string]any{"status": "defect_removed"}, nil
+}
+
+func (r *Registry) getTestCaseMembers(ctx context.Context, input json.RawMessage) (any, error) {
+	var params struct {
+		TestCaseID int64 `json:"test_case_id"`
+	}
+
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if params.TestCaseID <= 0 {
+		return nil, fmt.Errorf("test_case_id must be positive")
+	}
+
+	r.logger.Info("fetching test case members", map[string]any{"test_case_id": params.TestCaseID})
+
+	members, err := r.allure.GetTestCaseMembers(ctx, params.TestCaseID)
+	if err != nil {
+		r.logger.Error("get test case members", err, map[string]any{"test_case_id": params.TestCaseID})
+		return nil, fmt.Errorf("get test case members: %w", err)
+	}
+
+	items := make([]map[string]any, len(members))
+	for i, m := range members {
+		items[i] = map[string]any{
+			"id":   m.ID,
+			"name": m.Name,
+		}
+	}
+
+	return map[string]any{"members": items}, nil
+}
+
+func (r *Registry) addTestCaseMembers(ctx context.Context, input json.RawMessage) (any, error) {
+	var params struct {
+		TestCaseID int64                  `json:"test_case_id"`
+		Members    []allure.MemberDto     `json:"members"`
+	}
+
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if params.TestCaseID <= 0 {
+		return nil, fmt.Errorf("test_case_id must be positive")
+	}
+
+	if len(params.Members) == 0 {
+		return nil, fmt.Errorf("members must not be empty")
+	}
+
+	r.logger.Info("adding members to test case", map[string]any{
+		"test_case_id": params.TestCaseID,
+		"count":        len(params.Members),
+	})
+
+	if err := r.allure.AddTestCaseMembers(ctx, params.TestCaseID, params.Members); err != nil {
+		r.logger.Error("add test case members", err, map[string]any{"test_case_id": params.TestCaseID})
+		return nil, fmt.Errorf("add test case members: %w", err)
+	}
+
+	return map[string]any{"status": "members_added", "count": len(params.Members)}, nil
+}
+
+func (r *Registry) removeTestCaseMembers(ctx context.Context, input json.RawMessage) (any, error) {
+	var params struct {
+		TestCaseID int64   `json:"test_case_id"`
+		MemberIDs  []int64 `json:"member_ids"`
+	}
+
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if params.TestCaseID <= 0 {
+		return nil, fmt.Errorf("test_case_id must be positive")
+	}
+
+	if len(params.MemberIDs) == 0 {
+		return nil, fmt.Errorf("member_ids must not be empty")
+	}
+
+	r.logger.Info("removing members from test case", map[string]any{
+		"test_case_id": params.TestCaseID,
+		"count":        len(params.MemberIDs),
+	})
+
+	if err := r.allure.RemoveTestCaseMembers(ctx, params.TestCaseID, params.MemberIDs); err != nil {
+		r.logger.Error("remove test case members", err, map[string]any{"test_case_id": params.TestCaseID})
+		return nil, fmt.Errorf("remove test case members: %w", err)
+	}
+
+	return map[string]any{"status": "members_removed", "count": len(params.MemberIDs)}, nil
+}
+
+func (r *Registry) getTestCaseExternalLinks(ctx context.Context, input json.RawMessage) (any, error) {
+	var params struct {
+		TestCaseID int64 `json:"test_case_id"`
+	}
+
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if params.TestCaseID <= 0 {
+		return nil, fmt.Errorf("test_case_id must be positive")
+	}
+
+	r.logger.Info("fetching test case external links", map[string]any{"test_case_id": params.TestCaseID})
+
+	links, err := r.allure.GetTestCaseExternalLinks(ctx, params.TestCaseID)
+	if err != nil {
+		r.logger.Error("get test case external links", err, map[string]any{"test_case_id": params.TestCaseID})
+		return nil, fmt.Errorf("get test case external links: %w", err)
+	}
+
+	items := make([]map[string]any, len(links))
+	for i, link := range links {
+		items[i] = map[string]any{
+			"name": link.Name,
+			"type": link.Type,
+			"url":  link.URL,
+		}
+	}
+
+	return map[string]any{"links": items}, nil
+}
+
+func (r *Registry) addTestCaseExternalLink(ctx context.Context, input json.RawMessage) (any, error) {
+	var params struct {
+		TestCaseID int64  `json:"test_case_id"`
+		Name       string `json:"name"`
+		Type       string `json:"type"`
+		URL        string `json:"url"`
+	}
+
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if params.TestCaseID <= 0 {
+		return nil, fmt.Errorf("test_case_id must be positive")
+	}
+
+	if params.URL == "" {
+		return nil, fmt.Errorf("url is required")
+	}
+
+	link := allure.ExternalLinkDto{
+		Name: params.Name,
+		Type: params.Type,
+		URL:  params.URL,
+	}
+
+	r.logger.Info("adding external link to test case", map[string]any{
+		"test_case_id": params.TestCaseID,
+		"url":          params.URL,
+	})
+
+	if err := r.allure.AddTestCaseExternalLink(ctx, params.TestCaseID, link); err != nil {
+		r.logger.Error("add test case external link", err, map[string]any{"test_case_id": params.TestCaseID})
+		return nil, fmt.Errorf("add test case external link: %w", err)
+	}
+
+	return map[string]any{"status": "link_added"}, nil
+}
+
+func (r *Registry) deleteTestCaseExternalLink(ctx context.Context, input json.RawMessage) (any, error) {
+	var params struct {
+		TestCaseID int64 `json:"test_case_id"`
+		RelationID int64 `json:"relation_id"`
+	}
+
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if params.TestCaseID <= 0 {
+		return nil, fmt.Errorf("test_case_id must be positive")
+	}
+
+	if params.RelationID <= 0 {
+		return nil, fmt.Errorf("relation_id must be positive")
+	}
+
+	r.logger.Info("deleting external link from test case", map[string]any{
+		"test_case_id": params.TestCaseID,
+		"relation_id":  params.RelationID,
+	})
+
+	if err := r.allure.DeleteTestCaseExternalLink(ctx, params.TestCaseID, params.RelationID); err != nil {
+		r.logger.Error("delete test case external link", err, map[string]any{"test_case_id": params.TestCaseID})
+		return nil, fmt.Errorf("delete test case external link: %w", err)
+	}
+
+	return map[string]any{"status": "link_deleted"}, nil
+}
+
+func (r *Registry) restoreTestCase(ctx context.Context, input json.RawMessage) (any, error) {
+	var params struct {
+		TestCaseID int64 `json:"test_case_id"`
+	}
+
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if params.TestCaseID <= 0 {
+		return nil, fmt.Errorf("test_case_id must be positive")
+	}
+
+	r.logger.Info("restoring test case", map[string]any{"test_case_id": params.TestCaseID})
+
+	if err := r.allure.RestoreTestCase(ctx, params.TestCaseID); err != nil {
+		r.logger.Error("restore test case", err, map[string]any{"test_case_id": params.TestCaseID})
+		return nil, fmt.Errorf("restore test case: %w", err)
+	}
+
+	return map[string]any{"status": "restored"}, nil
+}
+
+func (r *Registry) bulkCloneTestCases(ctx context.Context, input json.RawMessage) (any, error) {
+	var params struct {
+		ProjectID   int64   `json:"project_id"`
+		TestCaseIDs []int64 `json:"test_case_ids"`
+	}
+
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if params.ProjectID <= 0 {
+		return nil, fmt.Errorf("project_id must be positive")
+	}
+
+	if len(params.TestCaseIDs) == 0 {
+		return nil, fmt.Errorf("test_case_ids must not be empty")
+	}
+
+	r.logger.Info("bulk cloning test cases", map[string]any{
+		"project_id": params.ProjectID,
+		"count":      len(params.TestCaseIDs),
+	})
+
+	if err := r.allure.BulkCloneTestCases(ctx, params.ProjectID, params.TestCaseIDs); err != nil {
+		r.logger.Error("bulk clone test cases", err, map[string]any{"project_id": params.ProjectID})
+		return nil, fmt.Errorf("bulk clone test cases: %w", err)
+	}
+
+	return map[string]any{"status": "cloning_started", "count": len(params.TestCaseIDs)}, nil
 }
 
 func (r *Registry) bulkSetTestCaseStatus(ctx context.Context, input json.RawMessage) (any, error) {
