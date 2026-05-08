@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-05-08
+
+### Added
+- **GitHub Actions CI/CD pipeline** — Automated multi-platform builds for Windows, macOS, and Linux
+- **CLAUDE.md** — Developer documentation with release procedures and project guidelines
+
+### Changed
+- **Simplified README** — Local Claude Desktop setup now the primary onboarding flow
+- **Improved getting-started experience** — 3-minute setup instead of 10+ minutes
+- **Marketing-focused documentation** — Value-driven introduction, use cases, and comparisons
+- **Better documentation structure** — Clearer navigation and links throughout
+
+### Improved
+- README with benefit-driven messaging
+- Deployment option clarity with examples
+- Contributing guidelines
+- SEO optimization for discoverability
+- Build artifact management (.gitignore updates)
+
+### Infrastructure
+- Automated release process: `git tag vX.Y.Z && git push origin vX.Y.Z`
+- Pre-built binaries attached automatically to GitHub releases
+- CI/CD pipeline ready for future releases
+
 ## [1.2.0] - 2026-05-08
 
 ### Added
