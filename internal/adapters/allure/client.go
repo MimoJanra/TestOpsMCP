@@ -687,15 +687,7 @@ func (c *Client) CreateTestCase(ctx context.Context, projectID int64, name, desc
 	return &result, nil
 }
 
-func (c *Client) UpdateTestCase(ctx context.Context, testCaseID int64, name, description string) error {
-	req := UpdateTestCaseRequest{}
-	if name != "" {
-		req.Name = name
-	}
-	if description != "" {
-		req.Description = description
-	}
-
+func (c *Client) UpdateTestCase(ctx context.Context, testCaseID int64, req UpdateTestCaseRequest) error {
 	body, err := json.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
@@ -725,6 +717,94 @@ func (c *Client) UpdateTestCase(ctx context.Context, testCaseID int64, name, des
 
 func (c *Client) DeleteTestCase(ctx context.Context, testCaseID int64) error {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.url(fmt.Sprintf("/api/testcase/%d", testCaseID)), nil)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return errFromResponse(resp)
+	}
+
+	return nil
+}
+
+func (c *Client) CreateTestCaseStep(ctx context.Context, req ScenarioStepCreateRequest, afterID int64) (int64, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return 0, fmt.Errorf("marshal request: %w", err)
+	}
+
+	url := "/api/testcase/step"
+	if afterID > 0 {
+		url += fmt.Sprintf("?afterId=%d", afterID)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(url), bytes.NewBuffer(body))
+	if err != nil {
+		return 0, fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return 0, fmt.Errorf("set auth: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return 0, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, errFromResponse(resp)
+	}
+
+	var result ScenarioStepCreatedResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, fmt.Errorf("decode response: %w", err)
+	}
+
+	return result.CreatedStepID, nil
+}
+
+func (c *Client) UpdateTestCaseStep(ctx context.Context, stepID int64, req ScenarioStepPatchRequest) error {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPatch, c.url(fmt.Sprintf("/api/testcase/step/%d", stepID)), bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return errFromResponse(resp)
+	}
+
+	return nil
+}
+
+func (c *Client) DeleteTestCaseStep(ctx context.Context, stepID int64) error {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.url(fmt.Sprintf("/api/testcase/step/%d", stepID)), nil)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}

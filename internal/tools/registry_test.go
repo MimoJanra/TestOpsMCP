@@ -55,13 +55,16 @@ func TestRegistry_HasExpectedTools(t *testing.T) {
 		"bulk_resolve_test_results",
 		"add_test_cases_to_launch",
 		"add_test_plan_to_launch",
+		"create_test_case_step",
+		"update_test_case_step",
+		"delete_test_case_step",
 	} {
 		if r.GetTool(name) == nil {
 			t.Errorf("tool %q not registered", name)
 		}
 	}
-	if got := len(r.ListTools()); got != 32 {
-		t.Errorf("ListTools() count = %d, want 32", got)
+	if got := len(r.ListTools()); got != 35 {
+		t.Errorf("ListTools() count = %d, want 35", got)
 	}
 }
 

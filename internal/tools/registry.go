@@ -350,11 +350,81 @@ func (r *Registry) registerTools() {
 				},
 				"name": map[string]any{
 					"type":        "string",
-					"description": "New test case name (optional)",
+					"description": "Test case name (optional)",
 				},
 				"description": map[string]any{
 					"type":        "string",
-					"description": "New description (optional)",
+					"description": "Description (optional)",
+				},
+				"full_name": map[string]any{
+					"type":        "string",
+					"description": "Full name (optional)",
+				},
+				"precondition": map[string]any{
+					"type":        "string",
+					"description": "Precondition (optional)",
+				},
+				"expected_result": map[string]any{
+					"type":        "string",
+					"description": "Expected result (optional)",
+				},
+				"automated": map[string]any{
+					"type":        "boolean",
+					"description": "Is automated (optional)",
+				},
+				"external": map[string]any{
+					"type":        "boolean",
+					"description": "Is external (optional)",
+				},
+				"deleted": map[string]any{
+					"type":        "boolean",
+					"description": "Mark as deleted (optional)",
+				},
+				"status_id": map[string]any{
+					"type":        "integer",
+					"description": "Status ID (optional)",
+				},
+				"test_layer_id": map[string]any{
+					"type":        "integer",
+					"description": "Test layer ID (optional)",
+				},
+				"workflow_id": map[string]any{
+					"type":        "integer",
+					"description": "Workflow ID (optional)",
+				},
+				"tags": map[string]any{
+					"type":        "array",
+					"description": "Tags (optional)",
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"id": map[string]any{"type": "integer"},
+							"name": map[string]any{"type": "string"},
+						},
+					},
+				},
+				"members": map[string]any{
+					"type":        "array",
+					"description": "Members (optional)",
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"id": map[string]any{"type": "integer"},
+							"name": map[string]any{"type": "string"},
+						},
+					},
+				},
+				"links": map[string]any{
+					"type":        "array",
+					"description": "External links (optional)",
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"name": map[string]any{"type": "string"},
+							"type": map[string]any{"type": "string"},
+							"url": map[string]any{"type": "string"},
+						},
+					},
 				},
 			},
 			"required": []string{"test_case_id"},
@@ -376,6 +446,74 @@ func (r *Registry) registerTools() {
 			"required": []string{"test_case_id"},
 		},
 		Handler: r.deleteTestCase,
+	})
+
+	r.register(&Tool{
+		Name:        "create_test_case_step",
+		Description: "Create a new step in a test case",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"test_case_id": map[string]any{
+					"type":        "integer",
+					"description": "Test case ID",
+				},
+				"body": map[string]any{
+					"type":        "string",
+					"description": "Step body/description",
+				},
+				"after_id": map[string]any{
+					"type":        "integer",
+					"description": "Insert after step ID (optional)",
+				},
+				"parent_id": map[string]any{
+					"type":        "integer",
+					"description": "Parent step ID (optional)",
+				},
+			},
+			"required": []string{"test_case_id", "body"},
+		},
+		Handler: r.createTestCaseStep,
+	})
+
+	r.register(&Tool{
+		Name:        "update_test_case_step",
+		Description: "Update an existing test case step",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"step_id": map[string]any{
+					"type":        "integer",
+					"description": "Step ID",
+				},
+				"body": map[string]any{
+					"type":        "string",
+					"description": "Step body/description (optional)",
+				},
+				"expected_result": map[string]any{
+					"type":        "string",
+					"description": "Expected result (optional)",
+				},
+			},
+			"required": []string{"step_id"},
+		},
+		Handler: r.updateTestCaseStep,
+	})
+
+	r.register(&Tool{
+		Name:        "delete_test_case_step",
+		Description: "Delete a test case step",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"step_id": map[string]any{
+					"type":        "integer",
+					"description": "Step ID",
+				},
+			},
+			"required": []string{"step_id"},
+		},
+		Handler: r.deleteTestCaseStep,
 	})
 
 	r.register(&Tool{
@@ -1515,9 +1653,21 @@ func (r *Registry) createTestCase(ctx context.Context, input json.RawMessage) (a
 
 func (r *Registry) updateTestCase(ctx context.Context, input json.RawMessage) (any, error) {
 	var params struct {
-		TestCaseID  int64  `json:"test_case_id"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		TestCaseID   int64                     `json:"test_case_id"`
+		Name         string                    `json:"name"`
+		Description  string                    `json:"description"`
+		FullName     string                    `json:"full_name"`
+		Precondition string                    `json:"precondition"`
+		ExpectedResult string                  `json:"expected_result"`
+		Automated    *bool                     `json:"automated"`
+		External     *bool                     `json:"external"`
+		Deleted      *bool                     `json:"deleted"`
+		StatusID     *int64                    `json:"status_id"`
+		TestLayerID  *int64                    `json:"test_layer_id"`
+		WorkflowID   *int64                    `json:"workflow_id"`
+		Tags         []allure.TestTagDto       `json:"tags"`
+		Members      []allure.MemberDto        `json:"members"`
+		Links        []allure.ExternalLinkDto  `json:"links"`
 	}
 
 	if err := json.Unmarshal(input, &params); err != nil {
@@ -1528,17 +1678,38 @@ func (r *Registry) updateTestCase(ctx context.Context, input json.RawMessage) (a
 		return nil, fmt.Errorf("test_case_id must be positive")
 	}
 
-	if params.Name == "" && params.Description == "" {
-		return nil, fmt.Errorf("at least one field (name or description) must be provided")
+	hasFields := params.Name != "" || params.Description != "" || params.FullName != "" ||
+		params.Precondition != "" || params.ExpectedResult != "" ||
+		params.Automated != nil || params.External != nil || params.Deleted != nil ||
+		params.StatusID != nil || params.TestLayerID != nil || params.WorkflowID != nil ||
+		len(params.Tags) > 0 || len(params.Members) > 0 || len(params.Links) > 0
+
+	if !hasFields {
+		return nil, fmt.Errorf("at least one field must be provided")
+	}
+
+	req := allure.UpdateTestCaseRequest{
+		Name:           params.Name,
+		Description:    params.Description,
+		FullName:       params.FullName,
+		Precondition:   params.Precondition,
+		ExpectedResult: params.ExpectedResult,
+		Automated:      params.Automated,
+		External:       params.External,
+		Deleted:        params.Deleted,
+		StatusID:       params.StatusID,
+		TestLayerID:    params.TestLayerID,
+		WorkflowID:     params.WorkflowID,
+		Tags:           params.Tags,
+		Members:        params.Members,
+		Links:          params.Links,
 	}
 
 	r.logger.Info("updating test case", map[string]any{
 		"test_case_id": params.TestCaseID,
-		"name":         params.Name,
-		"description":  params.Description,
 	})
 
-	if err := r.allure.UpdateTestCase(ctx, params.TestCaseID, params.Name, params.Description); err != nil {
+	if err := r.allure.UpdateTestCase(ctx, params.TestCaseID, req); err != nil {
 		r.logger.Error("update test case", err, map[string]any{"test_case_id": params.TestCaseID})
 		return nil, fmt.Errorf("update test case: %w", err)
 	}
@@ -1833,4 +2004,103 @@ func (r *Registry) addTestPlanToLaunch(ctx context.Context, input json.RawMessag
 	}
 
 	return map[string]any{"status": "success"}, nil
+}
+
+func (r *Registry) createTestCaseStep(ctx context.Context, input json.RawMessage) (any, error) {
+	var params struct {
+		TestCaseID int64 `json:"test_case_id"`
+		Body       string `json:"body"`
+		AfterID    int64 `json:"after_id"`
+		ParentID   int64 `json:"parent_id"`
+	}
+
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if params.TestCaseID <= 0 {
+		return nil, fmt.Errorf("test_case_id must be positive")
+	}
+
+	if params.Body == "" {
+		return nil, fmt.Errorf("body must be provided")
+	}
+
+	req := allure.ScenarioStepCreateRequest{
+		TestCaseID: params.TestCaseID,
+		Body:       params.Body,
+		ParentID:   params.ParentID,
+	}
+
+	r.logger.Info("creating test case step", map[string]any{
+		"test_case_id": params.TestCaseID,
+		"body":         params.Body,
+	})
+
+	stepID, err := r.allure.CreateTestCaseStep(ctx, req, params.AfterID)
+	if err != nil {
+		r.logger.Error("create test case step", err, map[string]any{"test_case_id": params.TestCaseID})
+		return nil, fmt.Errorf("create test case step: %w", err)
+	}
+
+	return map[string]any{"step_id": stepID}, nil
+}
+
+func (r *Registry) updateTestCaseStep(ctx context.Context, input json.RawMessage) (any, error) {
+	var params struct {
+		StepID         int64  `json:"step_id"`
+		Body           string `json:"body"`
+		ExpectedResult string `json:"expected_result"`
+	}
+
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if params.StepID <= 0 {
+		return nil, fmt.Errorf("step_id must be positive")
+	}
+
+	if params.Body == "" && params.ExpectedResult == "" {
+		return nil, fmt.Errorf("at least one field (body or expected_result) must be provided")
+	}
+
+	req := allure.ScenarioStepPatchRequest{
+		Body:           params.Body,
+		ExpectedResult: params.ExpectedResult,
+	}
+
+	r.logger.Info("updating test case step", map[string]any{
+		"step_id": params.StepID,
+	})
+
+	if err := r.allure.UpdateTestCaseStep(ctx, params.StepID, req); err != nil {
+		r.logger.Error("update test case step", err, map[string]any{"step_id": params.StepID})
+		return nil, fmt.Errorf("update test case step: %w", err)
+	}
+
+	return map[string]any{"status": "updated"}, nil
+}
+
+func (r *Registry) deleteTestCaseStep(ctx context.Context, input json.RawMessage) (any, error) {
+	var params struct {
+		StepID int64 `json:"step_id"`
+	}
+
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if params.StepID <= 0 {
+		return nil, fmt.Errorf("step_id must be positive")
+	}
+
+	r.logger.Info("deleting test case step", map[string]any{"step_id": params.StepID})
+
+	if err := r.allure.DeleteTestCaseStep(ctx, params.StepID); err != nil {
+		r.logger.Error("delete test case step", err, map[string]any{"step_id": params.StepID})
+		return nil, fmt.Errorf("delete test case step: %w", err)
+	}
+
+	return map[string]any{"status": "deleted"}, nil
 }
