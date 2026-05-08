@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-05-08
+
+### Fixed
+- `get_test_case` now returns complete test case overview from `/api/testcase/{id}/overview` endpoint
+- Added execution steps (scenario), tags, members, custom fields, and all metadata to test case details
+- Resolved missing Execution section that was not available in basic endpoint
+
 ## [1.1.0] - 2026-05-08
 
 ### Added
