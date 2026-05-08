@@ -14,6 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fetches scenario via dedicated `/api/testcase/{id}/scenario` endpoint
 - Returns scenario attachments, step structure, and expected results
 
+### Changed
+- Tool count: 32 → 35 (added 3 step management tools)
+- Tool description clarified to explicitly mention `manual_scenario` field
+- README updated with note about accessing test execution steps
+
+### Documentation
+- Added explicit note that `get_test_case` includes all test execution steps in `manual_scenario` field
+- Updated tools table to include step management tools (`create_test_case_step`, `update_test_case_step`, `delete_test_case_step`)
+
 ## [1.1.1] - 2026-05-08
 
 ### Fixed
