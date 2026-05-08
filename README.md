@@ -58,24 +58,55 @@ Claude: The auth endpoint returned 401.
 
 ---
 
-## 🚀 Get Started in 2 Minutes
+## 🚀 Get Started in 3 Steps
 
-### 1️⃣ Download Pre-Built Binary
+### 1️⃣ Download Binary for Your Platform
 
-Works on **Windows**, **macOS** (Intel & Apple Silicon), and **Linux**.
+[**👉 Get Latest Release**](https://github.com/MimoJanra/TestOpsMCP/releases/latest)
 
-[**👉 Download Latest Release →**](https://github.com/MimoJanra/TestOpsMCP/releases/latest)
+- **Windows**: `testops-mcp-windows-amd64.exe`
+- **macOS Intel**: `testops-mcp-macos-amd64`
+- **macOS Apple Silicon**: `testops-mcp-macos-arm64`
+- **Linux**: `testops-mcp-linux-amd64`
 
-### 2️⃣ Set Your Credentials
+### 2️⃣ Add to Claude Desktop Config
 
-```bash
-export ALLURE_BASE_URL="https://your-testops-instance.com"
-export ALLURE_TOKEN="your-api-token"
+Open **Settings → Developer → Edit Config** in Claude Desktop.
+
+Add this to the `mcpServers` section:
+
+```json
+{
+  "mcpServers": {
+    "allure": {
+      "command": "C:\\Users\\YourName\\Downloads\\testops-mcp-windows-amd64.exe",
+      "env": {
+        "ALLURE_BASE_URL": "https://your-testops-instance.com",
+        "ALLURE_TOKEN": "your-api-token",
+        "REQUEST_TIMEOUT": "30",
+        "LOG_LEVEL": "INFO"
+      }
+    }
+  }
+}
 ```
 
-[How to get your Allure API token →](https://docs.qameta.io/allure-testops/advanced/api/)
+**Replace:**
+- `C:\\Users\\YourName\\Downloads\\testops-mcp-windows-amd64.exe` → path to your binary
+- `https://your-testops-instance.com` → your Allure TestOps URL
+- `your-api-token` → your Allure API token ([how to get it →](https://docs.qameta.io/allure-testops/advanced/api/))
 
-### 3️⃣ Run It
+### 3️⃣ Restart Claude
+
+Close and reopen Claude Desktop. TestOps tools now appear in the tool dropdown! ✅
+
+**That's it.** You're ready to use it.
+
+---
+
+## 📌 Need HTTP Mode? (for teams)
+
+If you want to run a shared server for your team instead of local Claude Desktop:
 
 ```bash
 # macOS/Linux
@@ -88,70 +119,26 @@ testops-mcp-windows-amd64.exe --http
 ./testops-mcp-linux-amd64 --http
 ```
 
-Server starts on `http://localhost:3000` ✓
-
-### 4️⃣ Connect Claude
-
-**Claude Desktop:** Add to `claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "allure": {
-      "url": "http://localhost:3000"
-    }
-  }
-}
-```
-
-Restart Claude → TestOps tools appear in the dropdown ✓
+Server starts on `http://localhost:3000` → [Full team setup guide →](#-team-deployment-http-mode)
 
 ---
 
-## Build from Source
+## 🔧 Build from Source (Optional)
 
-### 1. Clone & Build
+If you prefer to build the binary yourself:
 
 ```bash
+# Clone
 git clone https://github.com/MimoJanra/TestOpsMCP.git
 cd TestOpsMCP
+
+# Build
 make build
+
+# Binary created at: ./bin/server.exe (Windows)
 ```
 
-### 2. Configure
-
-```bash
-cp .env.example .env
-# Edit .env with your Allure credentials
-```
-
-### 3. Run
-
-```bash
-make run  # Local development
-# or
-make run-http  # Team/server mode
-```
-
-### 4. Connect Claude Desktop
-
-Edit your Claude config (Windows: `%APPDATA%\Claude\claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "allure": {
-      "command": "C:\\Users\\YourName\\TestOpsMCP\\bin\\server.exe",
-      "env": {
-        "ALLURE_BASE_URL": "https://your-allure.com",
-        "ALLURE_TOKEN": "your_token"
-      }
-    }
-  }
-}
-```
-
-Restart Claude Desktop — Allure tools appear in the dropdown.
+Then follow **Step 2** above to add it to Claude Desktop config.
 
 ---
 
@@ -251,93 +238,19 @@ Restart Claude Desktop — Allure tools appear in the dropdown.
 
 ---
 
-## Requirements
+## ✅ Requirements
 
-- **Go 1.22+** — [Download](https://golang.org/dl/)
-- **Allure TestOps** — Instance with API access
-- **Claude Desktop** or MCP-compatible client
+### For Local Claude Desktop (Easiest)
+- ✅ Claude Desktop (macOS, Windows, Linux)
+- ✅ Allure TestOps account with API access
+- ✅ Pre-built binary (no installation needed)
 
-Optional:
-- **Docker** — For containerized deployment
-- **Docker Compose** — For team deployment
+### For Building from Source
+- Go 1.22+ — [Download](https://golang.org/dl/)
+- `make` — Usually pre-installed on macOS/Linux
 
-## Getting Started by Deployment Type
-
-### 🖥️ Local Development (Claude Desktop)
-
-See [Installation Guide](./docs/INSTALLATION.md#local-development) for step-by-step setup.
-
-```bash
-make build && make run
-```
-
-### 🐳 Docker (Single Instance)
-
-```bash
-docker build -t allure-mcp .
-docker run -e ALLURE_BASE_URL=https://your-allure.com \
-           -e ALLURE_TOKEN=your_token \
-           -p 3000:3000 \
-           allure-mcp --http
-```
-
-### 🔄 Docker Compose (Team)
-
-```bash
-cp .env.example .env
-# Edit .env with your credentials
-docker-compose up -d
-```
-
-### ☁️ Production (Kubernetes, Systemd, etc.)
-
-See [Deployment Guide](./docs/DEPLOYMENT.md) for:
-- Nginx reverse proxy with HTTPS
-- Kubernetes manifests with auto-scaling
-- Systemd service files
-- Monitoring & health checks
-
-## Team Deployment (HTTP Mode)
-
-For shared server or team use, run in HTTP mode:
-
-```bash
-docker-compose up -d
-# Server listens on :3000
-```
-
-**Team members connect via:**
-
-```json
-{
-  "mcpServers": {
-    "allure": {
-      "url": "http://your-server:3000",
-      "env": {
-        "MCP_AUTH_TOKEN": "your_shared_secret_from_team"
-      }
-    }
-  }
-}
-```
-
-**For production HTTPS:**
-
-Use Nginx reverse proxy (nginx config in [Deployment Guide](./docs/DEPLOYMENT.md#reverse-proxy-setup)):
-
-```bash
-# With Caddy (automatic HTTPS)
-caddy run  # Reads from Caddyfile
-```
-
-Or use ngrok for quick HTTPS tunneling:
-
-```bash
-ngrok http 3000
-# Share https://your-unique-id.ngrok.io with your team
-```
-
-📚 **Full setup:** [Deployment Guide](./docs/DEPLOYMENT.md)
+### For Team Deployment
+- Docker & Docker Compose — [Download](https://www.docker.com/)
 
 ## Configuration
 
