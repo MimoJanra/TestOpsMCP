@@ -53,18 +53,38 @@ func TestRegistry_HasExpectedTools(t *testing.T) {
 		"bulk_mute_test_results",
 		"bulk_unmute_test_results",
 		"bulk_resolve_test_results",
+		"bulk_clone_test_cases",
 		"add_test_cases_to_launch",
 		"add_test_plan_to_launch",
 		"create_test_case_step",
 		"update_test_case_step",
 		"delete_test_case_step",
+		"clone_test_case",
+		"copy_launch",
+		"resolve_test_result",
+		"unmute_test_result",
+		"get_launch_environment",
+		"update_launch_environment",
+		"get_test_case_history",
+		"get_launch_defects",
+		"get_test_case_defects",
+		"merge_launches",
+		"add_test_case_defect",
+		"remove_test_case_defect",
+		"get_test_case_members",
+		"add_test_case_members",
+		"remove_test_case_members",
+		"get_test_case_external_links",
+		"add_test_case_external_link",
+		"delete_test_case_external_link",
+		"restore_test_case",
 	} {
 		if r.GetTool(name) == nil {
 			t.Errorf("tool %q not registered", name)
 		}
 	}
-	if got := len(r.ListTools()); got != 35 {
-		t.Errorf("ListTools() count = %d, want 35", got)
+	if got := len(r.ListTools()); got != 55 {
+		t.Errorf("ListTools() count = %d, want 55", got)
 	}
 }
 
