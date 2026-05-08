@@ -252,6 +252,68 @@ Then follow **Step 2** above to add it to Claude Desktop config.
 ### For Team Deployment
 - Docker & Docker Compose — [Download](https://www.docker.com/)
 
+---
+
+## 🐳 Docker Image & Team Deployment
+
+### Using Pre-built Docker Image
+
+Pull from GitHub Container Registry:
+
+```bash
+docker pull ghcr.io/MimoJanra/TestOpsMCP:latest
+```
+
+Run in HTTP mode:
+
+```bash
+docker run \
+  -e ALLURE_BASE_URL="https://your-testops.com" \
+  -e ALLURE_TOKEN="your-api-token" \
+  -p 3000:3000 \
+  ghcr.io/MimoJanra/TestOpsMCP:latest --http
+```
+
+Server listens on `http://localhost:3000`
+
+### Docker Compose (Recommended for Teams)
+
+```bash
+# 1. Create .env file
+cp .env.example .env
+
+# 2. Edit with your credentials
+# ALLURE_BASE_URL=https://your-testops.com
+# ALLURE_TOKEN=your_token
+
+# 3. Start
+docker-compose up -d
+
+# Server now runs on :3000
+```
+
+Share with team members via Claude Desktop config:
+
+```json
+{
+  "mcpServers": {
+    "allure": {
+      "command": "http://your-server:3000"
+    }
+  }
+}
+```
+
+### Automatic Docker Builds
+
+Docker images are **automatically built and published** to `ghcr.io` on every release:
+
+- **Tags:** `latest`, `v1.2.1`, `semver`, `sha`
+- **Architectures:** linux/amd64, linux/arm64
+- **Auto-generated for:** Every git tag (`v*`)
+
+---
+
 ## Configuration
 
 All configuration is via environment variables.
