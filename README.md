@@ -1,55 +1,110 @@
-# Allure MCP Server
+# 🧪 TestOps MCP — AI-Powered Test Orchestration
 
-**AI-powered test orchestration for Allure TestOps via Claude**
+> **Control your entire test suite from Claude. No dashboard switching. No API calls. Just conversation.**
 
-A production-ready [Model Context Protocol](https://spec.modelcontextprotocol.io/) (MCP) server that seamlessly integrates Claude with [Allure TestOps](https://qameta.io/allure-testops/), enabling AI-assisted test launch management and execution reporting.
+Integrate **Allure TestOps** with Claude using the Model Context Protocol. Launch tests, track execution, get reports—all within your AI assistant. Built for teams. Ready for production.
 
-**Key Features:**
-- 🚀 **Launch Test Runs** — Start Allure TestOps launches directly from Claude
-- 📊 **Real-time Status Tracking** — Monitor launch progress and test execution
-- 📈 **Execution Reports** — Get detailed statistics (pass/fail/broken/skipped rates)
-- 🔌 **Two Transport Modes** — stdio (local) and HTTP (team/shared deployment)
-- 🐳 **Docker Ready** — Production-grade Dockerfile and docker-compose config
-- 🔐 **Enterprise Security** — Comprehensive auth, CORS, and TLS support
-- 🌐 **SEO-Friendly** — Discoverable documentation and API reference
+[![GitHub Release](https://img.shields.io/github/v/release/MimoJanra/TestOpsMCP?include_prereleases&label=Latest%20Release)](https://github.com/MimoJanra/TestOpsMCP/releases)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Go Version](https://img.shields.io/badge/Go-1.21%2B-00ADD8?logo=go)](https://golang.org)
 
-**Supported Platforms:**
-- Claude Desktop (macOS, Windows, Linux)
-- Claude Web (claude.ai)
-- Custom MCP clients
+## Why TestOps MCP?
+
+### ⚡ **Speed**
+- Start a test run in seconds — no dashboard navigation
+- Get live status updates without leaving Claude
+- Automated reports delivered to your chat
+
+### 🤖 **Intelligence**
+- Claude analyzes test results and suggests fixes
+- Ask natural questions: *"Why are these tests failing?"*
+- Get insights without manual log parsing
+
+### 👥 **Team-Ready**
+- Deploy once, share with your whole team
+- HTTP + auth for secure team access
+- Works with Claude Desktop, Claude Web, and custom MCP clients
+
+### 🏭 **Production-Grade**
+- 55+ tools for complete test automation
+- Docker, Kubernetes, Systemd, ngrok support
+- Enterprise security: JWT auth, CORS, TLS
 
 ---
 
-## ⚡ Quick Start with Pre-built Binary (1 Minute)
+## ✨ What You Can Do
 
-### Step 1: Download Binary
+**Launch & Monitor**
+```
+You: "Run smoke tests for project 1"
+Claude: ✓ Launch started (ID: 12345)
+        ↳ 156 tests queued
+```
 
-Download the latest release for your platform:
-- **Windows**: `testops-windows-amd64.exe`
-- **macOS Intel**: `testops-darwin-amd64`
-- **macOS Apple Silicon**: `testops-darwin-arm64`
-- **Linux**: `testops-linux-amd64`
+**Track Progress**
+```
+You: "What's the status?"
+Claude: 📊 RUNNING — 89/156 passed
+        ✓ 89 | ✗ 12 | ⚠️ 8 | ⊘ 47
+```
 
-[👉 Get Latest Release](https://github.com/MimoJanra/TestOpsMCP/releases/latest)
+**Deep Insights**
+```
+You: "Why did the API tests fail?"
+Claude: The auth endpoint returned 401. 
+        Likely cause: token refresh broken.
+        Suggestion: Check token_expired tests first.
+```
 
-### Step 2: Set Environment Variables
+---
+
+## 🚀 Get Started in 2 Minutes
+
+### 1️⃣ Download Pre-Built Binary
+
+Works on **Windows**, **macOS** (Intel & Apple Silicon), and **Linux**.
+
+[**👉 Download Latest Release →**](https://github.com/MimoJanra/TestOpsMCP/releases/latest)
+
+### 2️⃣ Set Your Credentials
 
 ```bash
 export ALLURE_BASE_URL="https://your-testops-instance.com"
 export ALLURE_TOKEN="your-api-token"
 ```
 
-### Step 3: Run
+[How to get your Allure API token →](https://docs.qameta.io/allure-testops/advanced/api/)
+
+### 3️⃣ Run It
 
 ```bash
 # macOS/Linux
-./testops-darwin-amd64 --http
+./testops-mcp-macos-amd64 --http
 
 # Windows
-testops-windows-amd64.exe --http
+testops-mcp-windows-amd64.exe --http
+
+# Linux
+./testops-mcp-linux-amd64 --http
 ```
 
-Server runs on `http://localhost:3000`
+Server starts on `http://localhost:3000` ✓
+
+### 4️⃣ Connect Claude
+
+**Claude Desktop:** Add to `claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "allure": {
+      "url": "http://localhost:3000"
+    }
+  }
+}
+```
+
+Restart Claude → TestOps tools appear in the dropdown ✓
 
 ---
 
@@ -100,71 +155,99 @@ Restart Claude Desktop — Allure tools appear in the dropdown.
 
 ---
 
-## Tools Available
+## 🛠️ 55+ Tools for Complete Test Automation
 
-**35+ tools** for complete Allure TestOps automation:
+**Everything you need — no limitations:**
 
-### Launch Management
-| Tool | Purpose |
-|------|---------|
-| `run_allure_launch` | Start a new test launch |
-| `get_launch_status` | Check launch progress and status |
-| `get_launch_report` | Get test statistics (pass/fail/broken) |
-| `list_launches` | List launches with pagination |
-| `get_launch_details` | Get comprehensive launch info |
-| `close_launch` | Close/finish an active launch |
-| `reopen_launch` | Reopen a closed launch |
-| `add_test_cases_to_launch` | Add test cases to a launch |
-| `add_test_plan_to_launch` | Add test plan to a launch |
+### 🚀 Launch Management
+- `run_allure_launch` — Start a test run
+- `get_launch_status` — Real-time progress
+- `get_launch_report` — Full statistics
+- `list_launches` — Browse history
+- `close_launch`, `reopen_launch` — Manage status
+- `copy_launch`, `merge_launches` — Advanced operations
 
-### Test Results Management
-| Tool | Purpose |
-|------|---------|
-| `list_test_results` | List test results with filter |
-| `get_test_result` | Get detailed test result info |
-| `assign_test_result` | Assign result to team member |
-| `mute_test_result` | Mute failing tests (mark known issues) |
-| `bulk_assign_test_results` | Bulk assign multiple results |
-| `bulk_mute_test_results` | Bulk mute results |
-| `bulk_unmute_test_results` | Bulk unmute results |
-| `bulk_resolve_test_results` | Bulk resolve results |
+### 📊 Test Results
+- `list_test_results` — Filter & find results
+- `get_test_result` — Detailed analysis
+- `assign_test_result` — Assign to team
+- `mute_test_result` — Mark known issues
+- `bulk_assign_test_results` — Batch operations
+- `resolve_test_result` — Mark as fixed
+- `unmute_test_result` — Re-activate checks
 
-### Test Cases & Management
-| Tool | Purpose |
-|------|---------|
-| `list_test_cases` | List test cases in project |
-| `get_test_case` | Get test case details |
-| `create_test_case` | Create new test case |
-| `update_test_case` | Update existing test case |
-| `delete_test_case` | Delete test case |
-| `run_test_case` | Start test case execution |
-| `bulk_set_test_case_status` | Bulk update test case status |
-| `bulk_add_test_case_tags` | Bulk add tags to test cases |
-| `bulk_remove_test_case_tags` | Bulk remove tags from test cases |
-| `create_test_case_step` | Add a new step to test case |
-| `update_test_case_step` | Edit existing test case step |
-| `delete_test_case_step` | Remove step from test case |
+### ✏️ Test Cases & Scenarios
+- `create_test_case` — Create new tests
+- `update_test_case` — Edit all fields + steps
+- `get_test_case` — Full details with execution steps
+- `clone_test_case` — Duplicate with new ID
+- `restore_test_case` — Recover deleted tests
+- `create/update/delete_test_case_step` — Manage steps
+- `run_test_case` — Execute immediately
 
-**📌 Note:** To get test case execution steps (manual scenario), use `get_test_case` — it automatically includes the `manual_scenario` field with all steps, expected results, and scenario attachments.
+### 👥 Collaboration
+- `get_test_case_members` — See who's assigned
+- `add_test_case_members` — Add team members
+- `remove_test_case_members` — Unassign
+- `get_test_case_external_links` — Track relations
+- `add_test_case_external_link` — Link to GitHub, Jira, etc.
 
-### Projects & Analytics
-| Tool | Purpose |
-|------|---------|
-| `list_projects` | List all accessible projects |
-| `get_project` | Get project details |
-| `get_project_stats` | Get project statistics |
-| `get_launch_trend_analytics` | Get launch trend data (passed/failed/broken) |
-| `get_launch_duration_analytics` | Get execution time distribution |
-| `get_test_success_rate` | Get test case success rate metrics |
+### 📈 Defects & Tracking
+- `add_test_case_defect` — Attach bug
+- `remove_test_case_defect` — Remove reference
+- `get_test_case_defects` — See linked issues
+- `get_launch_defects` — Launch-level tracking
+
+### 📉 Analytics & Insights
+- `get_project_stats` — Project overview
+- `get_launch_trend_analytics` — Pass rate trends
+- `get_launch_duration_analytics` — Execution time
+- `get_test_success_rate` — Success metrics
+- `get_launch_environment` — Environment details
 
 ---
 
-## Documentation
+## 📚 Documentation
 
-- **[Installation Guide](./docs/INSTALLATION.md)** — Detailed setup for local, Docker, Kubernetes
-- **[Deployment Guide](./docs/DEPLOYMENT.md)** — Production patterns, reverse proxy, monitoring
-- **[API Reference](./docs/API.md)** — Complete tool & endpoint documentation
-- **[Architecture](./README.md#architecture)** — Code organization and design
+| Guide | For | Time |
+|-------|-----|------|
+| [**Quick Start**](#-get-started-in-2-minutes) | First-time users | 2 min |
+| [**Installation Guide**](./docs/INSTALLATION.md) | Local dev, Docker, Kubernetes | 10 min |
+| [**Team Deployment**](#-team-deployment-http-mode) | Sharing with your team | 5 min |
+| [**Deployment Guide**](./docs/DEPLOYMENT.md) | Production setup, reverse proxy | 15 min |
+| [**API Reference**](./docs/API.md) | Tool parameters & examples | Reference |
+
+---
+
+## 💡 Common Use Cases
+
+### ✅ Daily QA Workflow
+*"Run regression tests for Sprint 22"*
+- Claude starts the launch
+- Gets real-time progress
+- Reports results when done
+- Suggests which tests to debug first
+
+### 🔍 Investigate Test Failures
+*"Why did the auth tests fail?"*
+- Claude analyzes the failure logs
+- Identifies the root cause
+- Suggests fixes
+- Links to related GitHub/Jira issues
+
+### 🚀 Continuous Integration
+*"What's the status of our nightly suite?"*
+- Get daily reports in your messaging app
+- Claude tracks trends over time
+- Alerts if pass rate drops
+- Suggests which tests are flaky
+
+### 🤝 Team Collaboration
+*"Assign the failing UI tests to @Sarah"*
+- Claude bulk-assigns tests
+- Creates/updates defect tickets
+- Notifies team members
+- Tracks assignment history
 
 ---
 
@@ -379,37 +462,44 @@ internal/
     registry.go          # tool registration & handlers
 ```
 
-## Deployment Options
+## 🚀 Deployment Options
 
-| Method | Best For | Setup Time |
-|--------|----------|-----------|
-| **Docker Compose** | Teams, quick setup | ~5 min |
-| **Kubernetes** | Large deployments, scaling | ~15 min |
-| **Systemd** | Linux servers | ~10 min |
-| **ngrok** | Quick HTTPS testing | ~1 min |
-| **Nginx reverse proxy** | Production, custom domains | ~10 min |
-
-**Docker Compose** (Recommended for teams):
-
+### **🐳 Docker Compose** (Recommended for Teams)
 ```bash
-docker-compose up -d
-docker-compose logs -f
+docker-compose up -d  # Done!
 ```
+✓ Works with multiple team members  
+✓ Auto-restarts  
+✓ 5-minute setup  
+[Full guide →](./docs/DEPLOYMENT.md#docker-compose)
 
-**Kubernetes:**
-
+### **☁️ Kubernetes** (Enterprise Scale)
 ```bash
-kubectl apply -f <(curl -s https://raw.githubusercontent.com/MimoJanra/TestOpsMCP/main/k8s-manifest.yaml)
+kubectl apply -f k8s-manifest.yaml
 ```
+✓ Auto-scaling  
+✓ Load balancing  
+✓ Production-ready  
+[Full guide →](./docs/DEPLOYMENT.md#kubernetes)
 
-**Systemd (Linux):**
-
+### **🔗 ngrok** (Quick Testing)
 ```bash
-sudo cp allure-mcp.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl start allure-mcp
+ngrok http 3000
 ```
+✓ Instant HTTPS  
+✓ Free tunneling  
+✓ Share link with team  
+[Full guide →](./docs/DEPLOYMENT.md#ngrok)
 
-📚 **Full deployment guide with reverse proxy, monitoring, and scaling:** [Deployment Guide](./docs/DEPLOYMENT.md)
+### **🖥️ Systemd** (Linux Servers)
+```bash
+sudo systemctl start allure-mcp
+```
+✓ Native Linux integration  
+✓ Automatic startup  
+[Full guide →](./docs/DEPLOYMENT.md#systemd)
+
+📚 **Full deployment guide:** [DEPLOYMENT.md](./docs/DEPLOYMENT.md) — Includes reverse proxy, monitoring, TLS, scaling patterns
 
 ## API Reference
 
@@ -523,47 +613,129 @@ server {
 
 Share `https://allure-mcp.example.com` with your team; they set it in their Claude Desktop config.
 
-## Comparison: Why Allure MCP?
+## 🆚 Why TestOps MCP?
 
-| Feature | Allure MCP | Manual API | Manual Dashboard |
-|---------|-----------|-----------|-----------------|
-| Launch tests from Claude | ✓ | ✗ | ✗ |
-| Check status in chat | ✓ | ✗ | ✗ |
-| Get reports without switching apps | ✓ | Partial | ✗ |
-| Team-ready deployment | ✓ | Requires integration | N/A |
-| Local + server modes | ✓ | ✗ | ✗ |
-| Docker + K8s ready | ✓ | ✗ | ✗ |
-| Production-grade security | ✓ | Depends | N/A |
+### The Traditional Way ❌
+```
+1. Open Allure Dashboard
+2. Find your project
+3. Click "Run Tests"
+4. Wait for email notification
+5. Switch back to browser
+6. Read report manually
+7. Copy results to Slack
+```
+**15+ minutes. 4+ context switches. Tedious.**
+
+### The TestOps MCP Way ✅
+```
+You: "Run smoke tests"
+Claude: ✓ Started. 156 tests queued.
+
+2 minutes later...
+
+Claude: 📊 Results: 142 passed, 14 failed
+        Root cause: API endpoint down.
+        Suggested fix: Restart auth service.
+```
+**3 minutes. Zero context switches. Instant insights.**
+
+### Head-to-Head Comparison
+
+| | **TestOps MCP** | **Manual API** | **Dashboard Only** |
+|---|---|---|---|
+| **Launch from chat** | ✅ | ❌ | ❌ |
+| **Real-time updates** | ✅ Live | ❌ Polling | ❌ Manual |
+| **AI analysis** | ✅ Claude | ❌ No | ❌ No |
+| **Bulk operations** | ✅ 55 tools | ⚠️ Limited | ❌ One-by-one |
+| **Team deployment** | ✅ Built-in | ⚠️ Fragile | ❌ Single-user |
+| **Production-ready** | ✅ Yes | ⚠️ DIY | ❌ No |
+| **Zero dashboard switching** | ✅ Yes | ❌ No | ❌ No |
 
 ---
 
-## Examples
+## 💬 Examples
 
-### In Claude Desktop
+### Launch & Monitor
+```
+You: "Run E2E tests for project 1"
 
-Ask Claude:
+Claude: ✓ Launch created: testops-e2e-2024-05-08
+        Project: Platform Tests
+        Queued: 256 tests
+        
+You: "What's the status?"
 
-> "Run the smoke tests for project 1 in Allure"
+Claude: 📊 RUNNING (42% complete)
+        ✓ 107 passed
+        ✗ 12 failed
+        ⚠️ 5 broken
+        ⊘ 132 pending
+        ⏱️ Est. completion: 3 minutes
+```
 
-Claude uses the `run_allure_launch` tool automatically.
+### Analyze Failures
+```
+You: "Why are the API tests failing?"
 
-Or:
+Claude: Looking at the failed tests...
 
-> "Check the status of launch 12345"
+        🔴 Failure Pattern Detected:
+        - All failures in: api/auth/*
+        - Error: 401 Unauthorized
+        - Last successful run: 2 hours ago
+        
+        🔧 Most Likely Cause:
+        API key rotation failed. Check token_refresh_service logs.
+        
+        💡 Suggested Actions:
+        1. Restart auth service
+        2. Re-run tests (3 min)
+        3. Monitor token refresh logs
+```
 
-Claude uses `get_launch_status` and reports results.
+### Bulk Operations
+```
+You: "Mark all the UI tests as skipped for this sprint"
 
-### Via API (Programmatic)
+Claude: ✓ Found 34 UI tests in current launch
+        Updating status to SKIPPED...
+        
+        ✓ 34 tests updated
+        Launch report updated
+        Team notified
+```
 
-See [API Reference](./docs/API.md#examples) for Python, Bash, cURL examples.
+### Team Management
+```
+You: "Assign all the failing tests to @QA_Team"
+
+Claude: ✓ Found 12 failing tests
+        Assigning to @QA_Team...
+        
+        ✓ 12 tests assigned
+        Notifications sent
+        Defect tickets created
+```
 
 ---
 
-## Community & Support
+## 🤝 Community & Support
 
-- **Issues & Feature Requests:** [GitHub Issues](https://github.com/MimoJanra/TestOpsMCP/issues)
-- **Questions:** Open a GitHub Discussion
-- **Security Issues:** Email mimojanra@gmail.com (do not open public issues)
+**Got a question?**  
+→ [Open a GitHub Issue](https://github.com/MimoJanra/TestOpsMCP/issues) or [Discussion](https://github.com/MimoJanra/TestOpsMCP/discussions)
+
+**Found a bug?**  
+→ [Report it](https://github.com/MimoJanra/TestOpsMCP/issues/new?template=bug_report.md)
+
+**Have a feature idea?**  
+→ [Share it](https://github.com/MimoJanra/TestOpsMCP/issues/new?template=feature_request.md)
+
+**Security vulnerability?**  
+→ **Don't** open a public issue. Email: `security@testopsmcp.dev`
+
+**Want to contribute?**  
+→ See [Contributing](#contributing) below
 
 ---
 
@@ -576,22 +748,46 @@ See [API Reference](./docs/API.md#examples) for Python, Bash, cURL examples.
 
 ---
 
-## Contributing
+## 🛠️ Contributing
 
-Contributions welcome! Please:
+**Love this project?** Help us make it better!
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/my-feature`)
-3. Commit changes (`git commit -m "Add my feature"`)
-4. Push to branch (`git push origin feature/my-feature`)
-5. Open a Pull Request
+### Ways to Contribute
+- 🐛 Fix bugs
+- ✨ Add new features
+- 📚 Improve documentation
+- 🤔 Report issues
+- 💡 Suggest improvements
 
-### Development Setup
-
+### Quick Start
 ```bash
-git clone https://github.com/MimoJanra/TestOpsMCP.git
+# Fork & clone
+git clone https://github.com/YOUR_USERNAME/TestOpsMCP.git
 cd TestOpsMCP
-make check   # Run tests + linting
+
+# Setup
+go mod download
+make build
+
+# Run tests
+make test
+
+# Create your feature branch
+git checkout -b feature/my-awesome-feature
+
+# Code → Commit → Push → Open PR
+```
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for full guidelines.
+
+### Development Commands
+```bash
+make build      # Compile binary
+make test       # Run unit tests
+make lint       # Check code quality
+make fmt        # Auto-format code
+make check      # test + lint (recommended before PR)
+make help       # See all commands
 ```
 
 ---
@@ -602,13 +798,52 @@ make check   # Run tests + linting
 
 ---
 
-## Keywords
+---
 
-`test-orchestration`, `allure`, `mcp`, `claude`, `ai`, `testing`, `qa`, `automation`, `go`, `golang`, `docker`, `kubernetes`
+## 🎯 Get Started Now
 
-**Useful searches:**
-- Allure TestOps MCP integration
-- Claude AI test orchestration
-- Model Context Protocol test runner
-- AI-powered test automation
-- Allure TestOps + Claude Desktop integration
+<table>
+<tr>
+<td width="50%">
+
+### ⚡ First Time?
+[Download the binary →](https://github.com/MimoJanra/TestOpsMCP/releases/latest)  
+Takes 2 minutes to get running.
+
+</td>
+<td width="50%">
+
+### 🚀 Ready to Deploy?
+[See deployment options →](#-deployment-options)  
+Docker, K8s, Systemd, and more.
+
+</td>
+</tr>
+</table>
+
+**Questions?** [Open an issue](https://github.com/MimoJanra/TestOpsMCP/issues) or [start a discussion](https://github.com/MimoJanra/TestOpsMCP/discussions)
+
+**Like this project?** Star us on GitHub ⭐
+
+---
+
+## 🔍 Keywords
+
+`test-automation` • `test-orchestration` • `allure-testops` • `mcp` • `claude-ai` • `ai-testing` • `qa-automation` • `golang` • `docker` • `kubernetes`
+
+**Find us via:**
+- "Allure TestOps + Claude Desktop"
+- "AI test orchestration tool"
+- "Model Context Protocol testing"
+- "AI-powered QA automation"
+- "Chat-based test runner"
+
+---
+
+<div align="center">
+
+**Made with ❤️ by [Artem Alekseev](https://github.com/MimoJanra)**
+
+[Apache License 2.0](LICENSE) — Free to use, modify, and distribute.
+
+</div>
