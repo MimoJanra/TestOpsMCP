@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-05-08
+
+### Fixed
+- `get_test_case` now includes `manual_scenario` field with complete test execution steps
+- Fetches scenario via dedicated `/api/testcase/{id}/scenario` endpoint
+- Returns scenario attachments, step structure, and expected results
+
 ## [1.1.1] - 2026-05-08
 
 ### Fixed

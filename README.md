@@ -69,7 +69,7 @@ Restart Claude Desktop — Allure tools appear in the dropdown.
 
 ## Tools Available
 
-**32+ tools** for complete Allure TestOps automation:
+**35+ tools** for complete Allure TestOps automation:
 
 ### Launch Management
 | Tool | Purpose |
@@ -108,6 +108,11 @@ Restart Claude Desktop — Allure tools appear in the dropdown.
 | `bulk_set_test_case_status` | Bulk update test case status |
 | `bulk_add_test_case_tags` | Bulk add tags to test cases |
 | `bulk_remove_test_case_tags` | Bulk remove tags from test cases |
+| `create_test_case_step` | Add a new step to test case |
+| `update_test_case_step` | Edit existing test case step |
+| `delete_test_case_step` | Remove step from test case |
+
+**📌 Note:** To get test case execution steps (manual scenario), use `get_test_case` — it automatically includes the `manual_scenario` field with all steps, expected results, and scenario attachments.
 
 ### Projects & Analytics
 | Tool | Purpose |

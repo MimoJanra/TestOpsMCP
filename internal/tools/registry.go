@@ -280,7 +280,7 @@ func (r *Registry) registerTools() {
 
 	r.register(&Tool{
 		Name:        "get_test_case",
-		Description: "Get full test case details including all fields, steps, tags, members, and custom fields",
+		Description: "Get full test case details: metadata, manual_scenario (test execution steps), tags, members, custom fields, examples, and more",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
