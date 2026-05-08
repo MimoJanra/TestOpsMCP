@@ -449,6 +449,34 @@ func (c *Client) GetTestCase(ctx context.Context, testCaseID int64) (*TestCaseDe
 	return &result, nil
 }
 
+func (c *Client) GetTestCaseOverview(ctx context.Context, testCaseID int64) (map[string]any, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/overview", testCaseID)), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
+	httpReq.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errFromResponse(resp)
+	}
+
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	return result, nil
+}
+
 func (c *Client) RunTestCase(ctx context.Context, testCaseID, launchID int64) error {
 	body, err := json.Marshal(RunTestCaseRequest{
 		TestCaseIds: []int64{testCaseID},

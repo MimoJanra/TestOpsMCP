@@ -280,7 +280,7 @@ func (r *Registry) registerTools() {
 
 	r.register(&Tool{
 		Name:        "get_test_case",
-		Description: "Get test case details and steps",
+		Description: "Get full test case details including all fields, steps, tags, members, and custom fields",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -1372,22 +1372,13 @@ func (r *Registry) getTestCase(ctx context.Context, input json.RawMessage) (any,
 
 	r.logger.Info("fetching test case", map[string]any{"test_case_id": params.TestCaseID})
 
-	tc, err := r.allure.GetTestCase(ctx, params.TestCaseID)
+	tc, err := r.allure.GetTestCaseOverview(ctx, params.TestCaseID)
 	if err != nil {
 		r.logger.Error("get test case", err, map[string]any{"test_case_id": params.TestCaseID})
 		return nil, fmt.Errorf("get test case: %w", err)
 	}
 
-	return map[string]any{
-		"id":                tc.ID,
-		"uuid":              tc.UUID,
-		"name":              tc.Name,
-		"project_id":        tc.ProjectID,
-		"description":       tc.Description,
-		"status":            tc.Status,
-		"automation_status": tc.AutomationStatus,
-		"full_name":         tc.FullName,
-	}, nil
+	return tc, nil
 }
 
 func (r *Registry) runTestCase(ctx context.Context, input json.RawMessage) (any, error) {
