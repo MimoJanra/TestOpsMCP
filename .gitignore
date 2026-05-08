@@ -81,6 +81,7 @@ scripts/
 
 # ── Claude Code ───────────────────────────────────────────────────────────────
 .claude/settings.local.json
+CLAUDE.md
 
 # Generated & Downloaded files
 testops.json
