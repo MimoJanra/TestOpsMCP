@@ -81,3 +81,8 @@ scripts/
 
 # ── Claude Code ───────────────────────────────────────────────────────────────
 .claude/settings.local.json
+
+# Generated & Downloaded files
+testops.json
+*.openapi.json
+*.swagger.json
