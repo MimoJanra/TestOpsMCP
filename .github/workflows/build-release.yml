@@ -82,11 +82,32 @@ jobs:
         run: |
           mkdir -p release-assets
           find artifacts -type f -exec mv {} release-assets/ \;
+          ls -la release-assets/
 
-      - name: Create Release
+      - name: Extract release notes from CHANGELOG
+        id: changelog
+        run: |
+          # Extract version number from tag
+          VERSION=${{ github.ref_name }}
+
+          # Extract section for this version from CHANGELOG.md
+          # This is a simplified extraction - adjust regex as needed
+          NOTES=$(sed -n "/## \[${VERSION#v}\]/,/## \[/p" CHANGELOG.md | head -n -1)
+
+          # If not found, use a default message
+          if [ -z "$NOTES" ]; then
+            NOTES="Release $VERSION"
+          fi
+
+          # Write to file for action
+          echo "$NOTES" > release_notes.txt
+          cat release_notes.txt
+
+      - name: Create or Update Release
         uses: softprops/action-gh-release@v1
         with:
           files: release-assets/*
+          body_path: release_notes.txt
           draft: false
           prerelease: false
         env:
