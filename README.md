@@ -103,7 +103,9 @@ Add this to the `mcpServers` section:
       "command": "C:\\Users\\YourName\\Downloads\\testops-mcp-windows-amd64.exe",
       "env": {
         "ALLURE_BASE_URL": "https://your-testops-instance.com",
-        "ALLURE_TOKEN": "your-api-token-here"
+        "ALLURE_TOKEN": "your-api-token-here",
+        "REQUEST_TIMEOUT": "30",
+        "LOG_LEVEL": "INFO"
       }
     }
   }
@@ -114,6 +116,8 @@ Add this to the `mcpServers` section:
 - `C:\\Users\\YourName\\Downloads\\testops-mcp-windows-amd64.exe` → path to your binary
 - `https://your-testops-instance.com` → your Allure TestOps URL (e.g., `https://testops.mycompany.com`)
 - `your-api-token-here` → your personal API token from step 2
+- `REQUEST_TIMEOUT` → HTTP timeout in seconds (optional, default 30)
+- `LOG_LEVEL` → DEBUG/INFO/WARN/ERROR (optional, default INFO)
 
 ### 4️⃣ Restart Claude
 
@@ -132,16 +136,22 @@ Close and reopen Claude Desktop. TestOps tools now appear in the tool dropdown! 
 ./testops-mcp-linux-amd64 --http
 ```
 
-2. Add to Claude Desktop config (no token):
+2. Add to Claude Desktop config (without token):
 ```json
 {
   "mcpServers": {
     "testops": {
-      "command": "http://your-server:3000"
+      "command": "C:\\Users\\YourName\\Downloads\\testops-mcp-windows-amd64.exe",
+      "env": {
+        "ALLURE_BASE_URL": "https://your-testops-instance.com",
+        "REQUEST_TIMEOUT": "30",
+        "LOG_LEVEL": "INFO"
+      }
     }
   }
 }
 ```
+(Note: no `ALLURE_TOKEN` — you'll set it in chat with the tool below)
 
 3. In Claude, use the `configure_allure_token` tool:
 ```
