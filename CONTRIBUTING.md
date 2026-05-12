@@ -44,7 +44,7 @@ git checkout -b fix/my-bug-fix
 #### Development Workflow
 
 ```bash
-# Install Go 1.22+
+# Install Go 1.26+
 # https://golang.org/dl/
 
 # Build
@@ -238,7 +238,7 @@ count++
 
 ### Prerequisites
 
-- Go 1.22+
+- Go 1.26+
 - Make
 - Git
 

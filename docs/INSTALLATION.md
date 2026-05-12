@@ -13,7 +13,7 @@ Complete guide to install and configure Allure MCP Server for different environm
 
 ### Prerequisites
 
-- **Go 1.22+** — [Download from golang.org](https://golang.org/dl/)
+- **Go 1.26+** — [Download from golang.org](https://golang.org/dl/)
 - **Make** — Usually pre-installed on Unix-like systems
 - Access to **Allure TestOps instance** with API token
 - **Claude Desktop** (for testing MCP integration)
@@ -336,11 +336,11 @@ deploy:
 
 **Problem:** `make run` fails with "file not found"
 
-**Solution:** Ensure Go 1.22+ is installed:
+**Solution:** Ensure Go 1.26+ is installed:
 
 ```bash
 go version
-# Should show go version go1.22 or later
+# Should show go version go1.26 or later
 ```
 
 Then rebuild:
