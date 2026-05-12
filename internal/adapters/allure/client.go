@@ -39,10 +39,13 @@ func (c *Client) getJWTToken(ctx context.Context) (string, error) {
 		return c.jwtToken, nil
 	}
 
-	// Use configured token or session token
-	token := c.userToken
-	if token == "" && c.GetSessionToken != nil {
+	// Session token has priority (user-provided in chat), fallback to configured token
+	token := ""
+	if c.GetSessionToken != nil {
 		token = c.GetSessionToken()
+	}
+	if token == "" {
+		token = c.userToken
 	}
 	if token == "" {
 		return "", fmt.Errorf("no token configured - set ALLURE_TOKEN env var or use configure_allure_token tool")
