@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-05-12
+
+### Added
+- **Search + Execute tools** — Query and execute any of 600+ TestOps API endpoints dynamically
+- **Per-user authentication** — Users can authenticate with their own tokens in chat, no shared credentials needed
+- **Session-based token configuration** — New `configure_allure_token` tool for chat-based auth setup with security warnings
+- **Go 1.26 support** — Updated all tooling, CI/CD, and Docker builds to Go 1.26
+
+### Changed
+- **ALLURE_TOKEN is now optional** — Shared server deployments no longer require pre-configured tokens
+- **OpenAPI spec bundled** — Complete Allure TestOps API specification included in repo (spec/testops.json)
+- **Improved documentation** — Added per-user vs shared server setup guides, lazy setup instructions
+
+### Improved
+- Authentication flexibility for different deployment scenarios
+- API coverage expanded from 55 explicit tools to 55 + dynamic search/execute for 600+ operations
+- Development experience with updated Go dependencies across the board
+
 ## [1.2.1] - 2026-05-08
 
 ### Added
