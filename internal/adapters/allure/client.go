@@ -14,11 +14,12 @@ import (
 )
 
 type Client struct {
-	baseURL      string
-	userToken    string
-	jwtToken     string
-	jwtExpiresAt time.Time
-	httpClient   *http.Client
+	baseURL        string
+	userToken      string
+	jwtToken       string
+	jwtExpiresAt   time.Time
+	httpClient     *http.Client
+	GetSessionToken func() string // optional callback to get session token
 }
 
 func NewClient(baseURL, token string, timeout time.Duration) *Client {
@@ -38,10 +39,19 @@ func (c *Client) getJWTToken(ctx context.Context) (string, error) {
 		return c.jwtToken, nil
 	}
 
+	// Use configured token or session token
+	token := c.userToken
+	if token == "" && c.GetSessionToken != nil {
+		token = c.GetSessionToken()
+	}
+	if token == "" {
+		return "", fmt.Errorf("no token configured - set ALLURE_TOKEN env var or use configure_allure_token tool")
+	}
+
 	values := url.Values{}
 	values.Set("grant_type", "apitoken")
 	values.Set("scope", "openid")
-	values.Set("token", c.userToken)
+	values.Set("token", token)
 
 	body := strings.NewReader(values.Encode())
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/uaa/oauth/token"), body)

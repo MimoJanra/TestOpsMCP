@@ -23,12 +23,14 @@ type Tool struct {
 // Tools are registered once during NewRegistry and must not be mutated
 // afterwards; ListTools therefore returns shared pointers without copying.
 type Registry struct {
-	tools      map[string]*Tool
-	allure     *allure.Client
-	logger     *core.Logger
-	mu         sync.RWMutex
-	opIndex    *OperationsIndex
-	openAPISpec *OpenAPISpec
+	tools          map[string]*Tool
+	allure         *allure.Client
+	logger         *core.Logger
+	mu             sync.RWMutex
+	opIndex        *OperationsIndex
+	openAPISpec    *OpenAPISpec
+	sessionToken   string // temporary session token (for chat-based auth)
+	sessionTokenMu sync.RWMutex
 }
 
 func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
@@ -59,6 +61,13 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 	// Warn if no Allure token is configured
 	if allureClient != nil && !allureClient.HasToken() {
 		logger.Info("ALLURE_TOKEN not configured - each user must provide their token in Claude Desktop config", nil)
+	}
+
+	// Set up callback for session token if client exists
+	if allureClient != nil {
+		allureClient.GetSessionToken = func() string {
+			return r.GetSessionToken()
+		}
 	}
 
 	r.registerTools()
@@ -1321,6 +1330,25 @@ func (r *Registry) registerTools() {
 		Handler: r.addTestPlanToLaunch,
 	})
 
+	// Configuration tool for session token (if no token in config)
+	if r.allure != nil && !r.allure.HasToken() {
+		r.register(&Tool{
+			Name:        "configure_allure_token",
+			Description: "⚠️ SECURITY WARNING: Configure your Allure API token for this chat session. Only use if you trust this channel. Token will NOT be saved after session ends. For production, use ALLURE_TOKEN environment variable instead.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"token": map[string]any{
+						"type":        "string",
+						"description": "Your Allure TestOps API token",
+					},
+				},
+				"required": []string{"token"},
+			},
+			Handler: r.configureAllureToken,
+		})
+	}
+
 	// Search + Execute tools for full OpenAPI coverage
 	if r.opIndex != nil {
 		r.register(&Tool{
@@ -1387,6 +1415,40 @@ func (r *Registry) ListTools() []*Tool {
 		tools = append(tools, tool)
 	}
 	return tools
+}
+
+// Token configuration handler
+
+func (r *Registry) configureAllureToken(ctx context.Context, input json.RawMessage) (any, error) {
+	var req struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(input, &req); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if req.Token == "" {
+		return nil, fmt.Errorf("token cannot be empty")
+	}
+
+	r.sessionTokenMu.Lock()
+	r.sessionToken = req.Token
+	r.sessionTokenMu.Unlock()
+
+	r.logger.Info("session token configured", map[string]any{
+		"warning": "token set in chat session - not saved after session ends",
+	})
+
+	return map[string]any{
+		"status":  "configured",
+		"warning": "⚠️ Token stored only for this chat session. It will be lost when you close the conversation. For persistent setup, use ALLURE_TOKEN environment variable.",
+	}, nil
+}
+
+func (r *Registry) GetSessionToken() string {
+	r.sessionTokenMu.RLock()
+	defer r.sessionTokenMu.RUnlock()
+	return r.sessionToken
 }
 
 // Search + Execute handlers
