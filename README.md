@@ -238,18 +238,18 @@ You: configure_allure_token(token="your-api-token-here")
 
 ## Shared Server Setup
 
+### Quick Start for Shared Server (Team Lead)
+
 If your team wants to run a **single shared server** instead of per-user setup:
 
-### 1️⃣ Get a Shared API Token
-
+#### 1️⃣ Get a Shared API Token
 1. In Allure TestOps, create a dedicated **service account** or use a shared admin token
 2. Copy the API token
 3. Keep it in a secure location (it will be in the server's `.env`)
 
-### 2️⃣ Deploy the Server
-
+#### 2️⃣ Download & Start Server
 ```bash
-# Download binary for your platform
+# Download binary (same as above, but for your server's OS)
 # https://github.com/MimoJanra/TestOpsMCP/releases/latest
 
 # Create .env file
@@ -258,17 +258,35 @@ ALLURE_BASE_URL=https://your-testops-instance.com
 ALLURE_TOKEN=your-shared-api-token
 PORT=3000
 LOG_LEVEL=INFO
-MCP_AUTH_TOKEN=secure-random-string-here
-CORS_ALLOWED_ORIGIN=https://claude.ai
 EOF
 
-# Run in HTTP mode
+# Run the server
 ./testops-mcp-linux-amd64 --http
 ```
 
-Server starts on `http://localhost:3000`
+Server starts on `http://localhost:3000` ✅
 
-→ **Full team deployment guide:** [Shared Server & DevOps Setup](#shared-server--devops-guide-below)
+#### 3️⃣ Share with Team
+Tell your team to add this to their **Claude Desktop config**:
+
+```json
+"mcpServers": {
+  "testops": {
+    "command": "http://your-server-address:3000"
+  }
+}
+```
+
+**Replace** `your-server-address` with:
+- Local network? → `http://192.168.1.100:3000` (your server's IP)
+- Internet? → `https://mcp.yourcompany.com` (your domain with HTTPS)
+
+#### 4️⃣ Team restarts Claude Desktop
+They'll see the TestOps tools immediately! 🎉
+
+---
+
+**→ Full DevOps guide:** [See DEPLOYMENT.md](./docs/DEPLOYMENT.md) for Docker, Kubernetes, Nginx, systemd, ngrok, and more.
 
 ---
 
