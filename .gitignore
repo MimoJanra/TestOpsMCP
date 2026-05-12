@@ -1,5 +1,6 @@
 # ── Build artifacts ──────────────────────────────────────────────────────────
 bin/
+build/
 dist/
 *.exe
 *.exe~
@@ -84,6 +85,7 @@ scripts/
 CLAUDE.md
 
 # Generated & Downloaded files
-testops.json
+# (testops.json is kept in spec/ folder as it's the OpenAPI spec)
 *.openapi.json
 *.swagger.json
+!spec/testops.json

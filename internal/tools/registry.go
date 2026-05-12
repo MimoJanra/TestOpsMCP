@@ -23,10 +23,12 @@ type Tool struct {
 // Tools are registered once during NewRegistry and must not be mutated
 // afterwards; ListTools therefore returns shared pointers without copying.
 type Registry struct {
-	tools  map[string]*Tool
-	allure *allure.Client
-	logger *core.Logger
-	mu     sync.RWMutex
+	tools      map[string]*Tool
+	allure     *allure.Client
+	logger     *core.Logger
+	mu         sync.RWMutex
+	opIndex    *OperationsIndex
+	openAPISpec *OpenAPISpec
 }
 
 func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
@@ -35,6 +37,25 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 		allure: allureClient,
 		logger: logger,
 	}
+
+	// Load OpenAPI spec and build operations index
+	if specPath, err := FindSpecFile(); err == nil {
+		if spec, err := LoadOpenAPI(specPath); err == nil {
+			r.openAPISpec = spec
+			if idx, err := BuildOperationsIndex(spec); err == nil {
+				r.opIndex = idx
+				logger.Info("loaded OpenAPI spec", map[string]any{
+					"spec_file": specPath,
+					"operations": len(idx.ListAll()),
+				})
+			} else {
+				logger.Info("failed to build operations index", map[string]any{"error": err.Error()})
+			}
+		} else {
+			logger.Info("failed to load OpenAPI spec", map[string]any{"error": err.Error()})
+		}
+	}
+
 	r.registerTools()
 	return r
 }
@@ -1294,6 +1315,50 @@ func (r *Registry) registerTools() {
 		},
 		Handler: r.addTestPlanToLaunch,
 	})
+
+	// Search + Execute tools for full OpenAPI coverage
+	if r.opIndex != nil {
+		r.register(&Tool{
+			Name:        "search_testops_operations",
+			Description: "Search for TestOps API operations by intent/keyword. Returns up to 10 matching operations with their IDs, paths, methods, and required parameters.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"intent": map[string]any{
+						"type":        "string",
+						"description": "What you want to do (e.g., 'create project', 'list launches', 'get test results')",
+					},
+					"limit": map[string]any{
+						"type":        "integer",
+						"description": "Max results to return (1-100, default 10)",
+						"default":     10,
+					},
+				},
+				"required": []string{"intent"},
+			},
+			Handler: r.searchTestOpsOperations,
+		})
+
+		r.register(&Tool{
+			Name:        "execute_testops_operation",
+			Description: "Execute a TestOps API operation by operation_id (from search results). Handles path parameters, query parameters, and request bodies.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"operation_id": map[string]any{
+						"type":        "string",
+						"description": "The operation_id from search results",
+					},
+					"parameters": map[string]any{
+						"type":        "object",
+						"description": "Parameters for the operation (path, query, or body params)",
+					},
+				},
+				"required": []string{"operation_id"},
+			},
+			Handler: r.executeTestOpsOperation,
+		})
+	}
 }
 
 func (r *Registry) register(tool *Tool) {
@@ -1317,6 +1382,73 @@ func (r *Registry) ListTools() []*Tool {
 		tools = append(tools, tool)
 	}
 	return tools
+}
+
+// Search + Execute handlers
+
+func (r *Registry) searchTestOpsOperations(ctx context.Context, input json.RawMessage) (any, error) {
+	var req SearchRequest
+	if err := json.Unmarshal(input, &req); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if req.Intent == "" {
+		return nil, fmt.Errorf("intent is required")
+	}
+
+	if r.opIndex == nil {
+		return nil, fmt.Errorf("operations index not available")
+	}
+
+	ops := r.opIndex.Search(req.Intent)
+	results := buildSearchResults(ops, req.Limit)
+
+	r.logger.Info("search testops operations", map[string]any{
+		"intent":      req.Intent,
+		"results":     len(results),
+	})
+
+	return map[string]any{
+		"intent":   req.Intent,
+		"results":  results,
+		"total":    len(r.opIndex.ListAll()),
+	}, nil
+}
+
+func (r *Registry) executeTestOpsOperation(ctx context.Context, input json.RawMessage) (any, error) {
+	var req ExecuteRequest
+	if err := json.Unmarshal(input, &req); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if req.OperationID == "" {
+		return nil, fmt.Errorf("operation_id is required")
+	}
+
+	if r.opIndex == nil {
+		return nil, fmt.Errorf("operations index not available")
+	}
+
+	op := r.opIndex.Get(req.OperationID)
+	if op == nil {
+		return nil, fmt.Errorf("operation not found: %s", req.OperationID)
+	}
+
+	r.logger.Info("execute testops operation", map[string]any{
+		"operation_id": req.OperationID,
+		"path":         op.Path,
+		"method":       op.Method,
+	})
+
+	result, err := r.executeOperation(ctx, op, req.Parameters)
+	if err != nil {
+		r.logger.Error("execute testops operation", err, map[string]any{
+			"operation_id": req.OperationID,
+		})
+		return nil, fmt.Errorf("execute operation: %w", err)
+	}
+
+	return result, nil
 }
 
 func (r *Registry) runAllureLaunch(ctx context.Context, input json.RawMessage) (any, error) {

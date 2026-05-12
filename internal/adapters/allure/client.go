@@ -1832,6 +1832,23 @@ func (c *Client) BulkCloneTestCases(ctx context.Context, projectID int64, testCa
 	return nil
 }
 
+// Public methods for OpenAPI execution
+
+// GetBaseURL returns the base URL of the TestOps API
+func (c *Client) GetBaseURL() string {
+	return c.baseURL
+}
+
+// SetAuthHeader sets the authorization header for a request
+func (c *Client) SetAuthHeader(ctx context.Context, req *http.Request) error {
+	return c.setAuthHeader(ctx, req)
+}
+
+// GetHTTPClient returns the underlying HTTP client
+func (c *Client) GetHTTPClient() *http.Client {
+	return c.httpClient
+}
+
 func errFromResponse(resp *http.Response) error {
 	const limit = 4 * 1024
 	body, err := io.ReadAll(io.LimitReader(resp.Body, limit))

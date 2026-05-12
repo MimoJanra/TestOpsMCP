@@ -26,7 +26,7 @@ Integrate **Allure TestOps** with Claude using the Model Context Protocol. Launc
 - Works with Claude Desktop, Claude Web, and custom MCP clients
 
 ### 🏭 **Production-Grade**
-- 55+ tools for complete test automation
+- 57+ tools + full OpenAPI coverage (600+ endpoints searchable)
 - Docker, Kubernetes, Systemd, ngrok support
 - Enterprise security: JWT auth, CORS, TLS
 
@@ -142,9 +142,21 @@ Then follow **Step 2** above to add it to Claude Desktop config.
 
 ---
 
-## 🛠️ 55+ Tools for Complete Test Automation
+## 🛠️ 57+ Tools for Complete Test Automation
 
-**Everything you need — no limitations:**
+**Everything you need — plus full OpenAPI coverage:**
+
+### 🔍 **Universal Tools** (Access any TestOps API endpoint)
+- `search_testops_operations` — Search for operations by intent/keyword
+  - Example: `"list projects"`, `"create launch"`, `"get test results"`
+  - Returns matching operations with schemas and parameters
+  - Covers all 600+ TestOps API endpoints
+- `execute_testops_operation` — Execute any discovered operation
+  - Supports path parameters, query parameters, and request bodies
+  - Handles all HTTP methods and response types
+  - Uses same auth as all other tools
+
+**Specialized Tools** (Pre-built for common operations):
 
 ### 🚀 Launch Management
 - `run_allure_launch` — Start a test run
@@ -435,6 +447,8 @@ internal/
     stdio.go             # stdio transport handler
   tools/
     registry.go          # tool registration & handlers
+    openapi_loader.go    # OpenAPI spec parser & operations index
+    search_execute.go    # search + execute tool implementations
 ```
 
 ## 🚀 Deployment Options
@@ -622,7 +636,8 @@ Claude: 📊 Results: 142 passed, 14 failed
 | **Launch from chat** | ✅ | ❌ | ❌ |
 | **Real-time updates** | ✅ Live | ❌ Polling | ❌ Manual |
 | **AI analysis** | ✅ Claude | ❌ No | ❌ No |
-| **Bulk operations** | ✅ 55 tools | ⚠️ Limited | ❌ One-by-one |
+| **Bulk operations** | ✅ 57 tools + 600+ API | ⚠️ Limited | ❌ One-by-one |
+| **Full API coverage** | ✅ Search + Execute | ❌ Hardcoded | ❌ Manual |
 | **Team deployment** | ✅ Built-in | ⚠️ Fragile | ❌ Single-user |
 | **Production-ready** | ✅ Yes | ⚠️ DIY | ❌ No |
 | **Zero dashboard switching** | ✅ Yes | ❌ No | ❌ No |
