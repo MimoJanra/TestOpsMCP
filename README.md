@@ -123,6 +123,48 @@ Close and reopen Claude Desktop. TestOps tools now appear in the tool dropdown! 
 
 ---
 
+## Alternative: Lazy Setup (⚠️ Less Secure)
+
+**If you don't want to edit config files:**
+
+1. Start the server without `ALLURE_TOKEN`:
+```bash
+./testops-mcp-linux-amd64 --http
+```
+
+2. Add to Claude Desktop config (no token):
+```json
+{
+  "mcpServers": {
+    "testops": {
+      "command": "http://your-server:3000"
+    }
+  }
+}
+```
+
+3. In Claude, use the `configure_allure_token` tool:
+```
+Me: "Set up my Allure token"
+Claude: [uses configure_allure_token tool]
+You: configure_allure_token(token="your-api-token-here")
+```
+
+**⚠️ WARNING:**
+- Token will be visible in your chat history
+- Anyone with chat access can see it
+- Token is only stored for this session (lost after you close chat)
+- **Not recommended for sensitive/shared accounts**
+
+**Use this only if:**
+- ✅ You're the only one with chat access
+- ✅ You trust your chat history isn't logged
+- ✅ You don't mind the token being visible in your conversation
+
+**Recommended instead:** Always use the secure method above (config file).
+
+---
+
 ## Shared Server Setup
 
 If your team wants to run a **single shared server** instead of per-user setup:
@@ -208,6 +250,12 @@ Then follow **Step 2** above to add it to Claude Desktop config.
 **Everything you need — plus full OpenAPI coverage:**
 
 ### 🔍 **Universal Tools** (Access any TestOps API endpoint)
+- `configure_allure_token` — ⚠️ Optional: Set your token in chat (if not in config)
+  - Only available if `ALLURE_TOKEN` not set in environment
+  - Use only if you're lazy and trust your chat history
+  - Token stored only for current session (not saved)
+  - Example: `configure_allure_token(token="abc123xyz...")`
+  - **Recommended:** Use secure config method instead (see setup above)
 - `search_testops_operations` — Search for operations by intent/keyword
   - Example: `"list projects"`, `"create launch"`, `"get test results"`
   - Returns matching operations with schemas and parameters
