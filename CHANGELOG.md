@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-05-12
+
+### Added
+- **Improved token handling for shared servers** — Users can now provide personal tokens on shared server deployments
+- **Session token priority** — Personal tokens override server tokens, enabling per-user authentication on shared setups
+
+### Changed
+- **ALLURE_TOKEN handling** — Server token is now truly optional (session token takes priority)
+- **README reorganized** — Cleaner quick start for end users, separated setup guides for per-user and shared server setups
+- **.env.example updated** — Clear documentation of per-user vs shared server setup modes with helpful comments
+
+### Fixed
+- Token priority logic in `client.go` — session/user tokens now correctly override fallback server tokens
+- Documentation clarity on shared server setup without mandatory ALLURE_TOKEN
+
 ## [1.3.0] - 2026-05-12
 
 ### Added
@@ -146,5 +161,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive documentation: Installation, Deployment, API Reference, Security guides
 - `.env.example` configuration template
 
-[Unreleased]: https://github.com/MimoJanra/TestOpsMCP/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/MimoJanra/TestOpsMCP/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/MimoJanra/TestOpsMCP/compare/v1.3.0...v1.4.0
+[1.3.0]: https://github.com/MimoJanra/TestOpsMCP/compare/v1.2.1...v1.3.0
+[1.2.1]: https://github.com/MimoJanra/TestOpsMCP/compare/v1.2.0...v1.2.1
+[1.2.0]: https://github.com/MimoJanra/TestOpsMCP/compare/v1.1.2...v1.2.0
+[1.1.2]: https://github.com/MimoJanra/TestOpsMCP/compare/v1.1.1...v1.1.2
+[1.1.1]: https://github.com/MimoJanra/TestOpsMCP/compare/v1.1.0...v1.1.1
+[1.1.0]: https://github.com/MimoJanra/TestOpsMCP/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/MimoJanra/TestOpsMCP/releases/tag/v1.0.0
