@@ -40,9 +40,8 @@ func Load() (*Config, error) {
 	baseURL = strings.TrimRight(baseURL, "/")
 
 	token := strings.TrimSpace(os.Getenv("ALLURE_TOKEN"))
-	if token == "" {
-		return nil, errors.New("ALLURE_TOKEN not set")
-	}
+	// ALLURE_TOKEN is optional - can be set per-user in Claude Desktop config
+	// If not set, each user must provide their own token in their Claude config
 
 	timeout, err := parseTimeout(os.Getenv("REQUEST_TIMEOUT"))
 	if err != nil {

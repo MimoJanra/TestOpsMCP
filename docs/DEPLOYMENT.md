@@ -1,16 +1,73 @@
-# Deployment Guide
+# Shared Server & DevOps Deployment Guide
 
-Production deployment patterns for Allure MCP Server.
+Complete guide for deploying TestOps MCP as a **shared server** for your team.
+
+**This is for Option 2 (Shared Server Setup).**  
+For per-user setup, see [README.md](../README.md#per-user-setup-recommended)
 
 ## Table of Contents
 
-- [Docker Deployment](#docker-deployment)
-- [Reverse Proxy Setup](#reverse-proxy-setup)
-- [HTTPS/TLS](#httpstls)
-- [Health Checks](#health-checks)
-- [Scaling](#scaling)
-- [Monitoring](#monitoring)
-- [Backup & Recovery](#backup--recovery)
+- [Quick Start (Docker Compose)](#quick-start-docker-compose)
+- [Docker Container Registry](#docker-container-registry)
+- [Kubernetes Deployment](#kubernetes-deployment)
+- [Nginx Reverse Proxy + HTTPS](#nginx-reverse-proxy--https)
+- [Systemd Service (Linux)](#systemd-service-linux)
+- [ngrok Tunneling (Testing)](#ngrok-tunneling-testing)
+- [Security Best Practices](#security-best-practices)
+- [Monitoring & Logging](#monitoring--logging)
+- [Troubleshooting](#troubleshooting)
+
+## Quick Start (Docker Compose)
+
+**Fastest way to get started.**
+
+### Prerequisites
+
+- Docker & Docker Compose
+- One Allure TestOps API token (shared service account recommended)
+- Your Allure TestOps URL
+
+### Setup
+
+```bash
+# 1. Clone repo
+git clone https://github.com/MimoJanra/TestOpsMCP.git
+cd TestOpsMCP
+
+# 2. Create .env file
+cat > .env << 'EOF'
+ALLURE_BASE_URL=https://your-testops.com
+ALLURE_TOKEN=your-shared-token
+PORT=3000
+LOG_LEVEL=INFO
+MCP_AUTH_TOKEN=generate-a-random-string-here
+CORS_ALLOWED_ORIGIN=https://claude.ai
+EOF
+
+# 3. Start
+docker-compose up -d
+
+# 4. Check logs
+docker-compose logs -f
+```
+
+Server runs on `http://localhost:3000`
+
+### Share with Team
+
+Add to Claude Desktop config:
+
+```json
+{
+  "mcpServers": {
+    "testops": {
+      "command": "http://your-server.com:3000"
+    }
+  }
+}
+```
+
+---
 
 ## Docker Deployment
 
@@ -18,34 +75,43 @@ Production deployment patterns for Allure MCP Server.
 
 ```bash
 # Build with specific tag
-docker build -t allure-mcp:1.0 .
+docker build -t testops-mcp:1.0 .
 
 # Push to registry
-docker push myregistry.com/allure-mcp:1.0
+docker push myregistry.com/testops-mcp:1.0
 ```
 
-### Run with Docker Compose
+### Run with Docker Compose (Production)
 
 Create `docker-compose.prod.yml`:
 
 ```yaml
 version: '3.8'
+
 services:
-  allure-mcp:
-    image: myregistry.com/allure-mcp:1.0
-    restart: always
+  testops-mcp:
+    image: ghcr.io/MimoJanra/TestOpsMCP:latest
+    restart: unless-stopped
+    command: ./testops-mcp --http
     ports:
       - "3000:3000"
-    environment:
-      LOG_LEVEL: INFO
-      CORS_ALLOWED_ORIGIN: https://claude.ai
     env_file:
       - .env.prod
+    environment:
+      LOG_LEVEL: INFO
     deploy:
       resources:
         limits:
-          cpus: '2'
-          memory: 512M
+          cpus: '1'
+          memory: 256M
+        reservations:
+          cpus: '0.5'
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/sse"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     logging:
       driver: "json-file"
       options:
@@ -57,6 +123,7 @@ Run:
 
 ```bash
 docker-compose -f docker-compose.prod.yml up -d
+docker-compose -f docker-compose.prod.yml logs -f
 ```
 
 ---
@@ -68,17 +135,17 @@ docker-compose -f docker-compose.prod.yml up -d
 Create `/etc/nginx/sites-available/allure-mcp`:
 
 ```nginx
-upstream allure_mcp_backend {
+upstream testops_mcp_backend {
     server localhost:3000;
 }
 
 server {
     listen 443 ssl http2;
-    server_name allure-mcp.example.com;
+    server_name testops.company.com;
 
     # SSL certificates
-    ssl_certificate /etc/letsencrypt/live/allure-mcp.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/allure-mcp.example.com/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/testops.company.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/testops.company.com/privkey.pem;
 
     # Security headers
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
@@ -93,7 +160,7 @@ server {
 
     # SSE endpoint
     location /sse {
-        proxy_pass http://allure_mcp_backend;
+        proxy_pass http://testops_mcp_backend;
         proxy_http_version 1.1;
         
         # SSE requires these headers
@@ -117,7 +184,7 @@ server {
 
     # Messages endpoint
     location /messages {
-        proxy_pass http://allure_mcp_backend;
+        proxy_pass http://testops_mcp_backend;
         proxy_http_version 1.1;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -139,7 +206,7 @@ server {
 # Redirect HTTP to HTTPS
 server {
     listen 80;
-    server_name allure-mcp.example.com;
+    server_name testops.company.com;
     return 301 https://$server_name$request_uri;
 }
 ```

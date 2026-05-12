@@ -58,7 +58,19 @@ Claude: The auth endpoint returned 401.
 
 ---
 
-## 🚀 Get Started in 3 Steps
+## 🚀 Setup Options
+
+### **Option A: Per-User (Recommended for Teams)**
+Each team member uses their own Allure API token.  
+→ [Per-User Setup Guide](#per-user-setup-recommended)
+
+### **Option B: Shared Server**
+One server for the team, shared token.  
+→ [Shared Server Setup Guide](#shared-server-setup)
+
+---
+
+## Per-User Setup (Recommended)
 
 ### 1️⃣ Download Binary for Your Platform
 
@@ -69,7 +81,16 @@ Claude: The auth endpoint returned 401.
 - **macOS Apple Silicon**: `testops-mcp-macos-arm64`
 - **Linux**: `testops-mcp-linux-amd64`
 
-### 2️⃣ Add to Claude Desktop Config
+### 2️⃣ Get Your Allure API Token
+
+1. Log in to **Allure TestOps**
+2. Click **Settings → API tokens** (or your profile menu)
+3. Create a new API token or copy an existing one
+4. Keep this token safe (you'll need it in next step)
+
+→ [Allure Docs: How to get API token](https://docs.qameta.io/allure-testops/advanced/api/)
+
+### 3️⃣ Add to Claude Desktop Config
 
 Open **Settings → Developer → Edit Config** in Claude Desktop.
 
@@ -78,35 +99,75 @@ Add this to the `mcpServers` section:
 ```json
 {
   "mcpServers": {
-    "allure": {
+    "testops": {
       "command": "C:\\Users\\YourName\\Downloads\\testops-mcp-windows-amd64.exe",
       "env": {
         "ALLURE_BASE_URL": "https://your-testops-instance.com",
-        "ALLURE_TOKEN": "your-api-token",
-        "REQUEST_TIMEOUT": "30",
-        "LOG_LEVEL": "INFO"
+        "ALLURE_TOKEN": "your-api-token-here"
       }
     }
   }
 }
 ```
 
-**Replace:**
+**Replace with your values:**
 - `C:\\Users\\YourName\\Downloads\\testops-mcp-windows-amd64.exe` → path to your binary
-- `https://your-testops-instance.com` → your Allure TestOps URL
-- `your-api-token` → your Allure API token ([how to get it →](https://docs.qameta.io/allure-testops/advanced/api/))
+- `https://your-testops-instance.com` → your Allure TestOps URL (e.g., `https://testops.mycompany.com`)
+- `your-api-token-here` → your personal API token from step 2
 
-### 3️⃣ Restart Claude
+### 4️⃣ Restart Claude
 
 Close and reopen Claude Desktop. TestOps tools now appear in the tool dropdown! ✅
 
-**That's it.** You're ready to use it.
+**That's it. You're ready to use it.**
 
 ---
 
-## 📌 Need HTTP Mode? (for teams)
+## Shared Server Setup
 
-If you want to run a shared server for your team instead of local Claude Desktop:
+If your team wants to run a **single shared server** instead of per-user setup:
+
+### 1️⃣ Get a Shared API Token
+
+1. In Allure TestOps, create a dedicated **service account** or use a shared admin token
+2. Copy the API token
+3. Keep it in a secure location (it will be in the server's `.env`)
+
+### 2️⃣ Deploy the Server
+
+```bash
+# Download binary for your platform
+# https://github.com/MimoJanra/TestOpsMCP/releases/latest
+
+# Create .env file
+cat > .env << EOF
+ALLURE_BASE_URL=https://your-testops-instance.com
+ALLURE_TOKEN=your-shared-api-token
+PORT=3000
+LOG_LEVEL=INFO
+MCP_AUTH_TOKEN=secure-random-string-here
+CORS_ALLOWED_ORIGIN=https://claude.ai
+EOF
+
+# Run in HTTP mode
+./testops-mcp-linux-amd64 --http
+```
+
+Server starts on `http://localhost:3000`
+
+→ **Full team deployment guide:** [Shared Server & DevOps Setup](#shared-server--devops-guide-below)
+
+---
+
+## Shared Server & DevOps Guide
+
+**→ See [DEPLOYMENT.md](./docs/DEPLOYMENT.md) for:**
+- 🐳 Docker & Docker Compose
+- ☸️ Kubernetes setup
+- 🔗 ngrok tunneling
+- 🖥️ Systemd service
+- 🔒 Nginx reverse proxy + HTTPS
+- 📊 Monitoring & logging
 
 ```bash
 # macOS/Linux
@@ -332,15 +393,19 @@ All configuration is via environment variables.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `ALLURE_BASE_URL` | yes | — | http(s) URL of your Allure TestOps instance |
-| `ALLURE_TOKEN` | yes | — | API token used as `Authorization: Bearer <token>` |
+| `ALLURE_BASE_URL` | **yes** | — | http(s) URL of your Allure TestOps instance (e.g., `https://testops.company.com`) |
+| `ALLURE_TOKEN` | **no** * | — | API token for server/shared setup. If not set, each user must provide their token in Claude config |
 | `REQUEST_TIMEOUT` | no | `30` | HTTP timeout for Allure calls, in seconds (1..600) |
 | `PORT` | no | `3000` | Port the HTTP server listens on (stdio mode ignores this); accepts `3000` or `:3000` |
 | `LOG_LEVEL` | no | `INFO` | One of `DEBUG`, `INFO`, `WARN`, `ERROR` |
-| `MCP_AUTH_TOKEN` | no | — | If set in HTTP mode, clients must send `Authorization: Bearer <token>` |
-| `CORS_ALLOWED_ORIGIN` | no | `*` | CORS `Access-Control-Allow-Origin` header (HTTP mode only); empty disables |
+| `MCP_AUTH_TOKEN` | no | — | If set in HTTP mode, clients must send `Authorization: Bearer <token>` (recommended for security) |
+| `CORS_ALLOWED_ORIGIN` | no | `*` | CORS `Access-Control-Allow-Origin` header (HTTP mode only); use `https://claude.ai` for Claude.ai integration |
 
-The server fails fast on startup if a required variable is missing or invalid.
+**\*** `ALLURE_TOKEN`:
+- **Shared server setup:** Set this, all users share one token
+- **Per-user setup:** Leave empty, each user provides their token in Claude Desktop config
+
+The server fails fast on startup if `ALLURE_BASE_URL` is missing or invalid.
 
 ## HTTP transport (--http mode)
 

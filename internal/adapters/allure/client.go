@@ -1849,6 +1849,11 @@ func (c *Client) GetHTTPClient() *http.Client {
 	return c.httpClient
 }
 
+// HasToken checks if the client has a configured token
+func (c *Client) HasToken() bool {
+	return c.userToken != ""
+}
+
 func errFromResponse(resp *http.Response) error {
 	const limit = 4 * 1024
 	body, err := io.ReadAll(io.LimitReader(resp.Body, limit))

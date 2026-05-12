@@ -21,17 +21,21 @@ func TestLoad_RequiresValidURL(t *testing.T) {
 	}
 }
 
-func TestLoad_RequiresToken(t *testing.T) {
+func TestLoad_TokenOptional(t *testing.T) {
 	t.Setenv("ALLURE_BASE_URL", "https://allure.example.com")
 	t.Setenv("ALLURE_TOKEN", "")
-	if _, err := Load(); err == nil {
-		t.Fatalf("expected error for missing token")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.AllureToken != "" {
+		t.Errorf("expected empty token, got %q", cfg.AllureToken)
 	}
 }
 
 func TestLoad_Defaults(t *testing.T) {
 	t.Setenv("ALLURE_BASE_URL", "https://allure.example.com/")
-	t.Setenv("ALLURE_TOKEN", "tok")
+	t.Setenv("ALLURE_TOKEN", "")
 	t.Setenv("REQUEST_TIMEOUT", "")
 	t.Setenv("PORT", "")
 	t.Setenv("LOG_LEVEL", "")
@@ -61,7 +65,7 @@ func TestLoad_Defaults(t *testing.T) {
 
 func TestLoad_PortNormalization(t *testing.T) {
 	t.Setenv("ALLURE_BASE_URL", "https://allure.example.com")
-	t.Setenv("ALLURE_TOKEN", "tok")
+	t.Setenv("ALLURE_TOKEN", "")
 
 	cases := map[string]string{
 		"8080":  ":8080",
@@ -81,7 +85,7 @@ func TestLoad_PortNormalization(t *testing.T) {
 
 func TestLoad_TimeoutBounds(t *testing.T) {
 	t.Setenv("ALLURE_BASE_URL", "https://allure.example.com")
-	t.Setenv("ALLURE_TOKEN", "tok")
+	t.Setenv("ALLURE_TOKEN", "")
 
 	cases := []string{"0", "-1", "abc", "601"}
 	for _, v := range cases {

@@ -56,6 +56,11 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 		}
 	}
 
+	// Warn if no Allure token is configured
+	if allureClient != nil && !allureClient.HasToken() {
+		logger.Info("ALLURE_TOKEN not configured - each user must provide their token in Claude Desktop config", nil)
+	}
+
 	r.registerTools()
 	return r
 }

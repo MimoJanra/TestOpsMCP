@@ -78,15 +78,24 @@ func TestRegistry_HasExpectedTools(t *testing.T) {
 		"add_test_case_external_link",
 		"delete_test_case_external_link",
 		"restore_test_case",
-		"search_testops_operations",
-		"execute_testops_operation",
 	} {
 		if r.GetTool(name) == nil {
 			t.Errorf("tool %q not registered", name)
 		}
 	}
-	if got := len(r.ListTools()); got != 57 {
-		t.Errorf("ListTools() count = %d, want 57", got)
+
+	// Check for OpenAPI-based tools (only registered if spec is found)
+	has_search := r.GetTool("search_testops_operations") != nil
+	has_execute := r.GetTool("execute_testops_operation") != nil
+
+	// Expected count: 55 base tools + 2 OpenAPI tools (if spec found)
+	expected_count := 55
+	if has_search && has_execute {
+		expected_count = 57
+	}
+
+	if got := len(r.ListTools()); got != expected_count {
+		t.Errorf("ListTools() count = %d, want %d", got, expected_count)
 	}
 }
 
