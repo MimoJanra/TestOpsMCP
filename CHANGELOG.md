@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.4.0] - 2026-05-12
+## [1.4.0] - Token Priority & Shared Server Auth
 
 ### Added
 - **Improved token handling for shared servers** — Users can now provide personal tokens on shared server deployments
