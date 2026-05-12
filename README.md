@@ -58,6 +58,67 @@ Claude: The auth endpoint returned 401.
 
 ---
 
+## 🎯 Quick Start (For Total Beginners)
+
+### In 5 minutes:
+
+1. **Download** the binary for your OS from [Releases](https://github.com/MimoJanra/TestOpsMCP/releases/latest)
+   - Windows? Get `testops-mcp-windows-amd64.exe`
+   - Mac? Get `testops-mcp-macos-arm64` (if Apple Silicon) or `testops-mcp-macos-amd64` (Intel)
+   - Linux? Get `testops-mcp-linux-amd64`
+
+2. **Get your Allure TestOps API token:**
+   - Log into your Allure TestOps instance
+   - Look for Settings → API tokens (or click your profile)
+   - Create or copy a token
+   - Save it somewhere safe (you'll need it next)
+
+3. **Add to Claude Desktop:**
+   - Open Claude Desktop
+   - Click **Settings (bottom left)**
+   - Click **Developer** tab
+   - Click **Edit Config** (or **Edit Configuration**)
+   - Find the `mcpServers` section (or create it if missing)
+   - Copy-paste this (update the paths and token):
+   
+   ```json
+   "mcpServers": {
+     "testops": {
+       "command": "/path/to/testops-mcp-binary",
+       "env": {
+         "ALLURE_BASE_URL": "https://your-testops-url.com",
+         "ALLURE_TOKEN": "your-token-from-step-2"
+       }
+     }
+   }
+   ```
+   
+   **Windows example:**
+   ```json
+   "mcpServers": {
+     "testops": {
+       "command": "C:\\Users\\Alice\\Downloads\\testops-mcp-windows-amd64.exe",
+       "env": {
+         "ALLURE_BASE_URL": "https://testops.company.com",
+         "ALLURE_TOKEN": "abc123defg456"
+       }
+     }
+   }
+   ```
+
+4. **Restart Claude Desktop** (close and reopen)
+
+5. **Try it!** In Claude, ask:
+   ```
+   "List all projects in Allure"
+   ```
+   
+   You should see your TestOps projects!
+
+**Got stuck?** See detailed guides below. Problems? Open an [issue](https://github.com/MimoJanra/TestOpsMCP/issues).
+
+---
+
 ## 🚀 Setup Options
 
 ### **Option A: Per-User (Recommended for Teams)**
