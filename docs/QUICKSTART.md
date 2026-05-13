@@ -70,9 +70,10 @@ curl -H "Authorization: Bearer your_shared_secret" \
 {
   "mcpServers": {
     "allure": {
-      "url": "http://localhost:3000",
-      "env": {
-        "MCP_AUTH_TOKEN": "your_shared_secret"
+      "url": "http://localhost:3000/sse",
+      "headers": {
+        "Authorization": "Bearer your_shared_secret", // optional
+        "X-Allure-Token": "your-personal-allure-token"
       }
     }
   }
@@ -107,9 +108,10 @@ docker-compose down
 {
   "mcpServers": {
     "allure": {
-      "url": "http://your-server:3000",
-      "env": {
-        "MCP_AUTH_TOKEN": "your_shared_secret_from_.env"
+      "url": "http://your-server:3000/sse",
+      "headers": {
+        "Authorization": "Bearer your_shared_secret_from_.env", // optional
+        "X-Allure-Token": "your-personal-allure-token"
       }
     }
   }
@@ -146,9 +148,10 @@ kubectl get svc -n allure-mcp
 {
   "mcpServers": {
     "allure": {
-      "url": "http://your-k8s-service:3000",
-      "env": {
-        "MCP_AUTH_TOKEN": "your_shared_secret"
+      "url": "http://your-k8s-service:3000/sse",
+      "headers": {
+        "Authorization": "Bearer your_shared_secret", // optional
+        "X-Allure-Token": "your-personal-allure-token"
       }
     }
   }

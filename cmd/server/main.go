@@ -56,6 +56,9 @@ func runHTTP(mcpServer *mcp.Server, cfg *config.Config, logger *core.Logger) {
 		"auth":      cfg.AuthToken != "",
 		"cors":      cfg.CORSAllowOrigin,
 	})
+	if cfg.AuthToken == "" {
+		logger.Warn("MCP_AUTH_TOKEN is not set — HTTP server accepts unauthenticated requests", nil)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/sse", mcpServer.HandleSSE)
@@ -65,6 +68,9 @@ func runHTTP(mcpServer *mcp.Server, cfg *config.Config, logger *core.Logger) {
 		Addr:              cfg.Port,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      0, // SSE streams are long-lived; rely on client disconnect
+		IdleTimeout:       120 * time.Second,
 	}
 
 	sigChan := make(chan os.Signal, 1)

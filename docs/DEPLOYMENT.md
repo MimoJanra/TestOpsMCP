@@ -61,11 +61,18 @@ Add to Claude Desktop config:
 {
   "mcpServers": {
     "testops": {
-      "command": "http://your-server.com:3000"
+      "url": "http://your-server.com:3000/sse",
+      "headers": {
+        "Authorization": "Bearer your-mcp-auth-token", // optional
+        "X-Allure-Token": "your-personal-allure-token"
+      }
     }
   }
 }
 ```
+
+- **`Authorization`** *(optional)* — the `MCP_AUTH_TOKEN` set on the server. Omit if no `MCP_AUTH_TOKEN` is configured.
+- **`X-Allure-Token`** — each user's personal Allure API token. Actions in Allure are performed under that account.
 
 ---
 

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/MimoJanra/TestOpsMCP/internal/core"
+	sessctx "github.com/MimoJanra/TestOpsMCP/internal/session"
 	"github.com/MimoJanra/TestOpsMCP/internal/tools"
 )
 
@@ -22,6 +23,9 @@ const (
 	heartbeatInterval = 25 * time.Second
 	maxMessageBody    = 1 << 20 // 1 MiB
 )
+
+// Version is set at build time via -ldflags "-X github.com/MimoJanra/TestOpsMCP/internal/mcp.Version=x.y.z"
+var Version = "dev"
 
 type Options struct {
 	AuthToken       string
@@ -84,6 +88,12 @@ func (s *Server) HandleSSE(w http.ResponseWriter, r *http.Request) {
 
 	sess := s.newSession(r.Context())
 	defer s.closeSession(sess)
+
+	// If the client supplies their Allure token as a header, store it for this session
+	// so all tool calls use it automatically — no need to call configure_allure_token.
+	if allureToken := r.Header.Get("X-Allure-Token"); allureToken != "" {
+		s.registry.SetSessionToken(sess.id, allureToken)
+	}
 
 	s.logger.Info("SSE client connected", map[string]any{"session": sess.id})
 
@@ -174,7 +184,8 @@ func (s *Server) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := s.dispatch(r.Context(), &req)
+	reqCtx := sessctx.WithID(r.Context(), sess.id)
+	resp := s.dispatch(reqCtx, &req)
 	if resp != nil {
 		s.sendToSession(sess, resp)
 	}
@@ -222,7 +233,7 @@ func (s *Server) handleInitialize(req *JSONRPCRequest) *JSONRPCResponse {
 	resp := InitializeResponse{ProtocolVersion: ProtocolVersion}
 	resp.Capabilities.Tools = struct{}{}
 	resp.ServerInfo.Name = "allure-mcp-server"
-	resp.ServerInfo.Version = "1.0.0"
+	resp.ServerInfo.Version = Version
 
 	s.logger.Info("initialize response sent", map[string]any{
 		"version": resp.ProtocolVersion,
@@ -312,11 +323,12 @@ func (s *Server) sendToSession(sess *session, resp *JSONRPCResponse) {
 }
 
 func resultToJSON(result any) string {
-	bytes, err := json.MarshalIndent(result, "", "  ")
+	b, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
-		return fmt.Sprintf(`{"error":"marshal failed: %v"}`, err)
+		fallback, _ := json.Marshal(map[string]string{"error": "marshal failed: " + err.Error()})
+		return string(fallback)
 	}
-	return string(bytes)
+	return string(b)
 }
 
 // --- sessions ---
@@ -351,7 +363,7 @@ func (s *Server) getSession(id string) *session {
 func newSessionID() string {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		return fmt.Sprintf("sess-%d", time.Now().UnixNano())
+		panic("crypto/rand unavailable: " + err.Error())
 	}
 	return hex.EncodeToString(b[:])
 }

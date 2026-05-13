@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - Security & Architecture Hardening
+
+### Added
+- **Per-session Allure token isolation** — Each SSE session stores its own token; concurrent users on a shared server never mix credentials
+- **`X-Allure-Token` header support** — Users pass their personal Allure token from Claude Desktop config via HTTP header; no need to call `configure_allure_token` manually
+- **Token-keyed JWT cache** — JWT tokens cached per API key, not globally; separate users get separate JWTs
+- **`internal/session` package** — Shared context helpers for session ID propagation across packages
+- **Server startup warning** — Logged when HTTP mode runs without `MCP_AUTH_TOKEN`
+- **Build-time version injection** — Server version set via `-ldflags` instead of hardcoded `"1.0.0"`
+
+### Changed
+- **`registry.go` split into domain files** — `tools_launches.go`, `tools_results.go`, `tools_testcases.go`, `tools_projects.go`, `tools_analytics.go`, `tools_bulk.go`, `tools_relations.go`
+- **`GetSessionToken` callback now context-aware** — Receives `context.Context` to resolve the correct per-session token
+- **Dockerfile** — Pinned `alpine:3.21`, removed `.exe` suffix from Linux binary
+- **HTTP server timeouts** — Added `ReadTimeout` and `IdleTimeout`; `WriteTimeout` disabled for SSE long-lived streams
+- **Documentation** — All Claude Desktop config examples corrected to use `url` + `headers` for remote servers; `Authorization` marked optional
+
+### Fixed
+- **Data race on JWT cache** — Added `sync.Mutex` protecting `jwtToken`/`jwtExpiresAt` fields
+- **Cross-user token contamination** — Global `sessionToken` field replaced with per-session map
+- **Invalid JSON on marshal error** — `resultToJSON` error path now uses `json.Marshal` instead of `fmt.Sprintf`
+- **Predictable session ID fallback** — `crypto/rand` failure now panics instead of using `time.Now().UnixNano()`
+- **`SetSessionTokenFunc` visibility** — Exported function field replaced with proper setter method
+
 ## [1.4.0] - Token Priority & Shared Server Auth
 
 ### Added

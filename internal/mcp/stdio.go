@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/MimoJanra/TestOpsMCP/internal/core"
+	sessctx "github.com/MimoJanra/TestOpsMCP/internal/session"
 )
 
 // StdioHandler runs the MCP server in stdio mode: reads JSON-RPC requests from
@@ -54,7 +55,8 @@ func (sh *StdioHandler) Run() error {
 			continue
 		}
 
-		resp := sh.registry.dispatch(context.Background(), &req)
+		ctx := sessctx.WithID(context.Background(), sessctx.StdioID)
+		resp := sh.registry.dispatch(ctx, &req)
 		if resp != nil {
 			sh.respond(resp)
 		}

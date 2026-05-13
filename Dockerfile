@@ -9,11 +9,11 @@ RUN apk add --no-cache git make
 # Copy source code
 COPY . .
 
-# Build the binary
-RUN make build
+# Build the binary (explicit output name without .exe for Linux)
+RUN go build -o bin/server ./cmd/server
 
 # Runtime stage - minimal image
-FROM alpine:latest
+FROM alpine:3.21
 
 # Install ca-certificates for HTTPS connections to Allure
 RUN apk add --no-cache ca-certificates
@@ -21,7 +21,7 @@ RUN apk add --no-cache ca-certificates
 WORKDIR /app
 
 # Copy binary from builder
-COPY --from=builder /build/bin/server.exe /app/server.exe
+COPY --from=builder /build/bin/server /app/server
 
 # Create non-root user
 RUN addgroup -g 1000 mcp && \
@@ -35,5 +35,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD wget -qO /dev/null http://localhost:3000/sse || exit 1
 
-ENTRYPOINT ["/app/server.exe"]
+ENTRYPOINT ["/app/server"]
 CMD ["--http"]

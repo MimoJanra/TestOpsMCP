@@ -10,16 +10,23 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
+type jwtEntry struct {
+	jwt       string
+	expiresAt time.Time
+}
+
 type Client struct {
-	baseURL        string
-	userToken      string
-	jwtToken       string
-	jwtExpiresAt   time.Time
-	httpClient     *http.Client
-	GetSessionToken func() string // optional callback to get session token
+	baseURL    string
+	userToken  string
+	httpClient *http.Client
+
+	mu              sync.Mutex
+	jwtCache        map[string]jwtEntry    // keyed by API token — each user's JWT is stored separately
+	getSessionToken func(ctx context.Context) string
 }
 
 func NewClient(baseURL, token string, timeout time.Duration) *Client {
@@ -27,6 +34,7 @@ func NewClient(baseURL, token string, timeout time.Duration) *Client {
 	return &Client{
 		baseURL:   strings.TrimRight(baseURL, "/"),
 		userToken: token,
+		jwtCache:  make(map[string]jwtEntry),
 		httpClient: &http.Client{
 			Timeout: timeout,
 			Jar:     jar,
@@ -34,32 +42,63 @@ func NewClient(baseURL, token string, timeout time.Duration) *Client {
 	}
 }
 
-func (c *Client) getJWTToken(ctx context.Context) (string, error) {
-	if c.jwtToken != "" && time.Now().Before(c.jwtExpiresAt) {
-		return c.jwtToken, nil
-	}
+func (c *Client) SetSessionTokenFunc(fn func(ctx context.Context) string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.getSessionToken = fn
+}
 
-	// Session token has priority (user-provided in chat), fallback to configured token
-	token := ""
-	if c.GetSessionToken != nil {
-		token = c.GetSessionToken()
+// resolveAPIToken returns the API token to use for this request: the per-session
+// token (if set by the user via configure_allure_token) or the server-wide token.
+func (c *Client) resolveAPIToken(ctx context.Context) string {
+	if c.getSessionToken != nil {
+		if t := c.getSessionToken(ctx); t != "" {
+			return t
+		}
 	}
-	if token == "" {
-		token = c.userToken
-	}
-	if token == "" {
+	return c.userToken
+}
+
+func (c *Client) getJWTToken(ctx context.Context) (string, error) {
+	apiToken := c.resolveAPIToken(ctx)
+	if apiToken == "" {
 		return "", fmt.Errorf("no token configured - set ALLURE_TOKEN env var or use configure_allure_token tool")
 	}
 
+	// Check cache without holding the lock during the HTTP call.
+	c.mu.Lock()
+	if entry, ok := c.jwtCache[apiToken]; ok && time.Now().Before(entry.expiresAt) {
+		c.mu.Unlock()
+		return entry.jwt, nil
+	}
+	c.mu.Unlock()
+
+	jwt, expiresIn, err := c.fetchJWT(ctx, apiToken)
+	if err != nil {
+		return "", err
+	}
+
+	expiresAt := time.Now().Add(time.Duration(expiresIn) * time.Second)
+	if expiresIn <= 0 {
+		expiresAt = time.Now().Add(1 * time.Hour)
+	}
+
+	c.mu.Lock()
+	c.jwtCache[apiToken] = jwtEntry{jwt: jwt, expiresAt: expiresAt}
+	c.mu.Unlock()
+
+	return jwt, nil
+}
+
+func (c *Client) fetchJWT(ctx context.Context, apiToken string) (string, int, error) {
 	values := url.Values{}
 	values.Set("grant_type", "apitoken")
 	values.Set("scope", "openid")
-	values.Set("token", token)
+	values.Set("token", apiToken)
 
-	body := strings.NewReader(values.Encode())
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/uaa/oauth/token"), body)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/uaa/oauth/token"), strings.NewReader(values.Encode()))
 	if err != nil {
-		return "", fmt.Errorf("create request: %w", err)
+		return "", 0, fmt.Errorf("create request: %w", err)
 	}
 	httpReq.Header.Set("Expect", "")
 	httpReq.Header.Set("Accept", "application/json")
@@ -67,12 +106,12 @@ func (c *Client) getJWTToken(ctx context.Context) (string, error) {
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return "", fmt.Errorf("http request: %w", err)
+		return "", 0, fmt.Errorf("http request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", errFromResponse(resp)
+		return "", 0, errFromResponse(resp)
 	}
 
 	var result struct {
@@ -80,16 +119,10 @@ func (c *Client) getJWTToken(ctx context.Context) (string, error) {
 		ExpiresIn   int    `json:"expires_in"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("decode response: %w", err)
+		return "", 0, fmt.Errorf("decode response: %w", err)
 	}
 
-	c.jwtToken = result.AccessToken
-	if result.ExpiresIn > 0 {
-		c.jwtExpiresAt = time.Now().Add(time.Duration(result.ExpiresIn) * time.Second)
-	} else {
-		c.jwtExpiresAt = time.Now().Add(1 * time.Hour)
-	}
-	return c.jwtToken, nil
+	return result.AccessToken, result.ExpiresIn, nil
 }
 
 func (c *Client) CreateLaunch(ctx context.Context, projectID int64, launchName string) (*LaunchResponse, error) {

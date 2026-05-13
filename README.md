@@ -46,16 +46,19 @@ Add this to the `mcpServers` section:
 {
   "mcpServers": {
     "testops": {
-      "command": "http://your-server.com:3000",
-      "env": {
-        "ALLURE_TOKEN": "your-personal-token-here"
+      "url": "http://your-server.com:3000/sse",
+      "headers": {
+        "Authorization": "Bearer your-mcp-auth-token", // optional
+        "X-Allure-Token": "your-personal-allure-token"
       }
     }
   }
 }
 ```
 
-Replace `your-server.com:3000` with the server address and `your-personal-token-here` with your personal Allure API token (so your actions are done from your account).
+- **`url`** — address of the shared MCP server (ask your team lead).
+- **`Authorization`** *(optional)* — the `MCP_AUTH_TOKEN` set on the server. Omit if the server has no `MCP_AUTH_TOKEN` configured.
+- **`X-Allure-Token`** — your personal Allure API token. All actions in Allure will be done under your account.
 
 ### 3. Restart Claude Desktop
 Close and reopen Claude.
@@ -186,21 +189,25 @@ Each team member adds to their Claude Desktop config (**Settings → Developer �
 {
   "mcpServers": {
     "testops": {
-      "command": "http://your-server.com:3000",
-      "env": {
-        "ALLURE_TOKEN": "their-personal-token-here"
+      "url": "http://your-server.com:3000/sse",
+      "headers": {
+        "Authorization": "Bearer your-mcp-auth-token", // optional
+        "X-Allure-Token": "your-personal-allure-token"
       }
     }
   }
 }
 ```
 
+- **`Authorization`** *(optional)* — the `MCP_AUTH_TOKEN` set on the server. Omit if the server has no `MCP_AUTH_TOKEN` configured.
+- **`X-Allure-Token`** — each person's own Allure API token. Actions in Allure are performed under that account.
+
 Each person needs to:
 1. Get their personal Allure API token (Settings → API tokens in Allure TestOps)
-2. Add it to their Claude Desktop config
+2. Add it to their Claude Desktop config as `X-Allure-Token`
 3. Restart Claude Desktop
 
-All actions will be done from their personal account! ✅
+All actions will be done from their personal Allure account! ✅
 
 ### Binary Setup (Alternative)
 

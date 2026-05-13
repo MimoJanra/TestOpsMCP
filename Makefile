@@ -1,10 +1,13 @@
 .PHONY: build run run-http test clean lint help
 
 # Build the server binary
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+LDFLAGS := -ldflags "-X github.com/MimoJanra/TestOpsMCP/internal/mcp.Version=$(VERSION)"
+
 build:
-	@echo "Building Allure MCP server..."
+	@echo "Building Allure MCP server ($(VERSION))..."
 	mkdir -p bin
-	go build -o bin/server.exe ./cmd/server
+	go build $(LDFLAGS) -o bin/server.exe ./cmd/server
 	@echo "✓ Server built successfully at bin/server.exe"
 
 # Run server in stdio mode (default)
