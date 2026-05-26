@@ -99,7 +99,20 @@ func (r *Registry) executeOperation(ctx context.Context, op *Operation, params i
 			pathParams = make(map[string]interface{})
 			queryParams = make(url.Values)
 
+			// Special key "body" allows passing any value (object OR array) as the request body directly.
+			if explicitBody, hasBody := paramMap["body"]; hasBody {
+				bodyData = explicitBody
+			}
+
+			// unknownParams collects parameters not found in the spec's named parameters list.
+			// They are used as the request body only if no explicit "body" key was provided.
+			unknownParams := make(map[string]interface{})
+
 			for name, value := range paramMap {
+				if name == "body" {
+					// Already handled above.
+					continue
+				}
 				var found bool
 				for _, p := range op.Parameters {
 					if p.Name == name {
@@ -119,11 +132,15 @@ func (r *Registry) executeOperation(ctx context.Context, op *Operation, params i
 						break
 					}
 				}
-
-				// If parameter not found in spec, try to infer from request body
-				if !found && op.RequestBody != nil {
-					bodyData = paramMap
+				if !found {
+					unknownParams[name] = value
 				}
+			}
+
+			// If no explicit body was provided but the operation has a requestBody schema,
+			// use only the unrecognised parameters as the body (not path/query params too).
+			if bodyData == nil && op.RequestBody != nil && len(unknownParams) > 0 {
+				bodyData = unknownParams
 			}
 		}
 	}

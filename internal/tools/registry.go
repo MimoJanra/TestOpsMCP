@@ -81,6 +81,7 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 	r.registerLaunchTools()
 	r.registerResultTools()
 	r.registerTestCaseTools()
+	r.registerTestCaseExtraTools()
 	r.registerProjectTools()
 	r.registerAnalyticsTools()
 	r.registerBulkTools()
@@ -129,18 +130,23 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 		})
 
 		r.register(&Tool{
-			Name:        "execute_testops_operation",
-			Description: "Execute a TestOps API operation by operation_id (from search results). Handles path parameters, query parameters, and request bodies.",
+			Name: "execute_testops_operation",
+			Description: "Execute a TestOps API operation by operation_id (from search_testops_operations results). " +
+				"Handles path parameters, query parameters, and request bodies automatically. " +
+				"For operations that require an array or a specific body structure, pass the value under the special key \"body\" " +
+				"(e.g. {\"testCaseId\": 1, \"body\": [{\"customField\": {\"id\": 5}, \"values\": [{\"id\": 12}]}]}). " +
+				"Named path/query parameters are matched by name from the spec; everything else is sent as the request body.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"operation_id": map[string]any{
 						"type":        "string",
-						"description": "The operation_id from search results",
+						"description": "The operation_id from search_testops_operations results",
 					},
 					"parameters": map[string]any{
-						"type":        "object",
-						"description": "Parameters for the operation (path, query, or body params)",
+						"type": "object",
+						"description": "Parameters for the operation. Named path/query params are matched automatically. " +
+							"Use the special key \"body\" to pass an array or exact body object.",
 					},
 				},
 				"required": []string{"operation_id"},

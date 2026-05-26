@@ -302,3 +302,186 @@ type LaunchTestPlanAddDto struct {
 	TestPlanID      int64         `json:"testPlanId"`
 	EnvVarValueSets []interface{} `json:"envVarValueSets,omitempty"`
 }
+
+// CustomFieldDto describes a custom field definition.
+type CustomFieldDto struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name,omitempty"`
+}
+
+// CustomFieldValueDto describes a single value of a custom field.
+type CustomFieldValueDto struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name,omitempty"`
+}
+
+// CustomFieldWithValuesDto is used when reading or updating custom field values of a test case.
+type CustomFieldWithValuesDto struct {
+	CustomField CustomFieldDto        `json:"customField"`
+	Values      []CustomFieldValueDto `json:"values"`
+}
+
+// IssueDto represents an issue linked to a test case.
+type IssueDto struct {
+	ID            int64  `json:"id,omitempty"`
+	DisplayName   string `json:"displayName,omitempty"`
+	URL           string `json:"url,omitempty"`
+	IntegrationID int64  `json:"integrationId,omitempty"`
+	Closed        bool   `json:"closed,omitempty"`
+}
+
+// TestCaseExampleParam is a single key-value parameter in a test case example row.
+type TestCaseExampleParam struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// TestCaseVersionDto represents a version/snapshot of a test case.
+type TestCaseVersionDto struct {
+	ID          int64  `json:"id"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	CreatedDate int64  `json:"createdDate,omitempty"`
+	CreatedBy   string `json:"createdBy,omitempty"`
+}
+
+// TestCaseAttachmentDto represents an attachment on a test case.
+type TestCaseAttachmentDto struct {
+	ID          int64  `json:"id"`
+	Name        string `json:"name,omitempty"`
+	ContentType string `json:"contentType,omitempty"`
+	Size        int64  `json:"size,omitempty"`
+	CreatedDate int64  `json:"createdDate,omitempty"`
+}
+
+// TestCaseAttachmentListResponse is the paged response for test case attachments.
+type TestCaseAttachmentListResponse struct {
+	Content []TestCaseAttachmentDto `json:"content"`
+	Last    bool                    `json:"last"`
+	Number  int                     `json:"number"`
+	Size    int                     `json:"size"`
+	Total   int                     `json:"totalElements"`
+}
+
+// RelationTargetDto identifies the target of a test-case-to-test-case relation.
+type RelationTargetDto struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name,omitempty"`
+}
+
+// RelationDto represents a relation between two test cases.
+type RelationDto struct {
+	ID     int64             `json:"id,omitempty"`
+	Target RelationTargetDto `json:"target"`
+}
+
+// StepPositionDto is used to move or copy a scenario step.
+type StepPositionDto struct {
+	AfterID  int64 `json:"afterId,omitempty"`
+	BeforeID int64 `json:"beforeId,omitempty"`
+	ParentID int64 `json:"parentId,omitempty"`
+}
+
+// TestCaseVersionCreateRequest is the body for creating a test case version.
+type TestCaseVersionCreateRequest struct {
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+}
+
+// TestCaseVersionPatchRequest is the body for patching a test case version.
+type TestCaseVersionPatchRequest struct {
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// TestKeyDto represents a test key (integration key) linked to a test case.
+type TestKeyDto struct {
+	ID            int64  `json:"id,omitempty"`
+	IntegrationID int64  `json:"integrationId,omitempty"`
+	Name          string `json:"name,omitempty"`
+	URL           string `json:"url,omitempty"`
+}
+
+// TestCaseAuditListResponse is the paged response for test case audit log.
+type TestCaseAuditListResponse struct {
+	Content []map[string]any `json:"content"`
+	Last    bool             `json:"last"`
+	Number  int              `json:"number"`
+	Size    int              `json:"size"`
+	Total   int              `json:"totalElements"`
+}
+
+// ── Bulk DTOs ─────────────────────────────────────────────────────────────────
+
+// BulkCfvAddDto is the request body for POST /api/testcase/bulk/cfv/add.
+type BulkCfvAddDto struct {
+	Selection TestCaseTreeSelectionDto   `json:"selection"`
+	Cfv       []CustomFieldWithValuesDto `json:"cfv"`
+}
+
+// BulkCfvRemoveDto is the request body for POST /api/testcase/bulk/cfv/remove.
+type BulkCfvRemoveDto struct {
+	Selection TestCaseTreeSelectionDto `json:"selection"`
+	IDs       []int64                  `json:"ids"`
+}
+
+// BulkExternalLinkAddDto is the request body for POST /api/testcase/bulk/externallink/add.
+type BulkExternalLinkAddDto struct {
+	Selection TestCaseTreeSelectionDto `json:"selection"`
+	Links     []ExternalLinkDto        `json:"links"`
+}
+
+// BulkIssueAddDto is the request body for POST /api/testcase/bulk/issue/add.
+type BulkIssueAddDto struct {
+	Selection TestCaseTreeSelectionDto `json:"selection"`
+	Issues    []IssueDto               `json:"issues"`
+}
+
+// BulkIssueRemoveDto is the request body for POST /api/testcase/bulk/issue/remove.
+type BulkIssueRemoveDto struct {
+	Selection TestCaseTreeSelectionDto `json:"selection"`
+	IDs       []int64                  `json:"ids"`
+}
+
+// BulkLayerSetDto is the request body for POST /api/testcase/bulk/layer/set.
+type BulkLayerSetDto struct {
+	Selection TestCaseTreeSelectionDto `json:"selection"`
+	LayerID   int64                    `json:"layerId"`
+}
+
+// BulkMoveDto is the request body for POST /api/testcase/bulk/move.
+type BulkMoveDto struct {
+	Selection   TestCaseTreeSelectionDto `json:"selection"`
+	ToProjectID int64                    `json:"toProjectId"`
+}
+
+// BulkDeleteDto is the request body for POST /api/testcase/bulk/remove.
+type BulkDeleteDto struct {
+	Selection TestCaseTreeSelectionDto `json:"selection"`
+}
+
+// BulkRunNewLaunchDto is the request body for POST /api/testcase/bulk/run/new.
+type BulkRunNewLaunchDto struct {
+	Selection  TestCaseTreeSelectionDto `json:"selection"`
+	LaunchName string                   `json:"launchName,omitempty"`
+	Assignees  []string                 `json:"assignees,omitempty"`
+}
+
+// BulkRunExistingLaunchDto is the request body for POST /api/testcase/bulk/run/existing.
+type BulkRunExistingLaunchDto struct {
+	Selection TestCaseTreeSelectionDto `json:"selection"`
+	LaunchID  int64                    `json:"launchId"`
+	Assignees []string                 `json:"assignees,omitempty"`
+}
+
+// BulkCreateTestPlanDto is the request body for POST /api/testcase/bulk/testplan/create.
+type BulkCreateTestPlanDto struct {
+	Selection    TestCaseTreeSelectionDto `json:"selection"`
+	TestPlanName string                   `json:"testPlanName"`
+}
+
+// BulkMuteDto is the request body for POST /api/testcase/bulk/mute/add.
+type BulkMuteDto struct {
+	Selection TestCaseTreeSelectionDto `json:"selection"`
+	Mute      map[string]any           `json:"mute,omitempty"`
+}

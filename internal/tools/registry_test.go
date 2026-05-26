@@ -78,6 +78,54 @@ func TestRegistry_HasExpectedTools(t *testing.T) {
 		"add_test_case_external_link",
 		"delete_test_case_external_link",
 		"restore_test_case",
+		"get_test_case_custom_fields",
+		"update_test_case_custom_fields",
+		// Extra test-case tools
+		"get_test_case_tags",
+		"set_test_case_tags",
+		"get_test_case_issues",
+		"set_test_case_issues",
+		"get_test_case_examples",
+		"set_test_case_examples",
+		"list_test_case_versions",
+		"create_test_case_version",
+		"restore_test_case_version",
+		"get_test_case_attachments",
+		"delete_test_case_attachment",
+		"search_test_cases",
+		"list_deleted_test_cases",
+		"delete_test_case_scenario",
+		"move_test_case_step",
+		"copy_test_case_step",
+		"get_test_case_relations",
+		"set_test_case_relations",
+		// Bulk test-case operations
+		"bulk_add_test_case_members",
+		"bulk_remove_test_case_members",
+		"bulk_add_test_case_custom_fields",
+		"bulk_remove_test_case_custom_fields",
+		"bulk_add_test_case_external_links",
+		"bulk_add_test_case_issues",
+		"bulk_remove_test_case_issues",
+		"bulk_set_test_case_layer",
+		"bulk_move_test_cases",
+		"bulk_delete_test_cases",
+		"bulk_run_test_cases_new_launch",
+		"bulk_run_test_cases_existing_launch",
+		"bulk_create_test_plan",
+		"bulk_mute_test_cases",
+		// Extra single test-case operations
+		"list_muted_test_cases",
+		"get_test_case_audit",
+		"validate_test_case_query",
+		"suggest_test_cases",
+		"get_test_case_workflow",
+		"get_test_case_keys",
+		"set_test_case_keys",
+		"get_test_case_scenario_from_run",
+		"detach_test_case_automation",
+		"get_test_case_version_data",
+		"delete_test_case_version",
 	} {
 		if r.GetTool(name) == nil {
 			t.Errorf("tool %q not registered", name)
@@ -88,10 +136,10 @@ func TestRegistry_HasExpectedTools(t *testing.T) {
 	has_search := r.GetTool("search_testops_operations") != nil
 	has_execute := r.GetTool("execute_testops_operation") != nil
 
-	// Expected count: 55 base tools + 2 OpenAPI tools (if spec found)
-	expected_count := 55
+	// Expected count: 100 base tools + 2 OpenAPI tools (if spec found)
+	expected_count := 100
 	if has_search && has_execute {
-		expected_count = 57
+		expected_count = 102
 	}
 
 	if got := len(r.ListTools()); got != expected_count {

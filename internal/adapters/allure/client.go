@@ -817,6 +817,924 @@ func (c *Client) UpdateTestCase(ctx context.Context, testCaseID int64, req Updat
 	return nil
 }
 
+// GetTestCaseCustomFields returns all custom field values for a test case.
+func (c *Client) GetTestCaseCustomFields(ctx context.Context, testCaseID int64) ([]CustomFieldWithValuesDto, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/cfv", testCaseID)), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errFromResponse(resp)
+	}
+
+	var result []CustomFieldWithValuesDto
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	return result, nil
+}
+
+// UpdateTestCaseCustomFields updates custom field values for a test case via PATCH /api/testcase/{id}/cfv.
+func (c *Client) UpdateTestCaseCustomFields(ctx context.Context, testCaseID int64, fields []CustomFieldWithValuesDto) error {
+	body, err := json.Marshal(fields)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPatch, c.url(fmt.Sprintf("/api/testcase/%d/cfv", testCaseID)), bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return errFromResponse(resp)
+	}
+
+	return nil
+}
+
+// ─── Tags ────────────────────────────────────────────────────────────────────
+
+// GetTestCaseTags returns the tags of a test case.
+func (c *Client) GetTestCaseTags(ctx context.Context, testCaseID int64) ([]TestTagDto, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/tag", testCaseID)), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errFromResponse(resp)
+	}
+	var result []TestTagDto
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return result, nil
+}
+
+// SetTestCaseTags replaces all tags on a test case.
+func (c *Client) SetTestCaseTags(ctx context.Context, testCaseID int64, tags []TestTagDto) error {
+	body, err := json.Marshal(tags)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/%d/tag", testCaseID)), bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
+// ─── Issues ───────────────────────────────────────────────────────────────────
+
+// GetTestCaseIssues returns the issues linked to a test case.
+func (c *Client) GetTestCaseIssues(ctx context.Context, testCaseID int64) ([]IssueDto, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/issue", testCaseID)), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errFromResponse(resp)
+	}
+	var result []IssueDto
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return result, nil
+}
+
+// SetTestCaseIssues replaces all issues linked to a test case.
+func (c *Client) SetTestCaseIssues(ctx context.Context, testCaseID int64, issues []IssueDto) error {
+	body, err := json.Marshal(issues)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/%d/issue", testCaseID)), bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
+// ─── Examples (parametrized) ──────────────────────────────────────────────────
+
+// GetTestCaseExamples returns the parametrized examples of a test case.
+func (c *Client) GetTestCaseExamples(ctx context.Context, testCaseID int64) ([][]TestCaseExampleParam, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/example", testCaseID)), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errFromResponse(resp)
+	}
+	var result [][]TestCaseExampleParam
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return result, nil
+}
+
+// SetTestCaseExamples replaces the parametrized examples of a test case.
+func (c *Client) SetTestCaseExamples(ctx context.Context, testCaseID int64, examples [][]TestCaseExampleParam) error {
+	body, err := json.Marshal(examples)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/%d/example", testCaseID)), bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
+// ─── Versions ─────────────────────────────────────────────────────────────────
+
+// ListTestCaseVersions returns all versions of a test case.
+func (c *Client) ListTestCaseVersions(ctx context.Context, testCaseID int64) ([]TestCaseVersionDto, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/version", testCaseID)), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errFromResponse(resp)
+	}
+	var result []TestCaseVersionDto
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return result, nil
+}
+
+// CreateTestCaseVersion creates a named version snapshot of a test case.
+func (c *Client) CreateTestCaseVersion(ctx context.Context, testCaseID int64, req TestCaseVersionCreateRequest) (*TestCaseVersionDto, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/%d/version", testCaseID)), bytes.NewBuffer(body))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, errFromResponse(resp)
+	}
+	var result TestCaseVersionDto
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return &result, nil
+}
+
+// RestoreTestCaseVersion restores a test case to a specific version.
+func (c *Client) RestoreTestCaseVersion(ctx context.Context, versionID int64) error {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/version/%d/restore", versionID)), nil)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
+// ─── Attachments ─────────────────────────────────────────────────────────────
+
+// GetTestCaseAttachments returns the attachments of a test case.
+func (c *Client) GetTestCaseAttachments(ctx context.Context, testCaseID int64, page, size int) (*TestCaseAttachmentListResponse, error) {
+	u := fmt.Sprintf("/api/testcase/attachment?testCaseId=%d&page=%d&size=%d", testCaseID, page, size)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(u), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errFromResponse(resp)
+	}
+	var result TestCaseAttachmentListResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return &result, nil
+}
+
+// DeleteTestCaseAttachment deletes a test case attachment by ID.
+func (c *Client) DeleteTestCaseAttachment(ctx context.Context, attachmentID int64) error {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.url(fmt.Sprintf("/api/testcase/attachment/%d", attachmentID)), nil)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
+// ─── Search & filtered lists ─────────────────────────────────────────────────
+
+// SearchTestCases finds test cases by AQL query.
+func (c *Client) SearchTestCases(ctx context.Context, projectID int64, rql string, page, size int) (*TestCaseListResponse, error) {
+	u := fmt.Sprintf("/api/testcase/__search?projectId=%d&rql=%s&page=%d&size=%d",
+		projectID, url.QueryEscape(rql), page, size)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(u), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errFromResponse(resp)
+	}
+	var result TestCaseListResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return &result, nil
+}
+
+// ListDeletedTestCases returns deleted test cases for a project.
+func (c *Client) ListDeletedTestCases(ctx context.Context, projectID int64, page, size int) (*TestCaseListResponse, error) {
+	u := fmt.Sprintf("/api/testcase/deleted?projectId=%d&page=%d&size=%d", projectID, page, size)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(u), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errFromResponse(resp)
+	}
+	var result TestCaseListResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return &result, nil
+}
+
+// ─── Scenario ─────────────────────────────────────────────────────────────────
+
+// DeleteTestCaseScenario removes the entire scenario from a test case.
+func (c *Client) DeleteTestCaseScenario(ctx context.Context, testCaseID int64) error {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.url(fmt.Sprintf("/api/testcase/%d/scenario", testCaseID)), nil)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
+// MoveTestCaseStep moves a scenario step to a new position.
+func (c *Client) MoveTestCaseStep(ctx context.Context, stepID int64, pos StepPositionDto) error {
+	body, err := json.Marshal(pos)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/step/%d/move", stepID)), bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
+// CopyTestCaseStep copies a scenario step to a new position.
+func (c *Client) CopyTestCaseStep(ctx context.Context, stepID int64, pos StepPositionDto) error {
+	body, err := json.Marshal(pos)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/step/%d/copy", stepID)), bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
+// ─── Relations ────────────────────────────────────────────────────────────────
+
+// GetTestCaseRelations returns test-case-to-test-case relations.
+func (c *Client) GetTestCaseRelations(ctx context.Context, testCaseID int64) ([]RelationDto, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/relation", testCaseID)), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errFromResponse(resp)
+	}
+	var result []RelationDto
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return result, nil
+}
+
+// SetTestCaseRelations replaces all test-case-to-test-case relations.
+func (c *Client) SetTestCaseRelations(ctx context.Context, testCaseID int64, relations []RelationDto) error {
+	body, err := json.Marshal(relations)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/%d/relation", testCaseID)), bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
+// ─── Muted test cases ─────────────────────────────────────────────────────────
+
+// ListMutedTestCases returns muted test cases for a project.
+func (c *Client) ListMutedTestCases(ctx context.Context, projectID int64, page, size int) (*TestCaseListResponse, error) {
+	u := fmt.Sprintf("/api/testcase/muted?projectId=%d&page=%d&size=%d", projectID, page, size)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(u), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errFromResponse(resp)
+	}
+	var result TestCaseListResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return &result, nil
+}
+
+// ─── Audit log ────────────────────────────────────────────────────────────────
+
+// GetTestCaseAudit returns audit log entries for a test case.
+func (c *Client) GetTestCaseAudit(ctx context.Context, testCaseID int64, page, size int) (*TestCaseAuditListResponse, error) {
+	u := fmt.Sprintf("/api/testcase/audit?testCaseId=%d&page=%d&size=%d", testCaseID, page, size)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(u), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errFromResponse(resp)
+	}
+	var result TestCaseAuditListResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return &result, nil
+}
+
+// ─── Query validation & suggest ───────────────────────────────────────────────
+
+// ValidateTestCaseQuery validates an AQL query without running it.
+func (c *Client) ValidateTestCaseQuery(ctx context.Context, projectID int64, rql string) (map[string]any, error) {
+	u := fmt.Sprintf("/api/testcase/query/validate?projectId=%d&rql=%s", projectID, url.QueryEscape(rql))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(u), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errFromResponse(resp)
+	}
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return result, nil
+}
+
+// SuggestTestCases returns test case suggestions for a query string.
+func (c *Client) SuggestTestCases(ctx context.Context, projectID int64, query string, page, size int) (map[string]any, error) {
+	u := fmt.Sprintf("/api/testcase/suggest?projectId=%d&query=%s&page=%d&size=%d",
+		projectID, url.QueryEscape(query), page, size)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(u), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errFromResponse(resp)
+	}
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return result, nil
+}
+
+// ─── Workflow ─────────────────────────────────────────────────────────────────
+
+// GetTestCaseWorkflow returns the workflow for a test case.
+func (c *Client) GetTestCaseWorkflow(ctx context.Context, testCaseID int64) (map[string]any, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/workflow", testCaseID)), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errFromResponse(resp)
+	}
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return result, nil
+}
+
+// ─── Test keys ────────────────────────────────────────────────────────────────
+
+// GetTestCaseKeys returns the integration test keys for a test case.
+func (c *Client) GetTestCaseKeys(ctx context.Context, testCaseID int64) ([]TestKeyDto, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/testkey", testCaseID)), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errFromResponse(resp)
+	}
+	var result []TestKeyDto
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return result, nil
+}
+
+// SetTestCaseKeys replaces all test keys for a test case.
+func (c *Client) SetTestCaseKeys(ctx context.Context, testCaseID int64, keys []TestKeyDto) error {
+	body, err := json.Marshal(keys)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/%d/testkey", testCaseID)), bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
+// ─── Scenario from run ────────────────────────────────────────────────────────
+
+// GetTestCaseScenarioFromRun returns the scenario from the last test run for a test case.
+func (c *Client) GetTestCaseScenarioFromRun(ctx context.Context, testCaseID int64) (map[string]any, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/scenariofromrun", testCaseID)), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errFromResponse(resp)
+	}
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return result, nil
+}
+
+// ─── Automation ───────────────────────────────────────────────────────────────
+
+// DetachTestCaseAutomation detaches automation from a test case.
+func (c *Client) DetachTestCaseAutomation(ctx context.Context, testCaseID int64, statusID, workflowID int64) error {
+	body, err := json.Marshal(map[string]any{
+		"statusId":   statusID,
+		"workflowId": workflowID,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/%d/detachautomation", testCaseID)), bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
+// ─── Version extras ───────────────────────────────────────────────────────────
+
+// GetTestCaseVersionData returns the test case overview data for a specific version.
+func (c *Client) GetTestCaseVersionData(ctx context.Context, versionID int64) (map[string]any, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/version/%d/data", versionID)), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errFromResponse(resp)
+	}
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return result, nil
+}
+
+// DeleteTestCaseVersion deletes a specific version of a test case.
+func (c *Client) DeleteTestCaseVersion(ctx context.Context, versionID int64) error {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.url(fmt.Sprintf("/api/testcase/version/%d", versionID)), nil)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
+// ─── Bulk operations (new) ────────────────────────────────────────────────────
+
+func (c *Client) bulkPost(ctx context.Context, path string, body interface{}) error {
+	b, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(path), bytes.NewBuffer(b))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusCreated {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
+// BulkAddTestCaseCustomFields adds custom field values to multiple test cases.
+func (c *Client) BulkAddTestCaseCustomFields(ctx context.Context, projectID int64, testCaseIDs []int64, cfv []CustomFieldWithValuesDto) error {
+	return c.bulkPost(ctx, "/api/testcase/bulk/cfv/add", BulkCfvAddDto{
+		Selection: TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: testCaseIDs},
+		Cfv:       cfv,
+	})
+}
+
+// BulkRemoveTestCaseCustomFields removes custom field values from multiple test cases.
+func (c *Client) BulkRemoveTestCaseCustomFields(ctx context.Context, projectID int64, testCaseIDs []int64, cfIDs []int64) error {
+	return c.bulkPost(ctx, "/api/testcase/bulk/cfv/remove", BulkCfvRemoveDto{
+		Selection: TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: testCaseIDs},
+		IDs:       cfIDs,
+	})
+}
+
+// BulkAddTestCaseExternalLinks adds external links to multiple test cases.
+func (c *Client) BulkAddTestCaseExternalLinks(ctx context.Context, projectID int64, testCaseIDs []int64, links []ExternalLinkDto) error {
+	return c.bulkPost(ctx, "/api/testcase/bulk/externallink/add", BulkExternalLinkAddDto{
+		Selection: TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: testCaseIDs},
+		Links:     links,
+	})
+}
+
+// BulkAddTestCaseIssues adds issues to multiple test cases.
+func (c *Client) BulkAddTestCaseIssues(ctx context.Context, projectID int64, testCaseIDs []int64, issues []IssueDto) error {
+	return c.bulkPost(ctx, "/api/testcase/bulk/issue/add", BulkIssueAddDto{
+		Selection: TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: testCaseIDs},
+		Issues:    issues,
+	})
+}
+
+// BulkRemoveTestCaseIssues removes issues from multiple test cases.
+func (c *Client) BulkRemoveTestCaseIssues(ctx context.Context, projectID int64, testCaseIDs []int64, issueIDs []int64) error {
+	return c.bulkPost(ctx, "/api/testcase/bulk/issue/remove", BulkIssueRemoveDto{
+		Selection: TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: testCaseIDs},
+		IDs:       issueIDs,
+	})
+}
+
+// BulkSetTestCaseLayer sets the test layer for multiple test cases.
+func (c *Client) BulkSetTestCaseLayer(ctx context.Context, projectID int64, testCaseIDs []int64, layerID int64) error {
+	return c.bulkPost(ctx, "/api/testcase/bulk/layer/set", BulkLayerSetDto{
+		Selection: TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: testCaseIDs},
+		LayerID:   layerID,
+	})
+}
+
+// BulkMoveTestCases moves multiple test cases to another project.
+func (c *Client) BulkMoveTestCases(ctx context.Context, projectID int64, testCaseIDs []int64, toProjectID int64) error {
+	return c.bulkPost(ctx, "/api/testcase/bulk/move", BulkMoveDto{
+		Selection:   TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: testCaseIDs},
+		ToProjectID: toProjectID,
+	})
+}
+
+// BulkDeleteTestCases permanently deletes multiple test cases.
+func (c *Client) BulkDeleteTestCases(ctx context.Context, projectID int64, testCaseIDs []int64) error {
+	return c.bulkPost(ctx, "/api/testcase/bulk/remove", BulkDeleteDto{
+		Selection: TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: testCaseIDs},
+	})
+}
+
+// BulkRunTestCasesNewLaunch runs multiple test cases in a new launch.
+func (c *Client) BulkRunTestCasesNewLaunch(ctx context.Context, projectID int64, testCaseIDs []int64, launchName string, assignees []string) error {
+	return c.bulkPost(ctx, "/api/testcase/bulk/run/new", BulkRunNewLaunchDto{
+		Selection:  TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: testCaseIDs},
+		LaunchName: launchName,
+		Assignees:  assignees,
+	})
+}
+
+// BulkRunTestCasesExistingLaunch runs multiple test cases in an existing launch.
+func (c *Client) BulkRunTestCasesExistingLaunch(ctx context.Context, projectID int64, testCaseIDs []int64, launchID int64, assignees []string) error {
+	return c.bulkPost(ctx, "/api/testcase/bulk/run/existing", BulkRunExistingLaunchDto{
+		Selection: TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: testCaseIDs},
+		LaunchID:  launchID,
+		Assignees: assignees,
+	})
+}
+
+// BulkCreateTestPlan creates a test plan from multiple test cases.
+func (c *Client) BulkCreateTestPlan(ctx context.Context, projectID int64, testCaseIDs []int64, testPlanName string) error {
+	return c.bulkPost(ctx, "/api/testcase/bulk/testplan/create", BulkCreateTestPlanDto{
+		Selection:    TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: testCaseIDs},
+		TestPlanName: testPlanName,
+	})
+}
+
+// BulkMuteTestCases mutes multiple test cases.
+func (c *Client) BulkMuteTestCases(ctx context.Context, projectID int64, testCaseIDs []int64) error {
+	return c.bulkPost(ctx, "/api/testcase/bulk/mute/add", BulkMuteDto{
+		Selection: TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: testCaseIDs},
+	})
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 func (c *Client) DeleteTestCase(ctx context.Context, testCaseID int64) error {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.url(fmt.Sprintf("/api/testcase/%d", testCaseID)), nil)
 	if err != nil {

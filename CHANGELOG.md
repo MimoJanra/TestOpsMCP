@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-05-26 - Full Test Case API Coverage
+
+### Added
+
+#### Test case single-item operations (25 new tools)
+- **`get_test_case_tags`** / **`set_test_case_tags`** — read and replace tags on a test case
+- **`get_test_case_issues`** / **`set_test_case_issues`** — read and replace linked bug-tracker issues
+- **`get_test_case_examples`** / **`set_test_case_examples`** — parametrized data table rows (full replace)
+- **`list_test_case_versions`** / **`create_test_case_version`** / **`restore_test_case_version`** — version snapshot management
+- **`get_test_case_version_data`** / **`delete_test_case_version`** — version content and cleanup
+- **`get_test_case_attachments`** / **`delete_test_case_attachment`** — attachment listing and removal
+- **`search_test_cases`** — AQL/RQL full-text search across project test cases
+- **`list_deleted_test_cases`** — browse soft-deleted test cases
+- **`list_muted_test_cases`** — browse muted test cases
+- **`delete_test_case_scenario`** — remove the entire step scenario from a test case
+- **`move_test_case_step`** / **`copy_test_case_step`** — reposition steps within a scenario
+- **`get_test_case_relations`** / **`set_test_case_relations`** — test-case-to-test-case relations
+- **`get_test_case_custom_fields`** / **`update_test_case_custom_fields`** — custom field values via dedicated `/cfv` endpoint
+- **`get_test_case_workflow`** — workflow definition for a test case
+- **`get_test_case_keys`** / **`set_test_case_keys`** — integration test keys (Jira, Azure DevOps, etc.)
+- **`get_test_case_scenario_from_run`** — scenario captured from the last automated run
+- **`detach_test_case_automation`** — convert an automated test case back to manual
+- **`get_test_case_audit`** — change history / audit log
+- **`validate_test_case_query`** — validate AQL/RQL expression without executing it
+- **`suggest_test_cases`** — autocomplete suggestions by name
+
+#### Bulk test-case operations (14 new tools)
+- **`bulk_add_test_case_members`** / **`bulk_remove_test_case_members`**
+- **`bulk_add_test_case_custom_fields`** / **`bulk_remove_test_case_custom_fields`**
+- **`bulk_add_test_case_external_links`**
+- **`bulk_add_test_case_issues`** / **`bulk_remove_test_case_issues`**
+- **`bulk_set_test_case_layer`**
+- **`bulk_move_test_cases`** — move test cases to another project
+- **`bulk_delete_test_cases`** — permanent bulk delete
+- **`bulk_run_test_cases_new_launch`** / **`bulk_run_test_cases_existing_launch`**
+- **`bulk_create_test_plan`** — create a test plan from selected test cases
+- **`bulk_mute_test_cases`**
+
+### Fixed
+- **`execute_testops_operation`** parameter routing — path parameters no longer leaked into the request body; unknown parameters are now collected separately
+- **`execute_testops_operation` array bodies** — new explicit `body` key lets callers pass any JSON value (array or object) directly as the HTTP request body
+
+### Changed
+- Total MCP tools: **57 → 102** (45 new tools, all backed by proper client methods — no OpenAPI dynamic execution fallback)
+- All new client methods added to `internal/adapters/allure/client.go` with typed request/response models in `models.go`
+- New file `internal/tools/tools_testcases_extra.go` for the extended single-item test case tools
+
 ## [1.5.0] - Security & Architecture Hardening
 
 ### Added

@@ -310,6 +310,61 @@ func (r *Registry) registerTestCaseTools() {
 	})
 
 	r.register(&Tool{
+		Name:        "get_test_case_custom_fields",
+		Description: "Get all custom field values for a test case",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"test_case_id": map[string]any{
+					"type":        "integer",
+					"description": "Allure test case ID",
+				},
+			},
+			"required": []string{"test_case_id"},
+		},
+		Handler: r.getTestCaseCustomFields,
+	})
+
+	r.register(&Tool{
+		Name: "update_test_case_custom_fields",
+		Description: "Update custom field values for a test case. " +
+			"Each item must specify the custom field ID and the list of value IDs to set. " +
+			"Use get_test_case_custom_fields first to discover available fields and their current values.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"test_case_id": map[string]any{
+					"type":        "integer",
+					"description": "Allure test case ID",
+				},
+				"custom_fields": map[string]any{
+					"type":        "array",
+					"description": "List of custom field values to set",
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"custom_field_id": map[string]any{
+								"type":        "integer",
+								"description": "Custom field ID",
+							},
+							"value_ids": map[string]any{
+								"type":        "array",
+								"description": "List of value IDs to assign to this custom field",
+								"items": map[string]any{
+									"type": "integer",
+								},
+							},
+						},
+						"required": []string{"custom_field_id", "value_ids"},
+					},
+				},
+			},
+			"required": []string{"test_case_id", "custom_fields"},
+		},
+		Handler: r.updateTestCaseCustomFields,
+	})
+
+	r.register(&Tool{
 		Name:        "get_test_case_history",
 		Description: "Get test case change history and versions",
 		InputSchema: map[string]any{
@@ -731,6 +786,92 @@ func (r *Registry) deleteTestCaseStep(ctx context.Context, input json.RawMessage
 	}
 
 	return map[string]any{"status": "deleted"}, nil
+}
+
+func (r *Registry) getTestCaseCustomFields(ctx context.Context, input json.RawMessage) (any, error) {
+	var params struct {
+		TestCaseID int64 `json:"test_case_id"`
+	}
+
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if params.TestCaseID <= 0 {
+		return nil, fmt.Errorf("test_case_id must be positive")
+	}
+
+	r.logger.Info("fetching test case custom fields", map[string]any{"test_case_id": params.TestCaseID})
+
+	fields, err := r.allure.GetTestCaseCustomFields(ctx, params.TestCaseID)
+	if err != nil {
+		r.logger.Error("get test case custom fields", err, map[string]any{"test_case_id": params.TestCaseID})
+		return nil, fmt.Errorf("get test case custom fields: %w", err)
+	}
+
+	result := make([]map[string]any, len(fields))
+	for i, f := range fields {
+		values := make([]map[string]any, len(f.Values))
+		for j, v := range f.Values {
+			values[j] = map[string]any{
+				"id":   v.ID,
+				"name": v.Name,
+			}
+		}
+		result[i] = map[string]any{
+			"custom_field_id":   f.CustomField.ID,
+			"custom_field_name": f.CustomField.Name,
+			"values":            values,
+		}
+	}
+
+	return map[string]any{"custom_fields": result}, nil
+}
+
+func (r *Registry) updateTestCaseCustomFields(ctx context.Context, input json.RawMessage) (any, error) {
+	var params struct {
+		TestCaseID   int64 `json:"test_case_id"`
+		CustomFields []struct {
+			CustomFieldID int64   `json:"custom_field_id"`
+			ValueIDs      []int64 `json:"value_ids"`
+		} `json:"custom_fields"`
+	}
+
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	if params.TestCaseID <= 0 {
+		return nil, fmt.Errorf("test_case_id must be positive")
+	}
+
+	if len(params.CustomFields) == 0 {
+		return nil, fmt.Errorf("custom_fields must contain at least one entry")
+	}
+
+	fields := make([]allure.CustomFieldWithValuesDto, len(params.CustomFields))
+	for i, cf := range params.CustomFields {
+		values := make([]allure.CustomFieldValueDto, len(cf.ValueIDs))
+		for j, vid := range cf.ValueIDs {
+			values[j] = allure.CustomFieldValueDto{ID: vid}
+		}
+		fields[i] = allure.CustomFieldWithValuesDto{
+			CustomField: allure.CustomFieldDto{ID: cf.CustomFieldID},
+			Values:      values,
+		}
+	}
+
+	r.logger.Info("updating test case custom fields", map[string]any{
+		"test_case_id":   params.TestCaseID,
+		"fields_count":   len(fields),
+	})
+
+	if err := r.allure.UpdateTestCaseCustomFields(ctx, params.TestCaseID, fields); err != nil {
+		r.logger.Error("update test case custom fields", err, map[string]any{"test_case_id": params.TestCaseID})
+		return nil, fmt.Errorf("update test case custom fields: %w", err)
+	}
+
+	return map[string]any{"status": "updated"}, nil
 }
 
 func (r *Registry) getTestCaseHistory(ctx context.Context, input json.RawMessage) (any, error) {
