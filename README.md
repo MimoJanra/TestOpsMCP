@@ -26,7 +26,7 @@ Integrate **Allure TestOps** with Claude using the Model Context Protocol. Launc
 - Works with Claude Desktop, Claude Web, and custom MCP clients
 
 ### 🏭 Production-Grade
-- 57+ tools + full OpenAPI coverage (600+ endpoints searchable)
+- **102 tools** — complete Allure TestOps test case API coverage + full OpenAPI fallback (600+ endpoints)
 - Docker, Kubernetes, Systemd, ngrok support
 - Enterprise security: JWT auth, CORS, TLS
 
@@ -227,29 +227,47 @@ If you prefer running without Docker:
 
 ---
 
-## 🛠️ 57+ Tools
+## 🛠️ 102 Tools
 
 ### Universal Tools
 - **`search_testops_operations`** — Search for any API operation by keyword
   - Example: `"list projects"`, `"create launch"`, `"get test results"`
   - Covers all 600+ TestOps endpoints
-- **`execute_testops_operation`** — Execute any discovered operation
+- **`execute_testops_operation`** — Execute any discovered operation (supports `body` key for array payloads)
 - **`configure_allure_token`** — Set token in chat (if not in config)
 
 ### Launch Management
-`run_allure_launch` • `get_launch_status` • `get_launch_report` • `list_launches` • `close_launch` • `reopen_launch` • `copy_launch` • `merge_launches`
+`run_allure_launch` • `get_launch_status` • `get_launch_report` • `list_launches` • `get_launch_details` • `close_launch` • `reopen_launch` • `copy_launch` • `merge_launches` • `get_launch_environment` • `update_launch_environment`
 
 ### Test Results
-`list_test_results` • `get_test_result` • `assign_test_result` • `mute_test_result` • `bulk_assign_test_results` • `resolve_test_result` • `unmute_test_result`
+`list_test_results` • `get_test_result` • `assign_test_result` • `mute_test_result` • `resolve_test_result` • `unmute_test_result` • `bulk_assign_test_results` • `bulk_mute_test_results` • `bulk_unmute_test_results` • `bulk_resolve_test_results`
 
-### Test Cases & Steps
-`create_test_case` • `update_test_case` • `get_test_case` • `clone_test_case` • `restore_test_case` • `create_test_case_step` • `update_test_case_step` • `delete_test_case_step` • `run_test_case`
+### Test Cases — Core
+`list_test_cases` • `get_test_case` • `create_test_case` • `update_test_case` • `delete_test_case` • `clone_test_case` • `restore_test_case` • `run_test_case` • `search_test_cases` • `suggest_test_cases` • `validate_test_case_query`
 
-### Collaboration
-`get_test_case_members` • `add_test_case_members` • `remove_test_case_members` • `get_test_case_external_links` • `add_test_case_external_link`
+### Test Cases — Steps & Scenario
+`create_test_case_step` • `update_test_case_step` • `delete_test_case_step` • `move_test_case_step` • `copy_test_case_step` • `delete_test_case_scenario` • `get_test_case_scenario_from_run` • `detach_test_case_automation`
 
-### Defects & Analytics
-`add_test_case_defect` • `remove_test_case_defect` • `get_test_case_defects` • `get_launch_defects` • `get_project_stats` • `get_launch_trend_analytics` • `get_launch_duration_analytics` • `get_test_success_rate` • `get_launch_environment`
+### Test Cases — Metadata
+`get_test_case_tags` • `set_test_case_tags` • `get_test_case_issues` • `set_test_case_issues` • `get_test_case_examples` • `set_test_case_examples` • `get_test_case_custom_fields` • `update_test_case_custom_fields` • `get_test_case_keys` • `set_test_case_keys` • `get_test_case_relations` • `set_test_case_relations` • `get_test_case_workflow`
+
+### Test Cases — Members & Links
+`get_test_case_members` • `add_test_case_members` • `remove_test_case_members` • `get_test_case_external_links` • `add_test_case_external_link` • `delete_test_case_external_link`
+
+### Test Cases — Defects
+`add_test_case_defect` • `remove_test_case_defect` • `get_test_case_defects` • `get_launch_defects`
+
+### Test Cases — Versions & Attachments
+`list_test_case_versions` • `create_test_case_version` • `restore_test_case_version` • `get_test_case_version_data` • `delete_test_case_version` • `get_test_case_attachments` • `delete_test_case_attachment`
+
+### Test Cases — Audit & State
+`get_test_case_audit` • `get_test_case_history` • `list_deleted_test_cases` • `list_muted_test_cases`
+
+### Bulk Test Case Operations
+`bulk_set_test_case_status` • `bulk_add_test_case_tags` • `bulk_remove_test_case_tags` • `bulk_clone_test_cases` • `bulk_mute_test_cases` • `bulk_delete_test_cases` • `bulk_move_test_cases` • `bulk_set_test_case_layer` • `bulk_add_test_case_members` • `bulk_remove_test_case_members` • `bulk_add_test_case_custom_fields` • `bulk_remove_test_case_custom_fields` • `bulk_add_test_case_external_links` • `bulk_add_test_case_issues` • `bulk_remove_test_case_issues` • `bulk_run_test_cases_new_launch` • `bulk_run_test_cases_existing_launch` • `bulk_create_test_plan`
+
+### Projects & Analytics
+`list_projects` • `get_project` • `get_project_stats` • `get_launch_trend_analytics` • `get_launch_duration_analytics` • `get_test_success_rate`
 
 **→ Full reference:** [API.md](./docs/API.md)
 
