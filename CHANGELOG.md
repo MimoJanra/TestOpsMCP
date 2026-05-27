@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-05-27 - Interactive API Discovery Widgets
+
+### Added
+
+#### MCP App Widgets for Search/Execute Tools
+- **Action Picker Widget** — interactive searchable picker for `search_testops_operations` results
+  - Real-time filtering by operation name, description, or API path
+  - HTTP method color-coding (GET green, POST blue, PUT orange, DELETE red)
+  - Click to select operation and inject operation_id into chat
+- **Results Display Widget** — formatted result viewer for `execute_testops_operation` 
+  - Status indicator (Success/Error) with color
+  - Auto-formatted JSON with proper indentation
+  - Scrollable body for large API responses
+  - Graceful fallback for raw text responses
+
+### Changed
+- **`search_testops_operations`** — updated to render Action Picker widget; description now mentions widget support
+- **`execute_testops_operation`** — updated to render Results Display widget; description now mentions widget support
+
+### Notes
+- All widgets support light/dark mode via host theme detection
+- Compatible with Claude Desktop and claude.ai
+- Uses ext-apps bundle for cross-platform rendering
+
 ## [1.6.0] - 2026-05-26 - Full Test Case API Coverage
 
 ### Added
