@@ -155,7 +155,7 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 	if r.opIndex != nil {
 		r.register(&Tool{
 			Name:        "search_testops_operations",
-			Description: "Search for TestOps API operations by intent/keyword. Returns up to 10 matching operations with their IDs, paths, methods, and required parameters.",
+			Description: "Search for TestOps API operations by intent/keyword. Returns up to 10 matching operations with their IDs, paths, methods, and required parameters. Renders an interactive picker widget in Claude Desktop and claude.ai.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -171,6 +171,11 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 				},
 				"required": []string{"intent"},
 			},
+			Meta: map[string]any{
+				"ui": map[string]any{
+					"resourceUri": "ui://widgets/action-picker",
+				},
+			},
 			Handler: r.searchTestOpsOperations,
 		})
 
@@ -180,7 +185,8 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 				"Handles path parameters, query parameters, and request bodies automatically. " +
 				"For operations that require an array or a specific body structure, pass the value under the special key \"body\" " +
 				"(e.g. {\"testCaseId\": 1, \"body\": [{\"customField\": {\"id\": 5}, \"values\": [{\"id\": 12}]}]}). " +
-				"Named path/query parameters are matched by name from the spec; everything else is sent as the request body.",
+				"Named path/query parameters are matched by name from the spec; everything else is sent as the request body. " +
+				"Renders result in an interactive widget.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -195,6 +201,11 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 					},
 				},
 				"required": []string{"operation_id"},
+			},
+			Meta: map[string]any{
+				"ui": map[string]any{
+					"resourceUri": "ui://widgets/results-display",
+				},
 			},
 			Handler: r.executeTestOpsOperation,
 		})

@@ -287,6 +287,90 @@ function render(d){
 </html>`
 
 // ---------------------------------------------------------------------------
+// Action Picker Widget HTML template
+// ---------------------------------------------------------------------------
+
+const actionPickerTemplate = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--bg:#fff;--card:#f8f9fa;--text:#1a1a1a;--sub:#6b7280;--border:#e5e7eb;--accent:#2563eb}
+html.dark{--bg:#1c1c1e;--card:#2c2c2e;--text:#f0f0f0;--sub:#9ca3af;--border:#3a3a3c;--accent:#3b82f6}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);padding:12px;font-size:13px;line-height:1.5}
+.search{display:flex;gap:8px;margin-bottom:12px}.search input{flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px}
+.list{display:flex;flex-direction:column;gap:8px;max-height:400px;overflow-y:auto}
+.item{padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--card);cursor:pointer;transition:.15s}
+.item:hover{background:var(--accent);color:#fff;border-color:var(--accent)}.item-title{font-weight:600;margin-bottom:4px}
+.item-method{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;background:var(--bg);margin-right:6px}
+.item:hover .item-method{color:inherit}.empty{padding:32px;text-align:center;color:var(--sub)}
+</style></head><body>
+<div class="search"><input id="filter" type="text" placeholder="Filter results..."></div>
+<div id="list" class="list"></div>
+<script type="module">
+/*__EXT_APPS_BUNDLE__*/
+const {App}=globalThis.ExtApps;
+const filterInput=document.getElementById('filter');
+const listDiv=document.getElementById('list');
+let items=[];
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function render(){
+  const q=filterInput.value.toLowerCase();
+  const filtered=items.filter(it=>it.summary.toLowerCase().includes(q)||it.description.toLowerCase().includes(q)||it.path.toLowerCase().includes(q));
+  listDiv.innerHTML='';
+  if(filtered.length===0){listDiv.innerHTML='<div class="empty">No operations match your filter</div>';return;}
+  for(const op of filtered){
+    const el=document.createElement('div');
+    el.className='item';
+    const methodClass={GET:'#10b981',POST:'#3b82f6',PUT:'#f59e0b',DELETE:'#ef4444'}[op.method]||'#6b7280';
+    el.innerHTML='<div class="item-title">'+esc(op.summary)+'</div><span class="item-method" style="background:'+methodClass+';color:#fff">'+esc(op.method)+'</span><span style="color:var(--sub)">'+esc(op.path)+'</span>';
+    el.onclick=()=>app.sendMessage({role:'user',content:[{type:'text',text:'Select operation: '+op.operation_id}]});
+    listDiv.append(el);
+  }
+}
+(async()=>{const app=new App({name:'ActionPicker',version:'1.0.0'},{});
+app.ontoolresult=({content})=>{
+  try{const raw=Array.isArray(content)?content[0]?.text:content;const data=typeof raw==='string'?JSON.parse(raw):raw;items=data.results||[];filterInput.value='';render();}
+  catch(e){listDiv.innerHTML='<div class="empty">Error: '+String(e)+'</div>';}
+};
+filterInput.addEventListener('input',render);await app.connect();})();
+</script></body></html>`
+
+// ---------------------------------------------------------------------------
+// Results Display Widget HTML template
+// ---------------------------------------------------------------------------
+
+const resultsDisplayTemplate = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--bg:#fff;--card:#f8f9fa;--text:#1a1a1a;--sub:#6b7280;--border:#e5e7eb;--success:#16a34a;--error:#dc2626}
+html.dark{--bg:#1c1c1e;--card:#2c2c2e;--text:#f0f0f0;--sub:#9ca3af;--border:#3a3a3c;--success:#22c55e;--error:#ef4444}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);padding:12px;font-size:13px;line-height:1.5}
+.header{padding:12px;background:var(--card);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.status-ok{color:var(--success)}.status-err{color:var(--error)}
+.body{padding:12px;background:var(--card);border:1px solid var(--border);border-radius:8px;font-family:monospace;font-size:11px;max-height:300px;overflow-y:auto;white-space:pre-wrap;word-break:break-word}
+.empty{padding:32px;text-align:center;color:var(--sub)}
+</style></head><body>
+<div id="root"><div class="empty">Executing...</div></div>
+<script type="module">
+/*__EXT_APPS_BUNDLE__*/
+const {App}=globalThis.ExtApps;
+const root=document.getElementById('root');
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function formatJSON(obj){try{return JSON.stringify(obj,null,2);}catch(e){return String(obj);}}
+function render(data){
+  const isErr=data.isError;const status=isErr?'Error':'Success';const statusClass=isErr?'status-err':'status-ok';
+  let content='';
+  if(Array.isArray(data.content)&&data.content.length>0){const txt=data.content[0]?.text||'';content=txt;}
+  try{const parsed=JSON.parse(content);content=formatJSON(parsed);}catch(_){}
+  root.innerHTML='<div class="header"><span class="'+statusClass+'">● '+status+'</span></div><div class="body">'+esc(content)+'</div>';
+}
+(async()=>{const app=new App({name:'ResultsDisplay',version:'1.0.0'},{});
+app.ontoolresult=(data)=>{render(data);};
+await app.connect();})();
+</script></body></html>`
+
+// ---------------------------------------------------------------------------
 // Widget registration
 // ---------------------------------------------------------------------------
 
@@ -331,6 +415,28 @@ func (r *Registry) registerWidgets() {
 		GetHTML: func() string {
 			bundle := getExtAppsBundle(r.logger)
 			return strings.ReplaceAll(launchDashboardTemplate, "/*__EXT_APPS_BUNDLE__*/", bundle)
+		},
+	})
+
+	// Register action picker widget resource
+	r.RegisterResource(&Resource{
+		URI:      "ui://widgets/action-picker",
+		Name:     "Action Picker",
+		MimeType: widgetMimeType,
+		GetHTML: func() string {
+			bundle := getExtAppsBundle(r.logger)
+			return strings.ReplaceAll(actionPickerTemplate, "/*__EXT_APPS_BUNDLE__*/", bundle)
+		},
+	})
+
+	// Register results display widget resource
+	r.RegisterResource(&Resource{
+		URI:      "ui://widgets/results-display",
+		Name:     "Results Display",
+		MimeType: widgetMimeType,
+		GetHTML: func() string {
+			bundle := getExtAppsBundle(r.logger)
+			return strings.ReplaceAll(resultsDisplayTemplate, "/*__EXT_APPS_BUNDLE__*/", bundle)
 		},
 	})
 }
