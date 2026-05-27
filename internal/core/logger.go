@@ -90,6 +90,10 @@ func (l *Logger) Error(message string, err error, data any) {
 }
 
 func (l *Logger) log(level Level, message string, data any) {
+	// Read l.level under the mutex to avoid a data race if SetLevel is ever
+	// called concurrently (and to keep the level check + write atomic).
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if level < l.level {
 		return
 	}
@@ -99,10 +103,7 @@ func (l *Logger) log(level Level, message string, data any) {
 		Message:   message,
 		Data:      data,
 	}
-
 	bytes, err := json.Marshal(entry)
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, `{"timestamp":%q,"level":%q,"message":%q,"error":"log marshal failed: %s"}`+"\n",
 			entry.Timestamp, entry.Level, entry.Message, err.Error())

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/MimoJanra/TestOpsMCP/internal/adapters/allure"
@@ -18,6 +19,20 @@ type Tool struct {
 	Description string
 	InputSchema any
 	Handler     HandlerFunc
+	// Annotations holds MCP tool annotations (readOnlyHint, destructiveHint, title, …).
+	// If nil at registration time, autoAnnotate() fills it in during NewRegistry.
+	Annotations map[string]any
+	// Meta holds the _meta field for MCP tool list responses (e.g. widget resource URI).
+	Meta map[string]any
+}
+
+// Resource represents an MCP resource served by this server (e.g. a widget HTML page).
+type Resource struct {
+	URI      string
+	Name     string
+	MimeType string
+	// GetHTML returns the full HTML content with any dynamic content (e.g. inlined bundle) applied.
+	GetHTML func() string
 }
 
 // Registry holds the set of tools exposed by the MCP server.
@@ -36,6 +51,10 @@ type Registry struct {
 	// so concurrent users never overwrite each other.
 	sessionTokens   map[string]string
 	sessionTokensMu sync.RWMutex
+
+	// resources holds MCP resources (e.g. widget HTML pages).
+	resources   map[string]*Resource
+	resourcesMu sync.RWMutex
 }
 
 func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
@@ -44,6 +63,7 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 		allure:        allureClient,
 		logger:        logger,
 		sessionTokens: make(map[string]string),
+		resources:     make(map[string]*Resource),
 	}
 
 	// Load OpenAPI spec and build operations index
@@ -86,9 +106,34 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 	r.registerAnalyticsTools()
 	r.registerBulkTools()
 	r.registerRelationTools()
+	r.registerWidgets()
 
-	// Configuration tool for session token (if no token in config)
-	if r.allure != nil && !r.allure.HasToken() {
+	// Apply MCP tool annotations (readOnlyHint / destructiveHint) based on
+	// naming conventions. Tools that set Annotations explicitly during
+	// registration (e.g. widget tools with _meta) keep their own values;
+	// the rest get auto-classified here so we don't repeat the same metadata
+	// in every register() call.
+	r.mu.Lock()
+	for _, tool := range r.tools {
+		if tool.Annotations == nil {
+			tool.Annotations = autoAnnotate(tool.Name)
+		} else {
+			// Tool already has custom annotations (e.g. from widgets.go);
+			// back-fill any missing hint keys so the MCP response is complete.
+			if _, ok := tool.Annotations["readOnlyHint"]; !ok {
+				defaults := autoAnnotate(tool.Name)
+				tool.Annotations["readOnlyHint"] = defaults["readOnlyHint"]
+				tool.Annotations["destructiveHint"] = defaults["destructiveHint"]
+			}
+		}
+	}
+	r.mu.Unlock()
+
+	// Configuration tool for per-session token override.
+	// Always registered so that:
+	//  - users can supply a token when ALLURE_TOKEN is not set in config; and
+	//  - users can override the server-wide token for their own session.
+	if r.allure != nil {
 		r.register(&Tool{
 			Name:        "configure_allure_token",
 			Description: "⚠️ SECURITY WARNING: Configure your Allure API token for this chat session. Only use if you trust this channel. Token will NOT be saved after session ends. For production, use ALLURE_TOKEN environment variable instead.",
@@ -228,6 +273,84 @@ func (r *Registry) getSessionToken(sessID string) string {
 	r.sessionTokensMu.RLock()
 	defer r.sessionTokensMu.RUnlock()
 	return r.sessionTokens[sessID]
+}
+
+// ClearSessionToken removes the stored API token for the given MCP session ID.
+func (r *Registry) ClearSessionToken(sessID string) {
+	r.sessionTokensMu.Lock()
+	delete(r.sessionTokens, sessID)
+	r.sessionTokensMu.Unlock()
+}
+
+// RegisterResource adds a resource to the registry.
+func (r *Registry) RegisterResource(res *Resource) {
+	r.resourcesMu.Lock()
+	defer r.resourcesMu.Unlock()
+	r.resources[res.URI] = res
+}
+
+// ListResources returns all registered resources.
+func (r *Registry) ListResources() []*Resource {
+	r.resourcesMu.RLock()
+	defer r.resourcesMu.RUnlock()
+	list := make([]*Resource, 0, len(r.resources))
+	for _, res := range r.resources {
+		list = append(list, res)
+	}
+	return list
+}
+
+// GetResource returns the resource with the given URI, or nil if not found.
+func (r *Registry) GetResource(uri string) *Resource {
+	r.resourcesMu.RLock()
+	defer r.resourcesMu.RUnlock()
+	return r.resources[uri]
+}
+
+// autoAnnotate returns MCP tool annotations derived from the tool's name.
+//
+// Naming conventions:
+//   - get_* / list_* / search_* / suggest_* / validate_* → readOnly
+//   - delete_* / bulk_delete_* / detach_* → destructive write
+//   - everything else → non-destructive write
+func autoAnnotate(name string) map[string]any {
+	// Permanently destructive — deletes data that may be hard to recover.
+	destructivePrefixes := []string{
+		"delete_",
+		"bulk_delete_",
+		"detach_",
+	}
+	for _, p := range destructivePrefixes {
+		if strings.HasPrefix(name, p) {
+			return map[string]any{
+				"readOnlyHint":    false,
+				"destructiveHint": true,
+			}
+		}
+	}
+
+	// Pure reads — no side-effects on Allure data.
+	readOnlyPrefixes := []string{
+		"get_",
+		"list_",
+		"search_",
+		"suggest_",
+		"validate_",
+	}
+	for _, p := range readOnlyPrefixes {
+		if strings.HasPrefix(name, p) {
+			return map[string]any{
+				"readOnlyHint":    true,
+				"destructiveHint": false,
+			}
+		}
+	}
+
+	// Default: reversible write (create, update, set, add, remove, run, …).
+	return map[string]any{
+		"readOnlyHint":    false,
+		"destructiveHint": false,
+	}
 }
 
 // Search + Execute handlers

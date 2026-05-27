@@ -1,0 +1,962 @@
+# TestOps MCP — Full LLM Reference
+
+> MCP server that connects Claude to Allure TestOps. 102 curated tools + 600+ dynamic OpenAPI endpoints.
+> Module: github.com/MimoJanra/TestOpsMCP | Go 1.26+ | Apache 2.0
+
+---
+
+## Architecture
+
+```
+cmd/server/main.go          — entry point; --http flag picks transport
+internal/
+  mcp/
+    server.go               — JSON-RPC 2.0 dispatcher, SSE sessions, heartbeat (25s)
+    stdio.go                — line-buffered stdin/stdout handler
+    protocol.go             — MCP protocol types (version 2024-11-05)
+  tools/
+    registry.go             — tool registration, per-session token isolation
+    tools_launches.go       — launch management (14 tools)
+    tools_results.go        — test result actions (6 tools)
+    tools_testcases.go      — test case CRUD + run (11 tools)
+    tools_testcases_extra.go— metadata, steps, versions, search (30+ tools)
+    tools_bulk.go           — bulk operations (22 tools)
+    tools_projects.go       — projects + analytics (6 tools)
+    tools_relations.go      — test case relations (additional)
+    openapi_loader.go       — loads testops.json, builds searchable index
+    search_execute.go       — search + execute for 600+ OpenAPI endpoints
+  adapters/allure/
+    client.go               — HTTP client, JWT caching, per-session token callback
+    models.go               — request/response DTOs
+  config/config.go          — env-var loading and validation
+  core/logger.go            — structured JSON logging (stdout), 4 levels
+  session/session.go        — context-based session ID (StdioID = "stdio")
+```
+
+### Transport modes
+
+**Stdio** (default, single user):
+- Reads JSON-RPC from stdin, writes to stdout
+- Session ID fixed as `"stdio"`
+- Used for Claude Desktop local integration
+
+**HTTP + SSE** (multi-user team server):
+- `GET /sse` — opens SSE stream, returns `session_id` as first event
+- `POST /messages?sessionId=<id>` — sends JSON-RPC request for a session
+- Per-session `X-Allure-Token` header stored in Registry
+- Optional `Authorization: Bearer <MCP_AUTH_TOKEN>` for endpoint protection
+- Heartbeat every 25 s, max 64 queued messages per session, 1 MiB max body
+
+### Session token isolation
+
+Each HTTP session gets its own Allure API token. Priority:
+1. `X-Allure-Token` header on SSE connection → stored in `Registry.sessionTokens[sessID]`
+2. `configure_allure_token` tool call → stored per session
+3. `ALLURE_TOKEN` env var → global fallback
+
+### JWT caching
+
+`allure.Client` caches JWT tokens keyed by API token string. Auto-refreshes before expiry.
+
+---
+
+## Configuration
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `ALLURE_BASE_URL` | Yes | — | Allure TestOps URL, e.g. `https://testops.company.com` |
+| `ALLURE_TOKEN` | No | — | Global API token (optional for per-user deployments) |
+| `REQUEST_TIMEOUT` | No | 30 | HTTP timeout seconds (1–600) |
+| `PORT` | No | `:3000` | HTTP server port (auto-prefixed with `:` if needed) |
+| `LOG_LEVEL` | No | `INFO` | `DEBUG` / `INFO` / `WARN` / `ERROR` |
+| `MCP_AUTH_TOKEN` | No | — | Bearer token required on HTTP; warn if unset |
+| `CORS_ALLOWED_ORIGIN` | No | `*` | CORS `Access-Control-Allow-Origin` value |
+
+---
+
+## Tool Reference
+
+### Universal / Meta (3 tools)
+
+#### configure_allure_token
+Set or override the Allure API token for the current chat session only.
+```json
+{
+  "token": "string (required) — Allure TestOps API token"
+}
+```
+Returns: `{"status": "configured", "warning": "..."}`
+
+#### search_testops_operations
+Search across 600+ OpenAPI-indexed Allure endpoints by intent keyword.
+```json
+{
+  "intent": "string (required) — e.g. 'create project', 'list launches'",
+  "limit":  "integer (optional, default 10, max 100)"
+}
+```
+Returns: `{"intent": "...", "results": [...], "total": 600+}`
+Each result: `{operation_id, method, path, summary, parameters}`
+
+#### execute_testops_operation
+Execute any endpoint discovered via `search_testops_operations`.
+```json
+{
+  "operation_id": "string (required) — from search results",
+  "parameters": {
+    "<path_param>": "value",
+    "<query_param>": "value",
+    "body": "<object or array for request body>"
+  }
+}
+```
+Path and query params are matched by name from the spec. Use `"body"` key for array payloads.
+
+---
+
+### Launch Management (14 tools)
+
+#### run_allure_launch
+Start a new test launch.
+```json
+{ "project_id": "integer (required)", "launch_name": "string (required)" }
+```
+Returns: `{"launch_id": 123, "status": "started"}`
+
+#### get_launch_status
+```json
+{ "launch_id": "integer (required)" }
+```
+Returns: `{"status": "RUNNING|DONE|FAILED|..."}`
+
+#### get_launch_report
+Get pass/fail statistics for a launch.
+```json
+{ "launch_id": "integer (required)" }
+```
+Returns: `{"total": N, "passed": N, "failed": N, "broken": N}`
+
+#### list_launches
+```json
+{
+  "project_id": "integer (required)",
+  "page": "integer (default 0)",
+  "size": "integer (default 10, max 100)"
+}
+```
+Returns paginated list with id, name, status, project_id, start_time, end_time, environment, tags.
+
+#### get_launch_details
+Full launch object including uuid, description, report_web_url, tags.
+```json
+{ "launch_id": "integer (required)" }
+```
+
+#### close_launch
+```json
+{ "launch_id": "integer (required)" }
+```
+Returns: `{"status": "closed"}`
+
+#### reopen_launch
+```json
+{ "launch_id": "integer (required)" }
+```
+Returns: `{"status": "reopened"}`
+
+#### copy_launch
+```json
+{ "launch_id": "integer (required)" }
+```
+Returns: `{"launch_id": N, "name": "...", "status": "copied"}`
+
+#### merge_launches
+```json
+{
+  "launch_ids": "[integer] (required)",
+  "launch_name": "string (required)"
+}
+```
+Returns: `{"merged_launch_id": N, "status": "merged"}`
+
+#### get_launch_environment
+```json
+{ "launch_id": "integer (required)" }
+```
+Returns: `{"environment": {"KEY": "VALUE", ...}}`
+
+#### update_launch_environment
+```json
+{
+  "launch_id": "integer (required)",
+  "environment": {"KEY": "VALUE"} // object (required, non-empty)
+}
+```
+Returns: `{"status": "updated"}`
+
+#### add_test_cases_to_launch
+```json
+{
+  "launch_id": "integer (required)",
+  "project_id": "integer (required)",
+  "test_case_ids": "[integer] (required)",
+  "assignees": "[string] (optional) — usernames"
+}
+```
+Returns: `{"status": "success", "count": N}`
+
+#### add_test_plan_to_launch
+```json
+{
+  "launch_id": "integer (required)",
+  "test_plan_id": "integer (required)"
+}
+```
+Returns: `{"status": "success"}`
+
+#### get_launch_defects
+```json
+{
+  "launch_id": "integer (required)",
+  "page": "integer (default 0)",
+  "size": "integer (default 10, max 100)"
+}
+```
+Returns paginated defect list.
+
+---
+
+### Test Results (6 tools)
+
+#### list_test_results
+```json
+{
+  "launch_id": "integer (required)",
+  "status": "string (optional) — PASSED|FAILED|BROKEN|SKIPPED",
+  "page": "integer (default 0)",
+  "size": "integer (default 10, max 100)"
+}
+```
+Returns paginated list: id, name, status, launch_id, start_time, end_time, duration.
+
+#### get_test_result
+Full result detail including uuid, full_name, description, parameters.
+```json
+{ "test_result_id": "integer (required)" }
+```
+
+#### assign_test_result
+```json
+{ "test_result_id": "integer (required)", "username": "string (required)" }
+```
+Returns: `{"status": "assigned"}`
+
+#### mute_test_result
+```json
+{ "test_result_id": "integer (required)", "reason": "string (optional)" }
+```
+Returns: `{"status": "muted"}`
+
+#### resolve_test_result
+```json
+{ "test_result_id": "integer (required)" }
+```
+Returns: `{"status": "resolved"}`
+
+#### unmute_test_result
+```json
+{ "test_result_id": "integer (required)" }
+```
+Returns: `{"status": "unmuted"}`
+
+---
+
+### Test Cases — Core (11 tools)
+
+#### list_test_cases
+```json
+{
+  "project_id": "integer (required)",
+  "page": "integer (default 0)",
+  "size": "integer (default 10)"
+}
+```
+
+#### get_test_case
+Full test case: metadata, manual_scenario (steps), tags, members, custom fields, examples, and more.
+```json
+{ "test_case_id": "integer (required)" }
+```
+
+#### create_test_case
+```json
+{
+  "project_id": "integer (required)",
+  "name": "string (required)",
+  "description": "string (optional)"
+}
+```
+
+#### update_test_case
+All fields optional except test_case_id.
+```json
+{
+  "test_case_id": "integer (required)",
+  "name": "string",
+  "description": "string",
+  "full_name": "string",
+  "precondition": "string",
+  "expected_result": "string",
+  "automated": "boolean",
+  "external": "boolean",
+  "deleted": "boolean",
+  "status_id": "integer",
+  "test_layer_id": "integer",
+  "workflow_id": "integer",
+  "tags": [{"id": N, "name": "..."}],
+  "members": [{"id": N, "name": "..."}],
+  "links": [{"name": "...", "type": "...", "url": "..."}],
+  "manual_scenario": {"steps": [...]}
+}
+```
+
+#### delete_test_case
+```json
+{ "test_case_id": "integer (required)" }
+```
+
+#### clone_test_case
+```json
+{ "test_case_id": "integer (required)" }
+```
+Returns: `{"test_case_id": N, "status": "cloned"}`
+
+#### restore_test_case
+Restore a soft-deleted test case.
+```json
+{ "test_case_id": "integer (required)" }
+```
+
+#### run_test_case
+Start a run for a single test case in an existing launch.
+```json
+{ "test_case_id": "integer (required)", "launch_id": "integer (required)" }
+```
+
+#### search_test_cases
+AQL/RQL query. Examples: `"name ~ 'login'"`, `"status = 'active'"`, `"tag = 'smoke'"`.
+```json
+{
+  "project_id": "integer (required)",
+  "query": "string (required) — AQL/RQL expression",
+  "page": "integer (default 0)",
+  "size": "integer (default 20)"
+}
+```
+
+#### suggest_test_cases
+Autocomplete / name suggestions.
+```json
+{
+  "project_id": "integer (required)",
+  "query": "string (required)",
+  "page": "integer (default 0)",
+  "size": "integer (default 10)"
+}
+```
+
+#### validate_test_case_query
+Validate AQL/RQL without executing.
+```json
+{ "project_id": "integer (required)", "query": "string (required)" }
+```
+
+---
+
+### Test Cases — Steps & Scenario (8 tools)
+
+#### create_test_case_step
+```json
+{
+  "test_case_id": "integer (required)",
+  "name": "string (required) — step name",
+  "expected_result": "string (optional)",
+  "parent_id": "integer (optional) — for nested steps"
+}
+```
+
+#### update_test_case_step
+```json
+{
+  "step_id": "integer (required)",
+  "name": "string (optional)",
+  "expected_result": "string (optional)"
+}
+```
+
+#### delete_test_case_step
+```json
+{ "step_id": "integer (required)" }
+```
+
+#### move_test_case_step
+```json
+{
+  "step_id": "integer (required)",
+  "after_id": "integer (optional) — place after this step",
+  "before_id": "integer (optional) — place before this step",
+  "parent_id": "integer (optional) — nest under this step"
+}
+```
+
+#### copy_test_case_step
+```json
+{
+  "step_id": "integer (required)",
+  "after_id": "integer (optional)",
+  "before_id": "integer (optional)",
+  "parent_id": "integer (optional)"
+}
+```
+
+#### delete_test_case_scenario
+Delete all steps from a test case.
+```json
+{ "test_case_id": "integer (required)" }
+```
+
+#### get_test_case_scenario_from_run
+Get steps captured from the last automated run.
+```json
+{ "test_case_id": "integer (required)" }
+```
+
+#### detach_test_case_automation
+Convert automated test case back to manual.
+```json
+{
+  "test_case_id": "integer (required)",
+  "status_id": "integer (optional)",
+  "workflow_id": "integer (optional)"
+}
+```
+
+---
+
+### Test Cases — Metadata (13 tools)
+
+#### get_test_case_tags / set_test_case_tags
+get: `{ "test_case_id": integer }`
+set (full replace):
+```json
+{
+  "test_case_id": "integer (required)",
+  "tags": [{"id": N, "name": "..."}]  // pass complete desired list
+}
+```
+
+#### get_test_case_issues / set_test_case_issues
+get: `{ "test_case_id": integer }`
+set (full replace):
+```json
+{
+  "test_case_id": "integer (required)",
+  "issues": [{
+    "id": N,
+    "display_name": "PROJ-123",
+    "url": "https://...",
+    "integration_id": N,
+    "closed": false
+  }]
+}
+```
+
+#### get_test_case_examples / set_test_case_examples
+get: `{ "test_case_id": integer }`
+set (parametrized data table):
+```json
+{
+  "test_case_id": "integer (required)",
+  "examples": [
+    [{"name": "username", "value": "admin"}, {"name": "password", "value": "secret"}]
+  ]
+}
+```
+
+#### get_test_case_custom_fields / update_test_case_custom_fields
+get: `{ "test_case_id": integer }`
+update:
+```json
+{
+  "test_case_id": "integer (required)",
+  "custom_fields": [{"custom_field_id": N, "values": [{"id": N}]}]
+}
+```
+
+#### get_test_case_keys / set_test_case_keys
+get: `{ "test_case_id": integer }`
+set (Jira/Azure keys, full replace):
+```json
+{
+  "test_case_id": "integer (required)",
+  "keys": [{"id": N, "integration_id": N, "name": "TC-1", "url": "https://..."}]
+}
+```
+
+#### get_test_case_relations / set_test_case_relations
+get: `{ "test_case_id": integer }`
+set (full replace, e.g. 'blocks', 'is blocked by'):
+```json
+{
+  "test_case_id": "integer (required)",
+  "relations": [{"target_id": N, "target_name": "..."}]
+}
+```
+
+#### get_test_case_workflow
+```json
+{ "test_case_id": "integer (required)" }
+```
+
+---
+
+### Test Cases — Members & Links (6 tools)
+
+#### get_test_case_members
+```json
+{ "test_case_id": "integer (required)" }
+```
+
+#### add_test_case_members
+```json
+{
+  "test_case_id": "integer (required)",
+  "members": [{"id": N, "name": "..."}]
+}
+```
+
+#### remove_test_case_members
+```json
+{
+  "test_case_id": "integer (required)",
+  "member_ids": [N, N]
+}
+```
+
+#### get_test_case_external_links
+```json
+{ "test_case_id": "integer (required)" }
+```
+
+#### add_test_case_external_link
+```json
+{
+  "test_case_id": "integer (required)",
+  "name": "string (optional)",
+  "type": "string (optional)",
+  "url": "string (required)"
+}
+```
+
+#### delete_test_case_external_link
+```json
+{ "link_id": "integer (required)" }
+```
+
+---
+
+### Test Cases — Defects (3 tools)
+
+#### get_test_case_defects
+```json
+{ "test_case_id": "integer (required)" }
+```
+
+#### add_test_case_defect
+```json
+{
+  "test_case_id": "integer (required)",
+  "display_name": "string — bug tracker issue key (required)",
+  "url": "string (optional)",
+  "integration_id": "integer (required)"
+}
+```
+
+#### remove_test_case_defect
+```json
+{ "test_case_id": "integer (required)", "defect_id": "integer (required)" }
+```
+
+---
+
+### Test Cases — Versions & Attachments (7 tools)
+
+#### list_test_case_versions
+```json
+{ "test_case_id": "integer (required)" }
+```
+
+#### create_test_case_version
+```json
+{
+  "test_case_id": "integer (required)",
+  "title": "string (required)",
+  "description": "string (optional)"
+}
+```
+
+#### restore_test_case_version
+```json
+{ "version_id": "integer (required)" }
+```
+
+#### get_test_case_version_data
+```json
+{ "version_id": "integer (required)" }
+```
+
+#### delete_test_case_version
+```json
+{ "version_id": "integer (required)" }
+```
+
+#### get_test_case_attachments
+```json
+{
+  "test_case_id": "integer (required)",
+  "page": "integer (default 0)",
+  "size": "integer (default 20)"
+}
+```
+
+#### delete_test_case_attachment
+```json
+{ "attachment_id": "integer (required)" }
+```
+
+---
+
+### Test Cases — Audit & State (4 tools)
+
+#### get_test_case_audit
+Change history for a test case.
+```json
+{
+  "test_case_id": "integer (required)",
+  "page": "integer (default 0)",
+  "size": "integer (default 20)"
+}
+```
+
+#### get_test_case_history
+(Alias/variant of audit; returns test result history across runs.)
+```json
+{ "test_case_id": "integer (required)" }
+```
+
+#### list_deleted_test_cases
+```json
+{
+  "project_id": "integer (required)",
+  "page": "integer (default 0)",
+  "size": "integer (default 20)"
+}
+```
+
+#### list_muted_test_cases
+```json
+{
+  "project_id": "integer (required)",
+  "page": "integer (default 0)",
+  "size": "integer (default 20)"
+}
+```
+
+---
+
+### Bulk Test Case Operations (14 tools)
+
+All bulk test case tools accept `project_id` (integer, required) and `test_case_ids` ([integer], required).
+
+#### bulk_set_test_case_status
+```json
+{ "project_id": N, "test_case_ids": [...], "status_id": N, "workflow_id": N }
+```
+
+#### bulk_add_test_case_tags / bulk_remove_test_case_tags
+```json
+{ "project_id": N, "test_case_ids": [...], "tags": [{"id": N, "name": "..."}] }
+```
+
+#### bulk_clone_test_cases
+```json
+{ "project_id": N, "test_case_ids": [...] }
+```
+
+#### bulk_mute_test_cases
+```json
+{ "project_id": N, "test_case_ids": [...] }
+```
+
+#### bulk_delete_test_cases
+```json
+{ "project_id": N, "test_case_ids": [...] }
+```
+
+#### bulk_move_test_cases
+```json
+{ "project_id": N, "test_case_ids": [...], "to_project_id": N }
+```
+
+#### bulk_set_test_case_layer
+```json
+{ "project_id": N, "test_case_ids": [...], "layer_id": N }
+```
+
+#### bulk_add_test_case_members / bulk_remove_test_case_members
+add: `{ "project_id": N, "test_case_ids": [...], "members": [{"id": N, "name": "..."}] }`
+remove: `{ "project_id": N, "test_case_ids": [...], "member_ids": [N] }`
+
+#### bulk_add_test_case_custom_fields / bulk_remove_test_case_custom_fields
+add: `{ "project_id": N, "test_case_ids": [...], "custom_fields": [{"custom_field_id": N, "value_ids": [N]}] }`
+remove: `{ "project_id": N, "test_case_ids": [...], "custom_field_ids": [N] }`
+
+#### bulk_add_test_case_external_links
+```json
+{ "project_id": N, "test_case_ids": [...], "links": [{"name": "...", "type": "...", "url": "..."}] }
+```
+
+#### bulk_add_test_case_issues / bulk_remove_test_case_issues
+add: `{ "project_id": N, "test_case_ids": [...], "issues": [{"id": N, "display_name": "PROJ-1", "url": "...", "integration_id": N}] }`
+remove: `{ "project_id": N, "test_case_ids": [...], "issue_ids": [N] }`
+
+---
+
+### Bulk Test Result Operations (4 tools)
+
+All accept `launch_id` (integer, required) and `test_result_ids` ([integer], required).
+
+#### bulk_assign_test_results
+```json
+{ "launch_id": N, "test_result_ids": [...], "assignees": ["username1"] }
+```
+
+#### bulk_mute_test_results
+```json
+{ "launch_id": N, "test_result_ids": [...], "reason": "string (optional)" }
+```
+
+#### bulk_unmute_test_results
+```json
+{ "launch_id": N, "test_result_ids": [...] }
+```
+
+#### bulk_resolve_test_results
+```json
+{ "launch_id": N, "test_result_ids": [...] }
+```
+
+---
+
+### Bulk Launch / Plan Operations (3 tools)
+
+#### bulk_run_test_cases_new_launch
+```json
+{
+  "project_id": N,
+  "test_case_ids": [...],
+  "launch_name": "string (optional)",
+  "assignees": ["username"] (optional)
+}
+```
+
+#### bulk_run_test_cases_existing_launch
+```json
+{
+  "project_id": N,
+  "test_case_ids": [...],
+  "launch_id": N,
+  "assignees": ["username"] (optional)
+}
+```
+
+#### bulk_create_test_plan
+```json
+{
+  "project_id": N,
+  "test_case_ids": [...],
+  "test_plan_name": "string (required)"
+}
+```
+
+---
+
+### Projects (3 tools)
+
+#### list_projects
+```json
+{ "page": "integer (default 0)", "size": "integer (default 10, max 100)" }
+```
+Returns: `{"projects": [{"id": N, "name": "...", "code": "..."}], "page", "size", "total", "is_last"}`
+
+#### get_project
+```json
+{ "project_id": "integer (required)" }
+```
+Returns: id, name, code, description.
+
+#### get_project_stats
+```json
+{ "project_id": "integer (required)" }
+```
+Returns test count, run statistics.
+
+---
+
+### Analytics (3 tools)
+
+#### get_launch_trend_analytics
+```json
+{ "project_id": "integer (required)", "days": "integer (optional, default 30)" }
+```
+Returns time-series of pass/fail counts per launch over N days.
+
+#### get_launch_duration_analytics
+```json
+{ "project_id": "integer (required)", "days": "integer (optional, default 30)" }
+```
+Returns launch duration trends.
+
+#### get_test_success_rate
+```json
+{ "project_id": "integer (required)", "days": "integer (optional, default 30)" }
+```
+Returns pass rate percentage over the period.
+
+---
+
+## OpenAPI Fallback (search + execute)
+
+If a tool doesn't cover a needed endpoint, use the two-step fallback:
+
+```
+1. search_testops_operations(intent="your goal")
+   → returns list of {operation_id, method, path, summary, parameters}
+
+2. execute_testops_operation(operation_id="...", parameters={...})
+   → executes the endpoint, returns parsed JSON
+```
+
+The index covers all endpoints from `testops.json` in the project root. The search uses fuzzy keyword matching on operation ID, tags, summary, description, and path.
+
+For array request bodies: `parameters: {"body": [item1, item2]}`
+For mixed path+body: `parameters: {"id": 123, "body": {...}}`
+
+---
+
+## Common Patterns
+
+### Start a test run and wait for completion
+```
+run_allure_launch(project_id=1, launch_name="Smoke CI #42")
+→ {launch_id: 999}
+
+get_launch_status(launch_id=999)   # poll until status != RUNNING
+→ {status: "DONE"}
+
+get_launch_report(launch_id=999)
+→ {total: 156, passed: 142, failed: 10, broken: 4}
+```
+
+### Investigate failures
+```
+list_test_results(launch_id=999, status="FAILED", size=20)
+→ [{id: 5001, name: "Auth login test", ...}, ...]
+
+get_test_result(test_result_id=5001)
+→ full detail with description, parameters, steps
+```
+
+### Bulk update test cases from a query
+```
+search_test_cases(project_id=1, query="tag = 'flaky'")
+→ [{id: 101}, {id: 102}, ...]
+
+bulk_add_test_case_tags(project_id=1, test_case_ids=[101,102], tags=[{name:"needs-fix"}])
+```
+
+### Create and version a test case
+```
+create_test_case(project_id=1, name="Login with MFA")
+→ {test_case_id: 200}
+
+create_test_case_step(test_case_id=200, name="Navigate to login page")
+create_test_case_step(test_case_id=200, name="Enter credentials")
+create_test_case_step(test_case_id=200, name="Verify MFA prompt")
+
+create_test_case_version(test_case_id=200, title="v1.0 — initial")
+```
+
+---
+
+## Pagination Convention
+
+All list/search tools use 0-based page numbers. Response always includes:
+- `page` — current page number
+- `size` — items per page
+- `total` — total item count
+- `is_last` — boolean, true when no more pages
+
+Default page size: 10. Max: 100 (enforced server-side).
+
+---
+
+## Error Handling
+
+Tools return errors as MCP error responses. Common causes:
+- `project_id must be positive` — invalid ID
+- `token cannot be empty` — configure_allure_token called with blank token
+- `operations index not available` — testops.json not found in project root
+- `operation not found: <id>` — invalid operation_id in execute
+- HTTP errors from Allure API are wrapped: `get launch status: 404 Not Found`
+
+---
+
+## Security Notes
+
+- Never log API tokens (masked in logs)
+- `configure_allure_token` warns users: token is session-only, not persisted
+- HTTP mode: always set `MCP_AUTH_TOKEN` in production
+- Use HTTPS in production (nginx/Caddy reverse proxy)
+- Set `CORS_ALLOWED_ORIGIN` to specific origin (not `*`) in production
+
+---
+
+## Build & Run
+
+```bash
+# Build
+go build -o testops-mcp ./cmd/server
+
+# Stdio mode (Claude Desktop)
+./testops-mcp
+
+# HTTP mode (team server)
+./testops-mcp --http
+
+# Docker
+docker pull ghcr.io/MimoJanra/TestOpsMCP:latest
+docker run -e ALLURE_BASE_URL=https://testops.company.com \
+           -e ALLURE_TOKEN=mytoken \
+           -p 3000:3000 \
+           ghcr.io/MimoJanra/TestOpsMCP:latest --http
+```
+
+---
+
+## See Also
+
+- [llms.txt](llms.txt) — concise overview (load this first)
+- [README.md](README.md) — quick start, installation options
+- [docs/API.md](docs/API.md) — human-readable tool reference with examples
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — Docker, Kubernetes, Systemd, HTTPS

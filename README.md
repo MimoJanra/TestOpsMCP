@@ -46,7 +46,7 @@ Add this to the `mcpServers` section:
 {
   "mcpServers": {
     "testops": {
-      "url": "http://your-server.com:3000/sse",
+      "url": "http://your-server.com:3000/mcp",
       "headers": {
         "Authorization": "Bearer your-mcp-auth-token", // optional
         "X-Allure-Token": "your-personal-allure-token"

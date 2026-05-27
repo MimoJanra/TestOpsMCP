@@ -499,6 +499,9 @@ func (r *Registry) bulkRemoveTestCaseMembersTool(ctx context.Context, input json
 	if len(p.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
+	if len(p.MemberIDs) == 0 {
+		return nil, fmt.Errorf("member_ids must not be empty")
+	}
 	// Build MemberDto list from IDs
 	members := make([]allure.MemberDto, len(p.MemberIDs))
 	for i, id := range p.MemberIDs {
@@ -527,6 +530,9 @@ func (r *Registry) bulkAddTestCaseCustomFields(ctx context.Context, input json.R
 	}
 	if len(p.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
+	}
+	if len(p.CustomFields) == 0 {
+		return nil, fmt.Errorf("custom_fields must not be empty")
 	}
 	cfv := make([]allure.CustomFieldWithValuesDto, len(p.CustomFields))
 	for i, cf := range p.CustomFields {

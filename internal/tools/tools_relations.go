@@ -187,7 +187,7 @@ func (r *Registry) registerRelationTools() {
 
 	r.register(&Tool{
 		Name:        "delete_test_case_external_link",
-		Description: "Delete an external link/relation from a test case",
+		Description: "Delete an external URL link from a test case by its URL. The API has no per-item delete endpoint — the link is removed by fetching the current list and patching without the matching entry.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -195,12 +195,12 @@ func (r *Registry) registerRelationTools() {
 					"type":        "integer",
 					"description": "Allure test case ID",
 				},
-				"relation_id": map[string]any{
-					"type":        "integer",
-					"description": "Relation/link ID to delete",
+				"url": map[string]any{
+					"type":        "string",
+					"description": "URL of the external link to delete",
 				},
 			},
-			"required": []string{"test_case_id", "relation_id"},
+			"required": []string{"test_case_id", "url"},
 		},
 		Handler: r.deleteTestCaseExternalLink,
 	})
@@ -221,7 +221,7 @@ func (r *Registry) getTestCaseDefects(ctx context.Context, input json.RawMessage
 		return nil, fmt.Errorf("test_case_id must be positive")
 	}
 
-	if params.Size == 0 {
+	if params.Size <= 0 {
 		params.Size = 10
 	}
 	if params.Size > 100 {
@@ -473,8 +473,8 @@ func (r *Registry) addTestCaseExternalLink(ctx context.Context, input json.RawMe
 
 func (r *Registry) deleteTestCaseExternalLink(ctx context.Context, input json.RawMessage) (any, error) {
 	var params struct {
-		TestCaseID int64 `json:"test_case_id"`
-		RelationID int64 `json:"relation_id"`
+		TestCaseID int64  `json:"test_case_id"`
+		URL        string `json:"url"`
 	}
 
 	if err := json.Unmarshal(input, &params); err != nil {
@@ -485,16 +485,16 @@ func (r *Registry) deleteTestCaseExternalLink(ctx context.Context, input json.Ra
 		return nil, fmt.Errorf("test_case_id must be positive")
 	}
 
-	if params.RelationID <= 0 {
-		return nil, fmt.Errorf("relation_id must be positive")
+	if params.URL == "" {
+		return nil, fmt.Errorf("url is required")
 	}
 
 	r.logger.Info("deleting external link from test case", map[string]any{
 		"test_case_id": params.TestCaseID,
-		"relation_id":  params.RelationID,
+		"url":          params.URL,
 	})
 
-	if err := r.allure.DeleteTestCaseExternalLink(ctx, params.TestCaseID, params.RelationID); err != nil {
+	if err := r.allure.DeleteTestCaseExternalLink(ctx, params.TestCaseID, params.URL); err != nil {
 		r.logger.Error("delete test case external link", err, map[string]any{"test_case_id": params.TestCaseID})
 		return nil, fmt.Errorf("delete test case external link: %w", err)
 	}

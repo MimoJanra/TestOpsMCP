@@ -50,9 +50,14 @@ func (c *Client) SetSessionTokenFunc(fn func(ctx context.Context) string) {
 
 // resolveAPIToken returns the API token to use for this request: the per-session
 // token (if set by the user via configure_allure_token) or the server-wide token.
+// The function-pointer field is read under the mutex to avoid a data race with
+// SetSessionTokenFunc, which writes the field under the same mutex.
 func (c *Client) resolveAPIToken(ctx context.Context) string {
-	if c.getSessionToken != nil {
-		if t := c.getSessionToken(ctx); t != "" {
+	c.mu.Lock()
+	fn := c.getSessionToken
+	c.mu.Unlock()
+	if fn != nil {
+		if t := fn(ctx); t != "" {
 			return t
 		}
 	}
@@ -65,7 +70,7 @@ func (c *Client) getJWTToken(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("no token configured - set ALLURE_TOKEN env var or use configure_allure_token tool")
 	}
 
-	// Check cache without holding the lock during the HTTP call.
+	// Fast path: check cache under the lock.
 	c.mu.Lock()
 	if entry, ok := c.jwtCache[apiToken]; ok && time.Now().Before(entry.expiresAt) {
 		c.mu.Unlock()
@@ -73,6 +78,11 @@ func (c *Client) getJWTToken(ctx context.Context) (string, error) {
 	}
 	c.mu.Unlock()
 
+	// Cache miss – fetch a new JWT outside the lock so we don't block other
+	// goroutines. Two concurrent goroutines may both reach here for the same
+	// apiToken; that results in a harmless double-fetch. After the fetch we
+	// re-check the cache before writing so a race winner's entry is not
+	// needlessly overwritten with a stale result.
 	jwt, expiresIn, err := c.fetchJWT(ctx, apiToken)
 	if err != nil {
 		return "", err
@@ -84,6 +94,11 @@ func (c *Client) getJWTToken(ctx context.Context) (string, error) {
 	}
 
 	c.mu.Lock()
+	// Re-check: another goroutine may have already populated the cache.
+	if existing, ok := c.jwtCache[apiToken]; ok && time.Now().Before(existing.expiresAt) {
+		c.mu.Unlock()
+		return existing.jwt, nil
+	}
 	c.jwtCache[apiToken] = jwtEntry{jwt: jwt, expiresAt: expiresAt}
 	c.mu.Unlock()
 
@@ -2662,8 +2677,11 @@ func (c *Client) RemoveTestCaseMembers(ctx context.Context, testCaseID int64, me
 	return nil
 }
 
+// GetTestCaseExternalLinks returns the external URL links attached to a test case.
+// The spec exposes these only via GET /api/testcase/{id}/overview (field "links").
+// The /relation endpoint returns test-case-to-test-case relations (different schema).
 func (c *Client) GetTestCaseExternalLinks(ctx context.Context, testCaseID int64) ([]ExternalLinkDto, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/relation", testCaseID)), nil)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/overview", testCaseID)), nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -2682,62 +2700,53 @@ func (c *Client) GetTestCaseExternalLinks(ctx context.Context, testCaseID int64)
 		return nil, errFromResponse(resp)
 	}
 
-	var result []ExternalLinkDto
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	// Decode only the "links" field to avoid pulling the full overview into memory.
+	var overview struct {
+		Links []ExternalLinkDto `json:"links"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&overview); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 
-	return result, nil
+	return overview.Links, nil
 }
 
+// AddTestCaseExternalLink appends an external URL link to a test case.
+// The spec provides no per-item POST endpoint; the only way to mutate links is
+// PATCH /api/testcase/{id} with the complete desired "links" array (replace-all).
+// We therefore fetch the current links first and patch with the appended list.
 func (c *Client) AddTestCaseExternalLink(ctx context.Context, testCaseID int64, link ExternalLinkDto) error {
-	body, err := json.Marshal(link)
+	current, err := c.GetTestCaseExternalLinks(ctx, testCaseID)
 	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+		return fmt.Errorf("get current links: %w", err)
 	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/%d/relation", testCaseID)), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusCreated {
-		return errFromResponse(resp)
-	}
-
-	return nil
+	updated := append(current, link)
+	return c.UpdateTestCase(ctx, testCaseID, UpdateTestCaseRequest{Links: updated})
 }
 
-func (c *Client) DeleteTestCaseExternalLink(ctx context.Context, testCaseID int64, relationID int64) error {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.url(fmt.Sprintf("/api/testcase/%d/relation/%d", testCaseID, relationID)), nil)
+// DeleteTestCaseExternalLink removes the external link with the given URL from a test case.
+// The spec has no DELETE endpoint for external links; removal is achieved by fetching
+// the current list and PATCHing with the matching entry omitted.
+func (c *Client) DeleteTestCaseExternalLink(ctx context.Context, testCaseID int64, linkURL string) error {
+	current, err := c.GetTestCaseExternalLinks(ctx, testCaseID)
 	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
+		return fmt.Errorf("get current links: %w", err)
 	}
 
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
+	remaining := make([]ExternalLinkDto, 0, len(current))
+	found := false
+	for _, l := range current {
+		if l.URL == linkURL {
+			found = true
+			continue
+		}
+		remaining = append(remaining, l)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
+	if !found {
+		return fmt.Errorf("external link not found: %s", linkURL)
 	}
 
-	return nil
+	return c.UpdateTestCase(ctx, testCaseID, UpdateTestCaseRequest{Links: remaining})
 }
 
 func (c *Client) RestoreTestCase(ctx context.Context, testCaseID int64) error {

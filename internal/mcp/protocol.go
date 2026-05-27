@@ -46,7 +46,8 @@ type InitializeRequest struct {
 type InitializeResponse struct {
 	ProtocolVersion string `json:"protocolVersion"`
 	Capabilities    struct {
-		Tools struct{} `json:"tools"`
+		Tools     struct{} `json:"tools"`
+		Resources struct{} `json:"resources"`
 	} `json:"capabilities"`
 	ServerInfo struct {
 		Name    string `json:"name"`
@@ -55,13 +56,40 @@ type InitializeResponse struct {
 }
 
 type Tool struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	InputSchema any    `json:"inputSchema"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	InputSchema any            `json:"inputSchema"`
+	Annotations map[string]any `json:"annotations,omitempty"`
+	Meta        map[string]any `json:"_meta,omitempty"`
 }
 
 type ToolsListResponse struct {
 	Tools []Tool `json:"tools"`
+}
+
+// Resource represents an MCP resource entry (e.g. a widget HTML page).
+type MCPResource struct {
+	URI      string `json:"uri"`
+	Name     string `json:"name"`
+	MimeType string `json:"mimeType,omitempty"`
+}
+
+type ResourcesListResponse struct {
+	Resources []MCPResource `json:"resources"`
+}
+
+type ResourcesReadRequest struct {
+	URI string `json:"uri"`
+}
+
+type ResourceContent struct {
+	URI      string `json:"uri"`
+	MimeType string `json:"mimeType,omitempty"`
+	Text     string `json:"text"`
+}
+
+type ResourcesReadResponse struct {
+	Contents []ResourceContent `json:"contents"`
 }
 
 type ToolCallRequest struct {

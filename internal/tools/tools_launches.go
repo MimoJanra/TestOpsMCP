@@ -442,7 +442,7 @@ func (r *Registry) listLaunches(ctx context.Context, input json.RawMessage) (any
 		return nil, fmt.Errorf("project_id must be positive")
 	}
 
-	if params.Size == 0 {
+	if params.Size <= 0 {
 		params.Size = 10
 	}
 	if params.Size > 100 {
@@ -724,7 +724,7 @@ func (r *Registry) getLaunchDefects(ctx context.Context, input json.RawMessage) 
 		return nil, fmt.Errorf("launch_id must be positive")
 	}
 
-	if params.Size == 0 {
+	if params.Size <= 0 {
 		params.Size = 10
 	}
 	if params.Size > 100 {

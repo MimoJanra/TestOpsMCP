@@ -732,7 +732,7 @@ func (r *Registry) getTestCaseAttachments(ctx context.Context, input json.RawMes
 	if p.TestCaseID <= 0 {
 		return nil, fmt.Errorf("test_case_id must be positive")
 	}
-	if p.Size == 0 {
+	if p.Size <= 0 {
 		p.Size = 20
 	}
 	result, err := r.allure.GetTestCaseAttachments(ctx, p.TestCaseID, p.Page, p.Size)
@@ -790,7 +790,7 @@ func (r *Registry) searchTestCases(ctx context.Context, input json.RawMessage) (
 	if p.Query == "" {
 		return nil, fmt.Errorf("query is required")
 	}
-	if p.Size == 0 {
+	if p.Size <= 0 {
 		p.Size = 20
 	}
 	if p.Size > 100 {
@@ -831,7 +831,7 @@ func (r *Registry) listDeletedTestCases(ctx context.Context, input json.RawMessa
 	if p.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-	if p.Size == 0 {
+	if p.Size <= 0 {
 		p.Size = 20
 	}
 	if p.Size > 100 {
@@ -979,7 +979,7 @@ func (r *Registry) listMutedTestCases(ctx context.Context, input json.RawMessage
 	if p.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-	if p.Size == 0 {
+	if p.Size <= 0 {
 		p.Size = 20
 	}
 	cases, err := r.allure.ListMutedTestCases(ctx, p.ProjectID, p.Page, p.Size)
@@ -1005,7 +1005,7 @@ func (r *Registry) getTestCaseAudit(ctx context.Context, input json.RawMessage) 
 	if p.TestCaseID <= 0 {
 		return nil, fmt.Errorf("test_case_id must be positive")
 	}
-	if p.Size == 0 {
+	if p.Size <= 0 {
 		p.Size = 20
 	}
 	result, err := r.allure.GetTestCaseAudit(ctx, p.TestCaseID, p.Page, p.Size)
@@ -1049,7 +1049,7 @@ func (r *Registry) suggestTestCases(ctx context.Context, input json.RawMessage) 
 	if p.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-	if p.Size == 0 {
+	if p.Size <= 0 {
 		p.Size = 10
 	}
 	result, err := r.allure.SuggestTestCases(ctx, p.ProjectID, p.Query, p.Page, p.Size)

@@ -406,7 +406,7 @@ func (r *Registry) listTestCases(ctx context.Context, input json.RawMessage) (an
 		return nil, fmt.Errorf("project_id must be positive")
 	}
 
-	if params.Size == 0 {
+	if params.Size <= 0 {
 		params.Size = 10
 	}
 	if params.Size > 100 {
@@ -889,7 +889,7 @@ func (r *Registry) getTestCaseHistory(ctx context.Context, input json.RawMessage
 		return nil, fmt.Errorf("test_case_id must be positive")
 	}
 
-	if params.Size == 0 {
+	if params.Size <= 0 {
 		params.Size = 10
 	}
 	if params.Size > 100 {

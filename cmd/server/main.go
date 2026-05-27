@@ -61,6 +61,9 @@ func runHTTP(mcpServer *mcp.Server, cfg *config.Config, logger *core.Logger) {
 	}
 
 	mux := http.NewServeMux()
+	// Streamable HTTP transport (MCP spec 2025-03-26) — recommended
+	mux.HandleFunc("/mcp", mcpServer.HandleMCP)
+	// Legacy HTTP+SSE transport (MCP spec 2024-11-05) — kept for backward compat
 	mux.HandleFunc("/sse", mcpServer.HandleSSE)
 	mux.HandleFunc("/messages", mcpServer.HandleMessages)
 

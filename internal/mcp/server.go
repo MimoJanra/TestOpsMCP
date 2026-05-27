@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	sessionSendBuffer = 16
+	sessionSendBuffer = 64           // increased from 16 to reduce response drops under burst load
 	heartbeatInterval = 25 * time.Second
 	maxMessageBody    = 1 << 20 // 1 MiB
 )
@@ -158,11 +158,17 @@ func (s *Server) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxMessageBody))
+	// Read at most maxMessageBody+1 bytes so we can detect oversized requests.
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxMessageBody+1))
 	if err != nil {
 		s.logger.Error("read request body", err, map[string]any{"session": sessionID})
 		s.sendToSession(sess, s.errorResponse(nil, ErrCodeParse, "Parse error"))
 		http.Error(w, "read error", http.StatusBadRequest)
+		return
+	}
+	if int64(len(body)) > maxMessageBody {
+		s.logger.Warn("request body too large", map[string]any{"session": sessionID, "limit_bytes": maxMessageBody})
+		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
 		return
 	}
 
@@ -212,6 +218,10 @@ func (s *Server) dispatch(ctx context.Context, req *JSONRPCRequest) *JSONRPCResp
 		return s.handleToolsList(req)
 	case "tools/call":
 		return s.handleToolsCall(ctx, req)
+	case "resources/list":
+		return s.handleResourcesList(req)
+	case "resources/read":
+		return s.handleResourcesRead(req)
 	default:
 		s.logger.Warn("unknown method", map[string]any{"method": req.Method})
 		if notification {
@@ -251,6 +261,8 @@ func (s *Server) handleToolsList(req *JSONRPCRequest) *JSONRPCResponse {
 			Name:        t.Name,
 			Description: t.Description,
 			InputSchema: t.InputSchema,
+			Annotations: t.Annotations,
+			Meta:        t.Meta,
 		})
 	}
 
@@ -258,7 +270,48 @@ func (s *Server) handleToolsList(req *JSONRPCRequest) *JSONRPCResponse {
 	return s.okResponse(req.ID, result)
 }
 
+func (s *Server) handleResourcesList(req *JSONRPCRequest) *JSONRPCResponse {
+	resources := s.registry.ListResources()
+	result := ResourcesListResponse{Resources: make([]MCPResource, 0, len(resources))}
+	for _, r := range resources {
+		result.Resources = append(result.Resources, MCPResource{
+			URI:      r.URI,
+			Name:     r.Name,
+			MimeType: r.MimeType,
+		})
+	}
+	s.logger.Debug("resources/list response", map[string]any{"count": len(result.Resources)})
+	return s.okResponse(req.ID, result)
+}
+
+func (s *Server) handleResourcesRead(req *JSONRPCRequest) *JSONRPCResponse {
+	if len(req.Params) == 0 {
+		return s.errorResponse(req.ID, ErrCodeInvalidParams, "Missing params")
+	}
+	var readReq ResourcesReadRequest
+	if err := json.Unmarshal(req.Params, &readReq); err != nil {
+		s.logger.Error("parse resources/read params", err, nil)
+		return s.errorResponse(req.ID, ErrCodeInvalidParams, "Invalid params")
+	}
+	res := s.registry.GetResource(readReq.URI)
+	if res == nil {
+		s.logger.Warn("resource not found", map[string]any{"uri": readReq.URI})
+		return s.errorResponse(req.ID, ErrCodeInvalidParams, fmt.Sprintf("Resource not found: %s", readReq.URI))
+	}
+	s.logger.Debug("resources/read", map[string]any{"uri": readReq.URI})
+	return s.okResponse(req.ID, ResourcesReadResponse{
+		Contents: []ResourceContent{{
+			URI:      res.URI,
+			MimeType: res.MimeType,
+			Text:     res.GetHTML(),
+		}},
+	})
+}
+
 func (s *Server) handleToolsCall(ctx context.Context, req *JSONRPCRequest) *JSONRPCResponse {
+	if len(req.Params) == 0 {
+		return s.errorResponse(req.ID, ErrCodeInvalidParams, "Missing params")
+	}
 	var callReq ToolCallRequest
 	if err := json.Unmarshal(req.Params, &callReq); err != nil {
 		s.logger.Error("parse tools/call params", err, nil)
@@ -271,6 +324,12 @@ func (s *Server) handleToolsCall(ctx context.Context, req *JSONRPCRequest) *JSON
 	if tool == nil {
 		s.logger.Warn("unknown tool", map[string]any{"tool": callReq.Name})
 		return s.errorResponse(req.ID, ErrCodeInvalidParams, fmt.Sprintf("Unknown tool: %s", callReq.Name))
+	}
+
+	// Normalise nil Arguments (e.g. params.arguments omitted or null) to an
+	// empty JSON object so handlers can safely call json.Unmarshal on it.
+	if callReq.Arguments == nil {
+		callReq.Arguments = json.RawMessage("{}")
 	}
 
 	result, err := tool.Handler(ctx, callReq.Arguments)
@@ -292,6 +351,143 @@ func (s *Server) handleToolsCall(ctx context.Context, req *JSONRPCRequest) *JSON
 		}},
 	})
 }
+
+// ---------------------------------------------------------------------------
+// Streamable HTTP transport (MCP spec 2025-03-26)
+// ---------------------------------------------------------------------------
+
+// HandleMCP serves the standard MCP Streamable HTTP transport.
+// All JSON-RPC traffic is handled by a single endpoint supporting POST, GET,
+// and DELETE methods:
+//
+//	POST /mcp   — send a JSON-RPC message; receives an inline JSON response
+//	GET  /mcp   — reserved for server-initiated SSE (returns 405 for now)
+//	DELETE /mcp — explicit session termination (clears stored tokens)
+//
+// This transport coexists with the legacy HTTP+SSE endpoints (/sse, /messages)
+// so existing Claude Desktop configurations continue to work.
+//
+// Security note: callers should also validate the Origin header to guard against
+// DNS-rebinding when running locally.
+func (s *Server) HandleMCP(w http.ResponseWriter, r *http.Request) {
+	s.setCORSHeaders(w)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if !s.checkAuth(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodPost:
+		s.handleMCPPost(w, r)
+	case http.MethodGet:
+		// Server-initiated SSE is not yet implemented.
+		// Per spec, returning 405 is valid.
+		w.Header().Set("Allow", "POST, DELETE, OPTIONS")
+		http.Error(w, "server-initiated SSE not supported; use POST for requests", http.StatusMethodNotAllowed)
+	case http.MethodDelete:
+		s.handleMCPDelete(w, r)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleMCPPost processes a single JSON-RPC message and writes an inline JSON response.
+// For initialize requests, the server creates a session ID and returns it via
+// the Mcp-Session-Id response header. Clients must then include that header on
+// all subsequent requests.
+func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxMessageBody+1))
+	if err != nil {
+		s.logger.Error("read streamable-HTTP body", err, nil)
+		writeMCPError(w, nil, ErrCodeParse, "read error", http.StatusBadRequest)
+		return
+	}
+	if int64(len(body)) > maxMessageBody {
+		s.logger.Warn("streamable-HTTP body too large", map[string]any{"limit_bytes": maxMessageBody})
+		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+
+	var req JSONRPCRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		s.logger.Error("parse streamable-HTTP JSON-RPC", err, nil)
+		writeMCPError(w, nil, ErrCodeParse, "parse error", http.StatusBadRequest)
+		return
+	}
+	if req.JSONRPC != "2.0" {
+		writeMCPError(w, req.ID, ErrCodeInvalidRequest, "invalid JSON-RPC version", http.StatusOK)
+		return
+	}
+
+	// For initialization, generate the session ID before dispatching so that
+	// an X-Allure-Token present on the same request can be stored under the
+	// new session ID immediately.
+	sessID := r.Header.Get("Mcp-Session-Id")
+	if req.Method == "initialize" {
+		sessID = newSessionID()
+	}
+
+	// Persist per-user Allure token whenever the client sends it.
+	// This can arrive on any request (most commonly on initialize or the first
+	// tool call), so we store it every time the header is present.
+	if tok := r.Header.Get("X-Allure-Token"); tok != "" && sessID != "" {
+		s.registry.SetSessionToken(sessID, tok)
+	}
+
+	s.logger.Debug("streamable-HTTP request", map[string]any{
+		"method":  req.Method,
+		"session": sessID,
+	})
+
+	ctx := sessctx.WithID(r.Context(), sessID)
+	resp := s.dispatch(ctx, &req)
+
+	// Notifications (no id) require no response body; reply 202 Accepted.
+	if req.IsNotification() || resp == nil {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+
+	// Return the freshly created session ID to the client on initialize.
+	if req.Method == "initialize" && sessID != "" {
+		w.Header().Set("Mcp-Session-Id", sessID)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		s.logger.Error("write streamable-HTTP response", err, nil)
+	}
+}
+
+// handleMCPDelete terminates a session and clears any stored per-session state.
+func (s *Server) handleMCPDelete(w http.ResponseWriter, r *http.Request) {
+	sessID := r.Header.Get("Mcp-Session-Id")
+	if sessID != "" {
+		s.registry.ClearSessionToken(sessID)
+		s.logger.Info("streamable-HTTP session terminated", map[string]any{"session": sessID})
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// writeMCPError writes a JSON-RPC error response with the specified HTTP status code.
+func writeMCPError(w http.ResponseWriter, id json.RawMessage, code int, msg string, status int) {
+	resp := &JSONRPCResponse{
+		JSONRPC: "2.0",
+		ID:      id,
+		Error:   &JSONRPCError{Code: code, Message: msg},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers (used by both transports)
+// ---------------------------------------------------------------------------
 
 func (s *Server) okResponse(id json.RawMessage, result any) *JSONRPCResponse {
 	return &JSONRPCResponse{JSONRPC: "2.0", ID: id, Result: result}

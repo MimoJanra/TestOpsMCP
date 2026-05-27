@@ -1,0 +1,78 @@
+# TestOps MCP
+
+> MCP server that connects Claude to Allure TestOps — launch tests, track results, manage test cases, and run bulk operations from a single conversation.
+
+## Overview
+
+TestOps MCP is a production-grade Go server implementing the Model Context Protocol (MCP, protocol version 2024-11-05). It exposes **102 curated tools** plus a dynamic fallback covering **600+ Allure TestOps API endpoints** via an OpenAPI spec index. Supports two transports: **stdio** (Claude Desktop, single-user) and **HTTP + SSE** (shared team server, multi-user with per-session token isolation).
+
+- Module: `github.com/MimoJanra/TestOpsMCP`
+- Language: Go 1.26+
+- License: Apache 2.0
+
+## Key Packages
+
+| Package | Role |
+|---------|------|
+| `cmd/server` | Entry point; `--http` flag selects transport |
+| `internal/mcp` | JSON-RPC 2.0 dispatcher, SSE sessions, heartbeat |
+| `internal/tools` | Tool registry, 102 tools, OpenAPI search/execute |
+| `internal/adapters/allure` | HTTP client for Allure TestOps API, JWT caching |
+| `internal/config` | Env-var configuration loader |
+| `internal/core` | Structured JSON logger |
+| `internal/session` | Context-based session ID propagation |
+
+## Tool Groups (102 total)
+
+- **Universal** (3): `configure_allure_token`, `search_testops_operations`, `execute_testops_operation`
+- **Launches** (14): `run_allure_launch`, `get_launch_status`, `get_launch_report`, `list_launches`, `get_launch_details`, `close_launch`, `reopen_launch`, `copy_launch`, `merge_launches`, `get_launch_environment`, `update_launch_environment`, `add_test_cases_to_launch`, `add_test_plan_to_launch`, `get_launch_defects`
+- **Test Results** (6): `list_test_results`, `get_test_result`, `assign_test_result`, `mute_test_result`, `resolve_test_result`, `unmute_test_result`
+- **Test Cases — Core** (11): `list_test_cases`, `get_test_case`, `create_test_case`, `update_test_case`, `delete_test_case`, `clone_test_case`, `restore_test_case`, `run_test_case`, `search_test_cases`, `suggest_test_cases`, `validate_test_case_query`
+- **Test Cases — Steps** (8): `create_test_case_step`, `update_test_case_step`, `delete_test_case_step`, `move_test_case_step`, `copy_test_case_step`, `delete_test_case_scenario`, `get_test_case_scenario_from_run`, `detach_test_case_automation`
+- **Test Cases — Metadata** (13): `get_test_case_tags`, `set_test_case_tags`, `get_test_case_issues`, `set_test_case_issues`, `get_test_case_examples`, `set_test_case_examples`, `get_test_case_custom_fields`, `update_test_case_custom_fields`, `get_test_case_keys`, `set_test_case_keys`, `get_test_case_relations`, `set_test_case_relations`, `get_test_case_workflow`
+- **Test Cases — Members & Links** (6): `get_test_case_members`, `add_test_case_members`, `remove_test_case_members`, `get_test_case_external_links`, `add_test_case_external_link`, `delete_test_case_external_link`
+- **Test Cases — Defects** (3): `get_test_case_defects`, `add_test_case_defect`, `remove_test_case_defect`
+- **Test Cases — Versions & Attachments** (7): `list_test_case_versions`, `create_test_case_version`, `restore_test_case_version`, `get_test_case_version_data`, `delete_test_case_version`, `get_test_case_attachments`, `delete_test_case_attachment`
+- **Test Cases — Audit & State** (4): `get_test_case_audit`, `get_test_case_history`, `list_deleted_test_cases`, `list_muted_test_cases`
+- **Bulk Operations** (18): `bulk_set_test_case_status`, `bulk_add_test_case_tags`, `bulk_remove_test_case_tags`, `bulk_clone_test_cases`, `bulk_mute_test_cases`, `bulk_delete_test_cases`, `bulk_move_test_cases`, `bulk_set_test_case_layer`, `bulk_add_test_case_members`, `bulk_remove_test_case_members`, `bulk_add_test_case_custom_fields`, `bulk_remove_test_case_custom_fields`, `bulk_add_test_case_external_links`, `bulk_add_test_case_issues`, `bulk_remove_test_case_issues`, `bulk_run_test_cases_new_launch`, `bulk_run_test_cases_existing_launch`, `bulk_create_test_plan`
+- **Projects** (3): `list_projects`, `get_project`, `get_project_stats`
+- **Analytics** (3): `get_launch_trend_analytics`, `get_launch_duration_analytics`, `get_test_success_rate`
+- **Relations** (6): `get_test_case_relations`, `add_test_case_relation`, `remove_test_case_relation`, `get_relation_types`, `bulk_assign_test_results`, `bulk_mute_test_results`, `bulk_unmute_test_results`, `bulk_resolve_test_results`
+
+## Configuration (Environment Variables)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `ALLURE_BASE_URL` | Yes | — | Allure TestOps instance URL (https://...) |
+| `ALLURE_TOKEN` | No | — | Default API token; optional for per-user deployments |
+| `REQUEST_TIMEOUT` | No | 30 | HTTP timeout in seconds (1–600) |
+| `PORT` | No | 3000 | HTTP server port (HTTP mode only) |
+| `LOG_LEVEL` | No | INFO | DEBUG / INFO / WARN / ERROR |
+| `MCP_AUTH_TOKEN` | No | — | Bearer token required on HTTP connections |
+| `CORS_ALLOWED_ORIGIN` | No | * | CORS origin header value |
+
+## Deployment
+
+**Stdio (per-user, Claude Desktop):**
+```json
+{
+  "mcpServers": {
+    "testops": {
+      "command": "testops-mcp-windows-amd64.exe",
+      "env": { "ALLURE_BASE_URL": "https://your-testops.com", "ALLURE_TOKEN": "..." }
+    }
+  }
+}
+```
+
+**HTTP (shared team server):**
+- Endpoints: `GET /sse` (SSE stream), `POST /messages` (JSON-RPC)
+- Per-user token via `X-Allure-Token` header on SSE connection
+- Optional MCP auth via `Authorization: Bearer <MCP_AUTH_TOKEN>`
+
+## Docs
+
+- [README.md](README.md) — Quick start, installation, tool list
+- [docs/API.md](docs/API.md) — Full tool reference & examples
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — Docker, Kubernetes, Systemd, HTTPS
+- [llms-full.txt](llms-full.txt) — Complete tool signatures for LLMs

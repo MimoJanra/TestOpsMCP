@@ -145,9 +145,9 @@ func (r *Registry) executeOperation(ctx context.Context, op *Operation, params i
 		}
 	}
 
-	// Replace path parameters
+	// Replace path parameters (URL-encode values to prevent path injection).
 	for key, value := range pathParams {
-		reqURL = strings.ReplaceAll(reqURL, "{"+key+"}", fmt.Sprintf("%v", value))
+		reqURL = strings.ReplaceAll(reqURL, "{"+key+"}", url.PathEscape(fmt.Sprintf("%v", value)))
 	}
 
 	// Add query parameters
@@ -195,14 +195,15 @@ func (r *Registry) executeOperation(ctx context.Context, op *Operation, params i
 		return nil, fmt.Errorf("api error: status %d, body: %s", resp.StatusCode, string(respBody))
 	}
 
-	// Parse response
+	// Parse response.
+	// When Content-Type is absent we still attempt JSON parsing so that
+	// a body is never silently discarded (some proxies strip the header).
 	var result interface{}
-	if len(respBody) > 0 && resp.Header.Get("Content-Type") != "" {
-		// Check if Content-Type indicates JSON
+	if len(respBody) > 0 {
 		contentType := resp.Header.Get("Content-Type")
-		if strings.Contains(contentType, "application/json") {
+		if contentType == "" || strings.Contains(contentType, "application/json") {
 			if err := json.Unmarshal(respBody, &result); err != nil {
-				// If JSON parsing fails, return raw body
+				// JSON parsing failed – return raw body so callers can inspect it.
 				result = map[string]interface{}{
 					"raw_response": string(respBody),
 					"status_code":  resp.StatusCode,

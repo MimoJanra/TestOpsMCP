@@ -71,7 +71,7 @@ func (r *Registry) listProjects(ctx context.Context, input json.RawMessage) (any
 		return nil, fmt.Errorf("invalid input: %w", err)
 	}
 
-	if params.Size == 0 {
+	if params.Size <= 0 {
 		params.Size = 10
 	}
 	if params.Size > 100 {
