@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-05-29 - MCP Compliance Fixes & Model Expansions
+
+### Fixed
+
+#### MCP Protocol Compliance
+- **Tool annotations missing on 3 tools** — `configure_allure_token`, `search_testops_operations`, and `execute_testops_operation` were registered after the annotation loop and sent `null` annotations to Claude. All three now receive correct `readOnlyHint`/`destructiveHint` values.
+- **`execute_testops_operation` now marked `destructiveHint: true`** — the tool can execute any API operation including DELETE/PUT, which requires the destructive hint per MCP spec.
+- **CORS headers missing custom headers** — `Mcp-Session-Id` and `X-Allure-Token` added to `Access-Control-Allow-Headers`; `DELETE` added to `Access-Control-Allow-Methods`. Previously, browsers would block cross-origin preflight requests using these headers.
+- **Streamable HTTP Content-Type validation** — POST `/mcp` now rejects requests with a non-JSON `Content-Type` with `415 Unsupported Media Type`, as required by MCP spec 2025-03-26.
+- **`GetLaunchStatistics` response parsing** — the Allure API returns a `[]{"status", "count"}` array, not a single object. Client now aggregates the array into `StatisticsResponse` correctly; the Launch Dashboard widget now shows real pass/fail/broken counts.
+
+#### Data Models
+- **`ClientCapabilities`** — `InitializeRequest.Capabilities` was an empty `struct{}`, silently discarding client capability flags. Replaced with typed struct parsing `elicitation`, `sampling`, and `roots` fields — required for future elicitation support.
+- **`LaunchCreateRequest`** expanded with `AutoClose`, `External`, `Issues`, `Links`, `Tags` fields matching the full API schema.
+- **`LaunchResponse`** enriched with `UUID`, `CreatedDate`, `LastModifiedDate`, `AutoClose`, `Closed`, `External`, `Issues`, `Links`, `Tags`.
+- **`StatisticsResponse`** expanded with `Unknown` field; new `StatisticItem` DTO for the raw array items from the statistics endpoint.
+
+### Added
+
+#### New Model DTOs
+- `CategoryDto` — test result category reference
+- `TestLayerDto` — test layer reference  
+- `JobRunDto` — CI/CD job run linked to a test result (with URL)
+- `IdAndNameOnlyDto` — lightweight id+name reference
+- `IntegrationTypeDto` — issue tracker integration type
+- `RoleDto` — user role in a project
+- `StatusDto` — named status object for test cases
+- `WorkflowRowDto` — workflow attached to a test case
+- `CustomFieldValueWithCfDto` — payload for setting custom field values via the `/cfv` endpoint
+
+### Notes
+- No tool count changes — all fixes are internal correctness and protocol compliance improvements
+- Fully backwards-compatible: existing Claude Desktop and claude.ai configurations require no changes
+
 ## [1.7.0] - 2026-05-27 - Interactive API Discovery Widgets
 
 ### Added
