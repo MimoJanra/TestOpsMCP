@@ -225,9 +225,27 @@ func (c *Client) GetLaunchStatistics(ctx context.Context, launchID int64) (*Stat
 		return nil, errFromResponse(resp)
 	}
 
-	var result StatisticsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	// The API returns a JSON array of {status, count} items.
+	var items []StatisticItem
+	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	var result StatisticsResponse
+	for _, item := range items {
+		switch strings.ToLower(item.Status) {
+		case "passed":
+			result.Passed += item.Count
+		case "failed":
+			result.Failed += item.Count
+		case "broken":
+			result.Broken += item.Count
+		case "skipped":
+			result.Skipped += item.Count
+		default:
+			result.Unknown += item.Count
+		}
+		result.Total += item.Count
 	}
 
 	return &result, nil

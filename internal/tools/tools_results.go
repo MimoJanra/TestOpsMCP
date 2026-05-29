@@ -165,13 +165,17 @@ func (r *Registry) listTestResults(ctx context.Context, input json.RawMessage) (
 	items := make([]map[string]any, len(results.Content))
 	for i, result := range results.Content {
 		items[i] = map[string]any{
-			"id":         result.ID,
-			"name":       result.Name,
-			"status":     result.Status,
-			"launch_id":  result.LaunchID,
-			"start_time": result.StartTime,
-			"end_time":   result.EndTime,
-			"duration":   result.Duration,
+			"id":           result.ID,
+			"name":         result.Name,
+			"status":       result.Status,
+			"launch_id":    result.LaunchID,
+			"test_case_id": result.TestCaseID,
+			"start_time":   result.StartTime,
+			"end_time":     result.EndTime,
+			"duration":     result.Duration,
+			"assignee":     result.Assignee,
+			"muted":        result.Muted,
+			"flaky":        result.Flaky,
 		}
 	}
 
@@ -205,18 +209,40 @@ func (r *Registry) getTestResult(ctx context.Context, input json.RawMessage) (an
 		return nil, fmt.Errorf("get test result: %w", err)
 	}
 
+	paramsList := make([]map[string]any, len(result.Parameters))
+	for i, p := range result.Parameters {
+		paramsList[i] = map[string]any{
+			"name":     p.Name,
+			"value":    p.Value,
+			"hidden":   p.Hidden,
+			"excluded": p.Excluded,
+		}
+	}
+
+	tagsList := make([]map[string]any, len(result.Tags))
+	for i, t := range result.Tags {
+		tagsList[i] = map[string]any{"id": t.ID, "name": t.Name}
+	}
+
 	return map[string]any{
-		"id":          result.ID,
-		"uuid":        result.UUID,
-		"name":        result.Name,
-		"status":      result.Status,
-		"launch_id":   result.LaunchID,
-		"start_time":  result.StartTime,
-		"end_time":    result.EndTime,
-		"duration":    result.Duration,
-		"full_name":   result.FullName,
-		"description": result.Description,
-		"parameters":  result.Parameters,
+		"id":           result.ID,
+		"name":         result.Name,
+		"status":       result.Status,
+		"launch_id":    result.LaunchID,
+		"test_case_id": result.TestCaseID,
+		"start_time":   result.StartTime,
+		"end_time":     result.EndTime,
+		"duration":     result.Duration,
+		"full_name":    result.FullName,
+		"description":  result.Description,
+		"message":      result.Message,
+		"trace":        result.Trace,
+		"parameters":   paramsList,
+		"assignee":     result.Assignee,
+		"muted":        result.Muted,
+		"flaky":        result.Flaky,
+		"known":        result.Known,
+		"tags":         tagsList,
 	}, nil
 }
 

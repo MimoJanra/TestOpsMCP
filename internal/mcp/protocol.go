@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 )
 
-const ProtocolVersion = "2024-11-05"
+const ProtocolVersion = "2025-03-26"
 
 type JSONRPCRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -34,9 +34,17 @@ type JSONRPCError struct {
 	Data    any    `json:"data,omitempty"`
 }
 
+type ClientCapabilities struct {
+	Elicitation *struct{} `json:"elicitation,omitempty"`
+	Sampling    *struct{} `json:"sampling,omitempty"`
+	Roots       *struct {
+		ListChanged bool `json:"listChanged"`
+	} `json:"roots,omitempty"`
+}
+
 type InitializeRequest struct {
-	ProtocolVersion string   `json:"protocolVersion"`
-	Capabilities    struct{} `json:"capabilities"`
+	ProtocolVersion string             `json:"protocolVersion"`
+	Capabilities    ClientCapabilities `json:"capabilities"`
 	ClientInfo      struct {
 		Name    string `json:"name"`
 		Version string `json:"version"`
@@ -46,8 +54,13 @@ type InitializeRequest struct {
 type InitializeResponse struct {
 	ProtocolVersion string `json:"protocolVersion"`
 	Capabilities    struct {
-		Tools     struct{} `json:"tools"`
-		Resources struct{} `json:"resources"`
+		Tools struct {
+			ListChanged bool `json:"listChanged"`
+		} `json:"tools"`
+		Resources struct {
+			Subscribe   bool `json:"subscribe"`
+			ListChanged bool `json:"listChanged"`
+		} `json:"resources"`
 	} `json:"capabilities"`
 	ServerInfo struct {
 		Name    string `json:"name"`
@@ -98,8 +111,9 @@ type ToolCallRequest struct {
 }
 
 type ToolCallResponse struct {
-	Content []any `json:"content"`
-	IsError bool  `json:"isError,omitempty"`
+	Content []any          `json:"content"`
+	IsError bool           `json:"isError,omitempty"`
+	Meta    map[string]any `json:"_meta,omitempty"`
 }
 
 type TextContent struct {

@@ -187,7 +187,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 </head>
 <body>
 <div id="root"><div class="loading"><div class="spin"></div><div>Loading dashboard…</div></div></div>
-<script type="module">
+<script>
 /*__EXT_APPS_BUNDLE__*/
 const{App}=globalThis.ExtApps;
 const root=document.getElementById('root');
@@ -258,10 +258,14 @@ function render(d){
 }
 
 (async()=>{
-  const app=new App({name:'LaunchDashboard',version:'1.0.0'},{});
+  if(!globalThis.ExtApps||!globalThis.ExtApps.App){
+    root.innerHTML='<div class="error">ExtApps SDK not available</div>';return;
+  }
+  const app=new App('launch-dashboard',{},{});
 
   const applyTheme=ctx=>{
-    if(ctx&&ctx.theme==='dark')document.documentElement.classList.add('dark');
+    if(ctx&&ctx.colorScheme==='dark')document.documentElement.classList.add('dark');
+    else if(ctx&&ctx.theme==='dark')document.documentElement.classList.add('dark');
     else document.documentElement.classList.remove('dark');
   };
   app.onhostcontextchanged=applyTheme;
@@ -306,7 +310,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 </style></head><body>
 <div class="search"><input id="filter" type="text" placeholder="Filter results..."></div>
 <div id="list" class="list"></div>
-<script type="module">
+<script>
 /*__EXT_APPS_BUNDLE__*/
 const {App}=globalThis.ExtApps;
 const filterInput=document.getElementById('filter');
@@ -327,7 +331,7 @@ function render(){
     listDiv.append(el);
   }
 }
-(async()=>{const app=new App({name:'ActionPicker',version:'1.0.0'},{});
+(async()=>{const app=new App('action-picker',{},{});
 app.ontoolresult=({content})=>{
   try{const raw=Array.isArray(content)?content[0]?.text:content;const data=typeof raw==='string'?JSON.parse(raw):raw;items=data.results||[];filterInput.value='';render();}
   catch(e){listDiv.innerHTML='<div class="empty">Error: '+String(e)+'</div>';}
@@ -352,7 +356,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .empty{padding:32px;text-align:center;color:var(--sub)}
 </style></head><body>
 <div id="root"><div class="empty">Executing...</div></div>
-<script type="module">
+<script>
 /*__EXT_APPS_BUNDLE__*/
 const {App}=globalThis.ExtApps;
 const root=document.getElementById('root');
@@ -365,7 +369,7 @@ function render(data){
   try{const parsed=JSON.parse(content);content=formatJSON(parsed);}catch(_){}
   root.innerHTML='<div class="header"><span class="'+statusClass+'">● '+status+'</span></div><div class="body">'+esc(content)+'</div>';
 }
-(async()=>{const app=new App({name:'ResultsDisplay',version:'1.0.0'},{});
+(async()=>{const app=new App('results-display',{},{});
 app.ontoolresult=(data)=>{render(data);};
 await app.connect();})();
 </script></body></html>`

@@ -108,27 +108,6 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 	r.registerRelationTools()
 	r.registerWidgets()
 
-	// Apply MCP tool annotations (readOnlyHint / destructiveHint) based on
-	// naming conventions. Tools that set Annotations explicitly during
-	// registration (e.g. widget tools with _meta) keep their own values;
-	// the rest get auto-classified here so we don't repeat the same metadata
-	// in every register() call.
-	r.mu.Lock()
-	for _, tool := range r.tools {
-		if tool.Annotations == nil {
-			tool.Annotations = autoAnnotate(tool.Name)
-		} else {
-			// Tool already has custom annotations (e.g. from widgets.go);
-			// back-fill any missing hint keys so the MCP response is complete.
-			if _, ok := tool.Annotations["readOnlyHint"]; !ok {
-				defaults := autoAnnotate(tool.Name)
-				tool.Annotations["readOnlyHint"] = defaults["readOnlyHint"]
-				tool.Annotations["destructiveHint"] = defaults["destructiveHint"]
-			}
-		}
-	}
-	r.mu.Unlock()
-
 	// Configuration tool for per-session token override.
 	// Always registered so that:
 	//  - users can supply a token when ALLURE_TOKEN is not set in config; and
@@ -146,6 +125,10 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 					},
 				},
 				"required": []string{"token"},
+			},
+			Annotations: map[string]any{
+				"readOnlyHint":    false,
+				"destructiveHint": false,
 			},
 			Handler: r.configureAllureToken,
 		})
@@ -176,6 +159,7 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 					"resourceUri": "ui://widgets/action-picker",
 				},
 			},
+			// autoAnnotate will classify search_ prefix as readOnly
 			Handler: r.searchTestOpsOperations,
 		})
 
@@ -207,9 +191,32 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 					"resourceUri": "ui://widgets/results-display",
 				},
 			},
+			// Marked destructive: can execute any API operation including DELETE/PUT.
+			Annotations: map[string]any{
+				"readOnlyHint":    false,
+				"destructiveHint": true,
+			},
 			Handler: r.executeTestOpsOperation,
 		})
 	}
+
+	// Apply MCP tool annotations (readOnlyHint / destructiveHint) based on
+	// naming conventions. Tools that set Annotations explicitly during
+	// registration keep their own values; the rest get auto-classified here.
+	r.mu.Lock()
+	for _, tool := range r.tools {
+		if tool.Annotations == nil {
+			tool.Annotations = autoAnnotate(tool.Name)
+		} else {
+			// Back-fill any missing hint keys so the MCP response is always complete.
+			if _, ok := tool.Annotations["readOnlyHint"]; !ok {
+				defaults := autoAnnotate(tool.Name)
+				tool.Annotations["readOnlyHint"] = defaults["readOnlyHint"]
+				tool.Annotations["destructiveHint"] = defaults["destructiveHint"]
+			}
+		}
+	}
+	r.mu.Unlock()
 
 	return r
 }

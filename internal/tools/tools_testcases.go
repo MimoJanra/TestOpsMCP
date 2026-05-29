@@ -604,7 +604,7 @@ func (r *Registry) updateTestCase(ctx context.Context, input json.RawMessage) (a
 		Tags:           params.Tags,
 		Members:        params.Members,
 		Links:          params.Links,
-		ManualScenario: params.ManualScenario,
+		Scenario: params.ManualScenario,
 	}
 
 	r.logger.Info("updating test case", map[string]any{

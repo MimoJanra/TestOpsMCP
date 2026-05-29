@@ -241,7 +241,6 @@ func (s *Server) handleInitialize(req *JSONRPCRequest) *JSONRPCResponse {
 	}
 
 	resp := InitializeResponse{ProtocolVersion: ProtocolVersion}
-	resp.Capabilities.Tools = struct{}{}
 	resp.ServerInfo.Name = "allure-mcp-server"
 	resp.ServerInfo.Version = Version
 
@@ -344,12 +343,18 @@ func (s *Server) handleToolsCall(ctx context.Context, req *JSONRPCRequest) *JSON
 		})
 	}
 
-	return s.okResponse(req.ID, ToolCallResponse{
+	resp := ToolCallResponse{
 		Content: []any{TextContent{
 			Type: "text",
 			Text: resultToJSON(result),
 		}},
-	})
+	}
+	// Forward the tool's _meta (e.g. ui.resourceUri) so Claude Desktop
+	// knows which widget to open and routes this result to its ontoolresult callback.
+	if tool.Meta != nil {
+		resp.Meta = tool.Meta
+	}
+	return s.okResponse(req.ID, resp)
 }
 
 // ---------------------------------------------------------------------------
@@ -400,6 +405,12 @@ func (s *Server) HandleMCP(w http.ResponseWriter, r *http.Request) {
 // the Mcp-Session-Id response header. Clients must then include that header on
 // all subsequent requests.
 func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request) {
+	// Per MCP spec 2025-03-26: clients must send Content-Type: application/json.
+	if ct := r.Header.Get("Content-Type"); ct != "" && !strings.HasPrefix(ct, "application/json") {
+		http.Error(w, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
+		return
+	}
+
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxMessageBody+1))
 	if err != nil {
 		s.logger.Error("read streamable-HTTP body", err, nil)
@@ -585,8 +596,8 @@ func (s *Server) setCORSHeaders(w http.ResponseWriter) {
 		return
 	}
 	w.Header().Set("Access-Control-Allow-Origin", origin)
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Mcp-Session-Id, X-Allure-Token")
 	if origin != "*" {
 		w.Header().Set("Vary", "Origin")
 	}
