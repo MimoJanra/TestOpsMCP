@@ -20,7 +20,8 @@ TestOps MCP is a production-grade Go server implementing the Model Context Proto
 | `internal/adapters/allure` | HTTP client for Allure TestOps API, JWT caching |
 | `internal/config` | Env-var configuration loader |
 | `internal/core` | Structured JSON logger |
-| `internal/session` | Context-based session ID propagation |
+| `internal/session` | Context-based session ID, user, and remote addr propagation |
+| `internal/audit` | Daily JSONL audit log with configurable retention |
 
 ## Tool Groups (102 total)
 
@@ -48,8 +49,11 @@ TestOps MCP is a production-grade Go server implementing the Model Context Proto
 | `REQUEST_TIMEOUT` | No | 30 | HTTP timeout in seconds (1–600) |
 | `PORT` | No | 3000 | HTTP server port (HTTP mode only) |
 | `LOG_LEVEL` | No | INFO | DEBUG / INFO / WARN / ERROR |
-| `MCP_AUTH_TOKEN` | No | — | Bearer token required on HTTP connections |
+| `MCP_AUTH_TOKENS` | No | — | Named user tokens: `alice:tok1,bob:tok2` (preferred) |
+| `MCP_AUTH_TOKEN` | No | — | Single legacy token; treated as user `"default"` |
 | `CORS_ALLOWED_ORIGIN` | No | * | CORS origin header value |
+| `AUDIT_LOG_PATH` | No | `audit` | Directory for daily audit JSONL files |
+| `AUDIT_RETENTION_DAYS` | No | 30 | Days to keep audit files before auto-deletion |
 
 ## Deployment
 
@@ -66,9 +70,10 @@ TestOps MCP is a production-grade Go server implementing the Model Context Proto
 ```
 
 **HTTP (shared team server):**
-- Endpoints: `GET /sse` (SSE stream), `POST /messages` (JSON-RPC)
-- Per-user token via `X-Allure-Token` header on SSE connection
-- Optional MCP auth via `Authorization: Bearer <MCP_AUTH_TOKEN>`
+- Endpoints: `POST /mcp` (streamable), `GET /sse` + `POST /messages` (legacy SSE)
+- Per-user Allure token via `X-Allure-Token` header
+- Named user auth via `Authorization: Bearer <token>` (configured with `MCP_AUTH_TOKENS`)
+- All requests logged to daily JSONL audit files under `AUDIT_LOG_PATH`
 
 ## Docs
 

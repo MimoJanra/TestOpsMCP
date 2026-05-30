@@ -28,9 +28,10 @@ internal/
   adapters/allure/
     client.go               — HTTP client, JWT caching, per-session token callback
     models.go               — request/response DTOs
-  config/config.go          — env-var loading and validation
+  config/config.go          — env-var loading and validation (users, audit config)
   core/logger.go            — structured JSON logging (stdout), 4 levels
-  session/session.go        — context-based session ID (StdioID = "stdio")
+  session/session.go        — context-based session ID, user name, remote addr
+  audit/audit.go            — daily JSONL audit log, configurable retention, auto-cleanup
 ```
 
 ### Transport modes
@@ -41,11 +42,13 @@ internal/
 - Used for Claude Desktop local integration
 
 **HTTP + SSE** (multi-user team server):
-- `GET /sse` — opens SSE stream, returns `session_id` as first event
-- `POST /messages?sessionId=<id>` — sends JSON-RPC request for a session
+- `POST /mcp` — streamable HTTP transport (MCP spec 2025-03-26), recommended
+- `GET /sse` — legacy SSE stream, returns `session_id` as first event
+- `POST /messages?sessionId=<id>` — legacy JSON-RPC request for a session
 - Per-session `X-Allure-Token` header stored in Registry
-- Optional `Authorization: Bearer <MCP_AUTH_TOKEN>` for endpoint protection
+- Named user auth via `Authorization: Bearer <token>` (`MCP_AUTH_TOKENS=alice:tok,...`)
 - Heartbeat every 25 s, max 64 queued messages per session, 1 MiB max body
+- Every non-notification request is written to the audit log (user, tool, duration, status)
 
 ### Session token isolation
 
@@ -69,8 +72,11 @@ Each HTTP session gets its own Allure API token. Priority:
 | `REQUEST_TIMEOUT` | No | 30 | HTTP timeout seconds (1–600) |
 | `PORT` | No | `:3000` | HTTP server port (auto-prefixed with `:` if needed) |
 | `LOG_LEVEL` | No | `INFO` | `DEBUG` / `INFO` / `WARN` / `ERROR` |
-| `MCP_AUTH_TOKEN` | No | — | Bearer token required on HTTP; warn if unset |
+| `MCP_AUTH_TOKENS` | No | — | Named user tokens: `alice:tok1,bob:tok2` (preferred) |
+| `MCP_AUTH_TOKEN` | No | — | Single legacy token; treated as user `"default"` |
 | `CORS_ALLOWED_ORIGIN` | No | `*` | CORS `Access-Control-Allow-Origin` value |
+| `AUDIT_LOG_PATH` | No | `audit` | Directory for daily audit JSONL files |
+| `AUDIT_RETENTION_DAYS` | No | `30` | Days to keep audit files before auto-deletion |
 
 ---
 
@@ -926,7 +932,8 @@ Tools return errors as MCP error responses. Common causes:
 
 - Never log API tokens (masked in logs)
 - `configure_allure_token` warns users: token is session-only, not persisted
-- HTTP mode: always set `MCP_AUTH_TOKEN` in production
+- HTTP mode: configure `MCP_AUTH_TOKENS` with per-user named tokens in production
+- Audit log records every request: user, session, remote addr, method, tool, status, duration
 - Use HTTPS in production (nginx/Caddy reverse proxy)
 - Set `CORS_ALLOWED_ORIGIN` to specific origin (not `*`) in production
 
