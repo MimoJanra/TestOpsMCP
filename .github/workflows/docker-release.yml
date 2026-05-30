@@ -80,8 +80,8 @@ jobs:
           ### Docker Image
 
           \`\`\`bash
-          docker pull ghcr.io/mimojanzra/testopsmcp:${TAG}
-          docker pull ghcr.io/mimojanzra/testopsmcp:latest
+          docker pull ghcr.io/mimojanra/testopsmcp:${TAG}
+          docker pull ghcr.io/mimojanra/testopsmcp:latest
           \`\`\`
 
           **Platforms:** linux/amd64, linux/arm64 · [Setup guide](docs/DEPLOYMENT.md)
