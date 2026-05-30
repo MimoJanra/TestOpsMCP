@@ -40,8 +40,12 @@ ALLURE_BASE_URL=https://your-testops.com
 ALLURE_TOKEN=your-shared-token
 PORT=3000
 LOG_LEVEL=INFO
-MCP_AUTH_TOKEN=generate-a-random-string-here
+# Named user tokens — each team member gets their own token
+# Format: name:token,name:token,...  (use "openssl rand -hex 32" to generate)
+MCP_AUTH_TOKENS=alice:token-for-alice,bob:token-for-bob
 CORS_ALLOWED_ORIGIN=https://claude.ai
+AUDIT_LOG_PATH=/app/audit
+AUDIT_RETENTION_DAYS=30
 EOF
 
 # 3. Start
@@ -71,7 +75,7 @@ Add to Claude Desktop config:
 }
 ```
 
-- **`Authorization`** *(optional)* — the `MCP_AUTH_TOKEN` set on the server. Omit if no `MCP_AUTH_TOKEN` is configured.
+- **`Authorization`** *(optional)* — your personal bearer token from `MCP_AUTH_TOKENS` on the server. Omit if no auth is configured.
 - **`X-Allure-Token`** — each user's personal Allure API token. Actions in Allure are performed under that account.
 
 ---
@@ -529,6 +533,7 @@ location /sse {
 - [ ] Backup strategy documented
 - [ ] Log rotation configured
 - [ ] Rate limiting enabled
-- [ ] MCP_AUTH_TOKEN is strong
+- [ ] MCP_AUTH_TOKENS configured with strong per-user tokens
+- [ ] Audit log volume mounted and retention days configured
 - [ ] CORS_ALLOWED_ORIGIN restricted (not `*`)
 - [ ] Secrets not in `.env` (use secret manager)

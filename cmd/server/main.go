@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/MimoJanra/TestOpsMCP/internal/adapters/allure"
+	"github.com/MimoJanra/TestOpsMCP/internal/audit"
 	"github.com/MimoJanra/TestOpsMCP/internal/config"
 	"github.com/MimoJanra/TestOpsMCP/internal/core"
 	"github.com/MimoJanra/TestOpsMCP/internal/mcp"
@@ -33,11 +34,27 @@ func main() {
 
 	logger := core.NewLogger(core.ParseLevel(cfg.LogLevel))
 
+	auditLog, err := audit.NewLogger(cfg.AuditLogPath, cfg.AuditRetentionDays)
+	if err != nil {
+		logger.Warn("audit log disabled: cannot create directory", map[string]any{
+			"path":  cfg.AuditLogPath,
+			"error": err.Error(),
+		})
+	} else {
+		defer auditLog.Close()
+	}
+
+	users := make([]mcp.User, len(cfg.Users))
+	for i, u := range cfg.Users {
+		users[i] = mcp.User{Name: u.Name, Token: u.Token}
+	}
+
 	allureClient := allure.NewClient(cfg.AllureBaseURL, cfg.AllureToken, cfg.RequestTimeout)
 	registry := tools.NewRegistry(allureClient, logger)
 	mcpServer := mcp.NewServer(registry, logger, mcp.Options{
-		AuthToken:       cfg.AuthToken,
+		Users:           users,
 		CORSAllowOrigin: cfg.CORSAllowOrigin,
+		AuditLog:        auditLog,
 	})
 
 	if *httpMode {
@@ -49,15 +66,17 @@ func main() {
 
 func runHTTP(mcpServer *mcp.Server, cfg *config.Config, logger *core.Logger) {
 	logger.Info("starting Allure MCP HTTP server", map[string]any{
-		"base_url":  cfg.AllureBaseURL,
-		"timeout":   cfg.RequestTimeout.String(),
-		"port":      cfg.Port,
-		"log_level": cfg.LogLevel,
-		"auth":      cfg.AuthToken != "",
-		"cors":      cfg.CORSAllowOrigin,
+		"base_url":        cfg.AllureBaseURL,
+		"timeout":         cfg.RequestTimeout.String(),
+		"port":            cfg.Port,
+		"log_level":       cfg.LogLevel,
+		"users":           len(cfg.Users),
+		"cors":            cfg.CORSAllowOrigin,
+		"audit_path":      cfg.AuditLogPath,
+		"audit_retention": cfg.AuditRetentionDays,
 	})
-	if cfg.AuthToken == "" {
-		logger.Warn("MCP_AUTH_TOKEN is not set — HTTP server accepts unauthenticated requests", nil)
+	if len(cfg.Users) == 0 {
+		logger.Warn("no auth tokens configured (MCP_AUTH_TOKENS / MCP_AUTH_TOKEN) — server accepts unauthenticated requests", nil)
 	}
 
 	mux := http.NewServeMux()

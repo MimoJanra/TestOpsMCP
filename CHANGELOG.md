@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-05-30 - Multi-User Auth & Audit Log
+
+### Added
+
+#### Multi-User Authentication
+- **`MCP_AUTH_TOKENS`** environment variable — configure named user tokens in `name:token,...` format (e.g. `alice:abc123,bob:xyz789`). Each user authenticates with their own bearer token; requests are attributed to the user by name in logs and audit records.
+- **Backward-compatible** — existing `MCP_AUTH_TOKEN` (single token) still works and is treated as user `"default"`.
+- Startup log now shows the configured user count instead of a boolean auth flag.
+
+#### Audit Log
+- **Daily JSONL audit files** written to a configurable directory (`AUDIT_LOG_PATH`, default `audit/`).
+- Each entry records: `timestamp`, `user`, `session_id`, `remote_addr`, `method`, `tool` (for `tools/call`), `status` (`ok`/`error`), `duration_ms`.
+- **Automatic retention** — files older than `AUDIT_RETENTION_DAYS` days (default 30) are deleted nightly.
+- Docker Compose mounts `./audit` as a host volume so logs survive container restarts.
+- Audit logger is disabled gracefully (warning logged) if the directory cannot be created.
+
+#### New Environment Variables
+| Variable | Default | Description |
+|---|---|---|
+| `MCP_AUTH_TOKENS` | — | Named user tokens: `alice:tok1,bob:tok2` |
+| `AUDIT_LOG_PATH` | `audit` | Directory for daily audit JSONL files |
+| `AUDIT_RETENTION_DAYS` | `30` | Days to keep audit files |
+
+### Fixed
+
+#### GitHub Actions — Docker Release
+- Added **QEMU** setup step (`docker/setup-qemu-action@v3`) required for multi-platform (`linux/amd64`, `linux/arm64`) builds — previously the multi-arch build was silently skipped.
+- Added `platforms: linux/amd64,linux/arm64` to `build-push-action`.
+- Added `type=raw,value=latest` tag so the `:latest` image is correctly pushed on tag releases.
+- Fixed `publish-release` step using `--notes-append` instead of `--notes-file` (which was overwriting the full release body).
+- Pinned action versions to stable releases (`actions/checkout@v4`, `docker/setup-buildx-action@v3`, `docker/login-action@v3`, `docker/metadata-action@v5`).
+
+### Changed
+- `docker-compose.yml` — removed duplicated `environment` keys that were already covered by `env_file`; added `AUDIT_LOG_PATH` and `AUDIT_RETENTION_DAYS` with defaults; added `./audit:/app/audit` volume mount.
+
 ## [1.7.1] - 2026-05-29 - MCP Compliance Fixes & Model Expansions
 
 ### Fixed

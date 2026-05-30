@@ -164,7 +164,7 @@ func TestServer_UnknownSessionID(t *testing.T) {
 }
 
 func TestServer_AuthRequired(t *testing.T) {
-	ts := newTestServer(t, Options{AuthToken: "s3cret"})
+	ts := newTestServer(t, Options{Users: []User{{Name: "testuser", Token: "s3cret"}}})
 	defer ts.Close()
 
 	resp, err := http.Get(ts.URL + "/sse")

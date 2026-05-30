@@ -11,21 +11,31 @@ import (
 )
 
 const (
-	defaultTimeoutSec = 30
-	maxTimeoutSec     = 600
-	defaultPort       = ":3000"
-	defaultLogLevel   = "INFO"
-	defaultCORSOrigin = "*"
+	defaultTimeoutSec         = 30
+	maxTimeoutSec             = 600
+	defaultPort               = ":3000"
+	defaultLogLevel           = "INFO"
+	defaultCORSOrigin         = "*"
+	defaultAuditRetentionDays = 30
+	defaultAuditLogPath       = "audit"
 )
 
+// UserConfig holds a named user and their MCP bearer token.
+type UserConfig struct {
+	Name  string
+	Token string
+}
+
 type Config struct {
-	AllureBaseURL   string
-	AllureToken     string
-	RequestTimeout  time.Duration
-	Port            string
-	LogLevel        string
-	AuthToken       string
-	CORSAllowOrigin string
+	AllureBaseURL      string
+	AllureToken        string
+	RequestTimeout     time.Duration
+	Port               string
+	LogLevel           string
+	Users              []UserConfig
+	CORSAllowOrigin    string
+	AuditLogPath       string
+	AuditRetentionDays int
 }
 
 func Load() (*Config, error) {
@@ -40,8 +50,6 @@ func Load() (*Config, error) {
 	baseURL = strings.TrimRight(baseURL, "/")
 
 	token := strings.TrimSpace(os.Getenv("ALLURE_TOKEN"))
-	// ALLURE_TOKEN is optional - can be set per-user in Claude Desktop config
-	// If not set, each user must provide their own token in their Claude config
 
 	timeout, err := parseTimeout(os.Getenv("REQUEST_TIMEOUT"))
 	if err != nil {
@@ -60,15 +68,66 @@ func Load() (*Config, error) {
 		corsOrigin = defaultCORSOrigin
 	}
 
+	users := parseUsers(os.Getenv("MCP_AUTH_TOKENS"), os.Getenv("MCP_AUTH_TOKEN"))
+
+	auditLogPath := strings.TrimSpace(os.Getenv("AUDIT_LOG_PATH"))
+	if auditLogPath == "" {
+		auditLogPath = defaultAuditLogPath
+	}
+
+	auditRetentionDays, err := parseRetentionDays(os.Getenv("AUDIT_RETENTION_DAYS"))
+	if err != nil {
+		return nil, err
+	}
+
 	return &Config{
-		AllureBaseURL:   baseURL,
-		AllureToken:     token,
-		RequestTimeout:  timeout,
-		Port:            port,
-		LogLevel:        logLevel,
-		AuthToken:       strings.TrimSpace(os.Getenv("MCP_AUTH_TOKEN")),
-		CORSAllowOrigin: corsOrigin,
+		AllureBaseURL:      baseURL,
+		AllureToken:        token,
+		RequestTimeout:     timeout,
+		Port:               port,
+		LogLevel:           logLevel,
+		Users:              users,
+		CORSAllowOrigin:    corsOrigin,
+		AuditLogPath:       auditLogPath,
+		AuditRetentionDays: auditRetentionDays,
 	}, nil
+}
+
+// parseUsers builds the user list from MCP_AUTH_TOKENS (preferred) or MCP_AUTH_TOKEN (legacy).
+// MCP_AUTH_TOKENS format: "alice:token1,bob:token2"
+func parseUsers(tokensEnv, singleToken string) []UserConfig {
+	tokensEnv = strings.TrimSpace(tokensEnv)
+	if tokensEnv != "" {
+		var users []UserConfig
+		for _, entry := range strings.Split(tokensEnv, ",") {
+			entry = strings.TrimSpace(entry)
+			if entry == "" {
+				continue
+			}
+			parts := strings.SplitN(entry, ":", 2)
+			if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+				continue
+			}
+			users = append(users, UserConfig{Name: strings.TrimSpace(parts[0]), Token: strings.TrimSpace(parts[1])})
+		}
+		return users
+	}
+	if t := strings.TrimSpace(singleToken); t != "" {
+		return []UserConfig{{Name: "default", Token: t}}
+	}
+	return nil
+}
+
+func parseRetentionDays(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return defaultAuditRetentionDays, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("AUDIT_RETENTION_DAYS must be a positive integer, got %q", raw)
+	}
+	return n, nil
 }
 
 func parseTimeout(raw string) (time.Duration, error) {

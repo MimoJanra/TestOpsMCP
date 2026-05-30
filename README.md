@@ -57,7 +57,7 @@ Add this to the `mcpServers` section:
 ```
 
 - **`url`** — address of the shared MCP server (ask your team lead).
-- **`Authorization`** *(optional)* — the `MCP_AUTH_TOKEN` set on the server. Omit if the server has no `MCP_AUTH_TOKEN` configured.
+- **`Authorization`** *(optional)* — your personal bearer token from `MCP_AUTH_TOKENS` on the server. Omit if the server has no auth configured.
 - **`X-Allure-Token`** — your personal Allure API token. All actions in Allure will be done under your account.
 
 ### 3. Restart Claude Desktop

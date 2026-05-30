@@ -13,13 +13,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/MimoJanra/TestOpsMCP/internal/audit"
 	"github.com/MimoJanra/TestOpsMCP/internal/core"
 	sessctx "github.com/MimoJanra/TestOpsMCP/internal/session"
 	"github.com/MimoJanra/TestOpsMCP/internal/tools"
 )
 
 const (
-	sessionSendBuffer = 64           // increased from 16 to reduce response drops under burst load
+	sessionSendBuffer = 64 // increased from 16 to reduce response drops under burst load
 	heartbeatInterval = 25 * time.Second
 	maxMessageBody    = 1 << 20 // 1 MiB
 )
@@ -27,9 +28,16 @@ const (
 // Version is set at build time via -ldflags "-X github.com/MimoJanra/TestOpsMCP/internal/mcp.Version=x.y.z"
 var Version = "dev"
 
+// User is an authenticated MCP user with a named bearer token.
+type User struct {
+	Name  string
+	Token string
+}
+
 type Options struct {
-	AuthToken       string
+	Users           []User
 	CORSAllowOrigin string
+	AuditLog        *audit.Logger
 }
 
 type Server struct {
@@ -69,7 +77,8 @@ func (s *Server) HandleSSE(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if !s.checkAuth(r) {
+	authUser, authOK := s.checkAuth(r)
+	if !authOK {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -86,7 +95,8 @@ func (s *Server) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	sess := s.newSession(r.Context())
+	sessCtx := sessctx.WithRemoteAddr(sessctx.WithUser(r.Context(), authUser), r.RemoteAddr)
+	sess := s.newSession(sessCtx)
 	defer s.closeSession(sess)
 
 	// If the client supplies their Allure token as a header, store it for this session
@@ -142,7 +152,8 @@ func (s *Server) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if !s.checkAuth(r) {
+	msgUser, msgOK := s.checkAuth(r)
+	if !msgOK {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -190,7 +201,7 @@ func (s *Server) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reqCtx := sessctx.WithID(r.Context(), sess.id)
+	reqCtx := sessctx.WithRemoteAddr(sessctx.WithUser(sessctx.WithID(r.Context(), sess.id), msgUser), r.RemoteAddr)
 	resp := s.dispatch(reqCtx, &req)
 	if resp != nil {
 		s.sendToSession(sess, resp)
@@ -199,6 +210,37 @@ func (s *Server) HandleMessages(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) dispatch(ctx context.Context, req *JSONRPCRequest) *JSONRPCResponse {
+	start := time.Now()
+	resp := s.route(ctx, req)
+
+	if s.opts.AuditLog != nil && !req.IsNotification() {
+		status := "ok"
+		if resp != nil && resp.Error != nil {
+			status = "error"
+		}
+		entry := audit.Entry{
+			User:       sessctx.UserFromContext(ctx),
+			SessionID:  sessctx.IDFromContext(ctx),
+			RemoteAddr: sessctx.RemoteAddrFromContext(ctx),
+			Method:     req.Method,
+			Status:     status,
+			DurationMS: time.Since(start).Milliseconds(),
+		}
+		if req.Method == "tools/call" && len(req.Params) > 0 {
+			var p struct {
+				Name string `json:"name"`
+			}
+			if err := json.Unmarshal(req.Params, &p); err == nil {
+				entry.Tool = p.Name
+			}
+		}
+		s.opts.AuditLog.Write(entry)
+	}
+
+	return resp
+}
+
+func (s *Server) route(ctx context.Context, req *JSONRPCRequest) *JSONRPCResponse {
 	notification := req.IsNotification()
 	s.logger.Debug("handling request", map[string]any{
 		"method":       req.Method,
@@ -380,10 +422,12 @@ func (s *Server) HandleMCP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if !s.checkAuth(r) {
+	mcpUser, mcpOK := s.checkAuth(r)
+	if !mcpOK {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	r = r.WithContext(sessctx.WithRemoteAddr(sessctx.WithUser(r.Context(), mcpUser), r.RemoteAddr))
 
 	switch r.Method {
 	case http.MethodPost:
@@ -577,17 +621,24 @@ func newSessionID() string {
 
 // --- auth & CORS ---
 
-func (s *Server) checkAuth(r *http.Request) bool {
-	if s.opts.AuthToken == "" {
-		return true
+// checkAuth validates the Bearer token and returns the matched user name.
+// Returns ("", false) on failure. Returns ("", true) when auth is not configured.
+func (s *Server) checkAuth(r *http.Request) (string, bool) {
+	if len(s.opts.Users) == 0 {
+		return "", true
 	}
 	header := r.Header.Get("Authorization")
 	const prefix = "Bearer "
 	if !strings.HasPrefix(header, prefix) {
-		return false
+		return "", false
 	}
-	got := strings.TrimSpace(header[len(prefix):])
-	return subtle.ConstantTimeCompare([]byte(got), []byte(s.opts.AuthToken)) == 1
+	got := []byte(strings.TrimSpace(header[len(prefix):]))
+	for _, u := range s.opts.Users {
+		if subtle.ConstantTimeCompare(got, []byte(u.Token)) == 1 {
+			return u.Name, true
+		}
+	}
+	return "", false
 }
 
 func (s *Server) setCORSHeaders(w http.ResponseWriter) {
