@@ -61,21 +61,41 @@ Server runs on `http://localhost:3000`
 
 Add to Claude Desktop config:
 
+**Windows:**
 ```json
 {
   "mcpServers": {
     "testops": {
-      "url": "http://your-server.com:3000/sse",
-      "headers": {
-        "Authorization": "Bearer your-mcp-auth-token", // optional
-        "X-Allure-Token": "your-personal-allure-token"
-      }
+      "command": "cmd",
+      "args": [
+        "/c", "npx", "-y", "mcp-remote",
+        "http://your-server.com:3000/mcp",
+        "--header", "Authorization:Bearer your-mcp-auth-token",
+        "--header", "X-Allure-Token:your-personal-allure-token"
+      ]
     }
   }
 }
 ```
 
-- **`Authorization`** *(optional)* — your personal bearer token from `MCP_AUTH_TOKENS` on the server. Omit if no auth is configured.
+**macOS / Linux:**
+```json
+{
+  "mcpServers": {
+    "testops": {
+      "command": "npx",
+      "args": [
+        "-y", "mcp-remote",
+        "http://your-server.com:3000/mcp",
+        "--header", "Authorization:Bearer your-mcp-auth-token",
+        "--header", "X-Allure-Token:your-personal-allure-token"
+      ]
+    }
+  }
+}
+```
+
+- **`Authorization`** *(optional)* — each user's named bearer token from `MCP_AUTH_TOKENS`. Omit the `--header` arg if no auth is configured.
 - **`X-Allure-Token`** — each user's personal Allure API token. Actions in Allure are performed under that account.
 
 ---

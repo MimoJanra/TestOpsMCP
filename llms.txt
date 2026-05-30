@@ -69,10 +69,23 @@ TestOps MCP is a production-grade Go server implementing the Model Context Proto
 }
 ```
 
-**HTTP (shared team server):**
+**HTTP (shared team server) — Claude Desktop config via mcp-remote:**
+```json
+{
+  "mcpServers": {
+    "testops": {
+      "command": "cmd",
+      "args": ["/c","npx","-y","mcp-remote","https://your-server/mcp",
+               "--header","Authorization:Bearer <named-token>",
+               "--header","X-Allure-Token:<allure-token>"]
+    }
+  }
+}
+```
+macOS/Linux: `"command": "npx", "args": ["-y","mcp-remote",...]`
+
 - Endpoints: `POST /mcp` (streamable), `GET /sse` + `POST /messages` (legacy SSE)
-- Per-user Allure token via `X-Allure-Token` header
-- Named user auth via `Authorization: Bearer <token>` (configured with `MCP_AUTH_TOKENS`)
+- Named user auth via `MCP_AUTH_TOKENS=alice:tok1,bob:tok2` on the server
 - All requests logged to daily JSONL audit files under `AUDIT_LOG_PATH`
 
 ## Docs

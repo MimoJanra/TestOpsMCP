@@ -50,6 +50,14 @@ internal/
 - Heartbeat every 25 s, max 64 queued messages per session, 1 MiB max body
 - Every non-notification request is written to the audit log (user, tool, duration, status)
 
+**Claude Desktop client config (via mcp-remote — required for custom headers):**
+Windows:
+```json
+{"command":"cmd","args":["/c","npx","-y","mcp-remote","https://server/mcp",
+  "--header","Authorization:Bearer <token>","--header","X-Allure-Token:<token>"]}
+```
+macOS/Linux: `"command":"npx","args":["-y","mcp-remote","https://server/mcp",...]`
+
 ### Session token isolation
 
 Each HTTP session gets its own Allure API token. Priority:

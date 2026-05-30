@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Claude Desktop client config** — replaced `url` + `headers` format (not supported by Claude Desktop for custom headers) with `mcp-remote` proxy pattern. All documentation examples now show `npx mcp-remote <url> --header Key:Value` for both Windows (`cmd /c npx ...`) and macOS/Linux (`npx ...`). Updated README, DEPLOYMENT.md, QUICKSTART.md, llms.txt, llms-full.txt.
+
 ## [1.8.0] - 2026-05-30 - Multi-User Auth & Audit Log
 
 ### Added

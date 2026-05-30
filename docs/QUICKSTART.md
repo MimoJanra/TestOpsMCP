@@ -66,15 +66,33 @@ docker run -d \
 curl -H "Authorization: Bearer your_shared_secret" \
      http://localhost:3000/sse
 
+```
+
 # 4. Configure Claude Desktop (HTTP mode)
+
+**Windows** (`%APPDATA%\Claude\claude_desktop_config.json`):
+```json
 {
   "mcpServers": {
     "allure": {
-      "url": "http://localhost:3000/sse",
-      "headers": {
-        "Authorization": "Bearer your_shared_secret", // optional
-        "X-Allure-Token": "your-personal-allure-token"
-      }
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "mcp-remote", "http://localhost:3000/mcp",
+               "--header", "Authorization:Bearer your_shared_secret",
+               "--header", "X-Allure-Token:your-personal-allure-token"]
+    }
+  }
+}
+```
+
+**macOS / Linux** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "allure": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://localhost:3000/mcp",
+               "--header", "Authorization:Bearer your_shared_secret",
+               "--header", "X-Allure-Token:your-personal-allure-token"]
     }
   }
 }
@@ -104,15 +122,33 @@ docker-compose logs -f allure-mcp
 # 4. Stop (when done)
 docker-compose down
 
+```
+
 # 5. Configure Claude Desktop (team members)
+
+**Windows:**
+```json
 {
   "mcpServers": {
     "allure": {
-      "url": "http://your-server:3000/sse",
-      "headers": {
-        "Authorization": "Bearer your_shared_secret_from_.env", // optional
-        "X-Allure-Token": "your-personal-allure-token"
-      }
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "mcp-remote", "http://your-server:3000/mcp",
+               "--header", "Authorization:Bearer your_named_token",
+               "--header", "X-Allure-Token:your-personal-allure-token"]
+    }
+  }
+}
+```
+
+**macOS / Linux:**
+```json
+{
+  "mcpServers": {
+    "allure": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://your-server:3000/mcp",
+               "--header", "Authorization:Bearer your_named_token",
+               "--header", "X-Allure-Token:your-personal-allure-token"]
     }
   }
 }
@@ -144,15 +180,33 @@ kubectl logs -f deployment/allure-mcp -n allure-mcp
 # 4. Get service URL
 kubectl get svc -n allure-mcp
 
+```
+
 # 5. Configure Claude Desktop
+
+**Windows:**
+```json
 {
   "mcpServers": {
     "allure": {
-      "url": "http://your-k8s-service:3000/sse",
-      "headers": {
-        "Authorization": "Bearer your_shared_secret", // optional
-        "X-Allure-Token": "your-personal-allure-token"
-      }
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "mcp-remote", "http://your-k8s-service:3000/mcp",
+               "--header", "Authorization:Bearer your_named_token",
+               "--header", "X-Allure-Token:your-personal-allure-token"]
+    }
+  }
+}
+```
+
+**macOS / Linux:**
+```json
+{
+  "mcpServers": {
+    "allure": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://your-k8s-service:3000/mcp",
+               "--header", "Authorization:Bearer your_named_token",
+               "--header", "X-Allure-Token:your-personal-allure-token"]
     }
   }
 }

@@ -72,19 +72,19 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
-          DOCKER_NOTES=$(cat << EOF
+          EXISTING=$(gh release view "$TAG" --json body --jq '.body // ""')
+          DOCKER_SECTION=$(cat << EOF
+
+          ---
 
           ### Docker Image
 
           \`\`\`bash
-          docker pull ghcr.io/MimoJanra/TestOpsMCP:${TAG}
-          docker pull ghcr.io/MimoJanra/TestOpsMCP:latest
+          docker pull ghcr.io/mimojanzra/testopsmcp:${TAG}
+          docker pull ghcr.io/mimojanzra/testopsmcp:latest
           \`\`\`
 
-          **Platforms:** linux/amd64, linux/arm64
-
-          See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full Docker Compose setup guide.
+          **Platforms:** linux/amd64, linux/arm64 · [Setup guide](docs/DEPLOYMENT.md)
           EOF
           )
-          echo "$DOCKER_NOTES" > /tmp/docker-notes.txt
-          gh release edit "$TAG" --notes-append "$(cat /tmp/docker-notes.txt)" 2>/dev/null || echo "Release notes update skipped"
+          gh release edit "$TAG" --notes "${EXISTING}${DOCKER_SECTION}"
