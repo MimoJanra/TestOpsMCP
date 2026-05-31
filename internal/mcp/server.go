@@ -60,6 +60,7 @@ type session struct {
 
 	pendingMu sync.Mutex
 	pending   map[string]chan *ElicitResult
+	sampling  map[string]chan *SamplingResult
 
 	subsMu        sync.Mutex
 	subscriptions map[string]struct{} // subscribed resource URIs
@@ -219,6 +220,7 @@ func (s *Server) HandleMessages(w http.ResponseWriter, r *http.Request) {
 
 	reqCtx := sessctx.WithRemoteAddr(sessctx.WithUser(sessctx.WithID(r.Context(), sess.id), msgUser), r.RemoteAddr)
 	reqCtx = sessctx.WithElicit(reqCtx, s.elicitFuncForSession(reqCtx))
+	reqCtx = sessctx.WithSampling(reqCtx, s.samplingFuncForSession(reqCtx))
 	resp := s.dispatch(reqCtx, &req)
 	if resp != nil {
 		s.sendToSession(sess, resp)
@@ -266,6 +268,9 @@ func (s *Server) route(ctx context.Context, req *JSONRPCRequest) *JSONRPCRespons
 		return s.handleComplete(req)
 	case "notifications/elicitation/complete":
 		s.handleElicitationComplete(ctx, req)
+		return nil
+	case "sampling/createMessage/response":
+		s.handleSamplingResponse(ctx, req)
 		return nil
 	default:
 		s.logger.Warn("unknown method", map[string]any{"method": req.Method})
@@ -632,6 +637,113 @@ func (s *Server) handleElicitationComplete(ctx context.Context, req *JSONRPCRequ
 	}
 }
 
+// --- sampling ---
+
+// CreateMessage sends a sampling/createMessage request via SSE and waits for the response.
+func (s *Server) CreateMessage(ctx context.Context, req SamplingRequest) (*SamplingResult, error) {
+	sessID := sessctx.IDFromContext(ctx)
+	if sessID == "" {
+		return nil, fmt.Errorf("no active session for sampling")
+	}
+	sess := s.getSession(sessID)
+	if sess == nil {
+		return nil, fmt.Errorf("session not found for sampling")
+	}
+
+	samplingID := newSessionID()
+	ch := make(chan *SamplingResult, 1)
+
+	sess.pendingMu.Lock()
+	sess.sampling[samplingID] = ch
+	sess.pendingMu.Unlock()
+	defer func() {
+		sess.pendingMu.Lock()
+		delete(sess.sampling, samplingID)
+		sess.pendingMu.Unlock()
+	}()
+
+	msgs := make([]map[string]any, len(req.Messages))
+	for i, m := range req.Messages {
+		msgs[i] = map[string]any{
+			"role":    m.Role,
+			"content": map[string]any{"type": "text", "text": m.Content.Text},
+		}
+	}
+	notif, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      samplingID,
+		"method":  "sampling/createMessage",
+		"params": map[string]any{
+			"messages":     msgs,
+			"maxTokens":    req.MaxTokens,
+			"systemPrompt": req.System,
+		},
+	})
+	select {
+	case sess.send <- notif:
+	case <-sess.ctx.Done():
+		return nil, fmt.Errorf("session closed")
+	}
+
+	select {
+	case result := <-ch:
+		return result, nil
+	case <-time.After(2 * time.Minute):
+		return nil, fmt.Errorf("sampling timeout")
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (s *Server) handleSamplingResponse(ctx context.Context, req *JSONRPCRequest) {
+	if len(req.Params) == 0 {
+		return
+	}
+	var p struct {
+		SamplingID string `json:"samplingId"`
+		Role       string `json:"role"`
+		Content    struct {
+			Text string `json:"text"`
+		} `json:"content"`
+		StopReason string `json:"stopReason"`
+	}
+	if err := json.Unmarshal(req.Params, &p); err != nil || p.SamplingID == "" {
+		return
+	}
+	sessID := sessctx.IDFromContext(ctx)
+	sess := s.getSession(sessID)
+	if sess == nil {
+		return
+	}
+	sess.pendingMu.Lock()
+	ch, ok := sess.sampling[p.SamplingID]
+	sess.pendingMu.Unlock()
+	if ok {
+		select {
+		case ch <- &SamplingResult{Role: p.Role, Content: SamplingMessageContent{Type: "text", Text: p.Content.Text}, StopReason: p.StopReason}:
+		default:
+		}
+	}
+}
+
+func (s *Server) samplingFuncForSession(ctx context.Context) sessctx.SamplingFunc {
+	return func(sampCtx context.Context, system string, messages []sessctx.SamplingMessage, maxTokens int) (*sessctx.SamplingResult, error) {
+		msgs := make([]SamplingMessage, len(messages))
+		for i, m := range messages {
+			msgs[i] = SamplingMessage{Role: m.Role, Content: SamplingMessageContent{Type: "text", Text: m.Text}}
+		}
+		result, err := s.CreateMessage(ctx, SamplingRequest{
+			Messages:  msgs,
+			MaxTokens: maxTokens,
+			System:    system,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return &sessctx.SamplingResult{Role: result.Role, Text: result.Content.Text, StopReason: result.StopReason}, nil
+	}
+}
+
 // elicitFuncForSession builds an ElicitFunc that delegates to this server for a given session context.
 func (s *Server) elicitFuncForSession(ctx context.Context) sessctx.ElicitFunc {
 	return func(elictCtx context.Context, message string, schema []byte) (*sessctx.ElicitResult, error) {
@@ -745,7 +857,8 @@ func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request) {
 		"session": sessID,
 	})
 
-	ctx := sessctx.WithElicit(sessctx.WithID(r.Context(), sessID), s.elicitFuncForSession(sessctx.WithID(r.Context(), sessID)))
+	baseCtx := sessctx.WithID(r.Context(), sessID)
+	ctx := sessctx.WithSampling(sessctx.WithElicit(baseCtx, s.elicitFuncForSession(baseCtx)), s.samplingFuncForSession(baseCtx))
 	resp := s.dispatch(ctx, &req)
 
 	// Notifications (no id) require no response body; reply 202 Accepted.
@@ -839,6 +952,7 @@ func (s *Server) newSession(parent context.Context) *session {
 		ctx:           ctx,
 		cancel:        cancel,
 		pending:       make(map[string]chan *ElicitResult),
+		sampling:      make(map[string]chan *SamplingResult),
 		subscriptions: make(map[string]struct{}),
 	}
 	s.mu.Lock()

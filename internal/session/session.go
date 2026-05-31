@@ -13,6 +13,35 @@ type ElicitResult struct {
 // Returns the user's choice via ElicitResult.
 type ElicitFunc func(ctx context.Context, message string, schema []byte) (*ElicitResult, error)
 
+// SamplingResult is the response from a sampling (LLM) request.
+type SamplingResult struct {
+	Role       string
+	Text       string
+	StopReason string
+}
+
+// SamplingFunc requests LLM inference through the client.
+type SamplingFunc func(ctx context.Context, system string, messages []SamplingMessage, maxTokens int) (*SamplingResult, error)
+
+// SamplingMessage is a single message in a sampling request.
+type SamplingMessage struct {
+	Role string
+	Text string
+}
+
+type samplingFuncKey struct{}
+
+// WithSampling stores a SamplingFunc in the context.
+func WithSampling(ctx context.Context, fn SamplingFunc) context.Context {
+	return context.WithValue(ctx, samplingFuncKey{}, fn)
+}
+
+// SamplingFromContext retrieves the SamplingFunc from the context, if any.
+func SamplingFromContext(ctx context.Context) (SamplingFunc, bool) {
+	fn, ok := ctx.Value(samplingFuncKey{}).(SamplingFunc)
+	return fn, ok
+}
+
 type elicitFuncKey struct{}
 
 // WithElicit stores an ElicitFunc in the context.

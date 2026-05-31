@@ -138,6 +138,8 @@ func TestRegistry_HasExpectedTools(t *testing.T) {
 		"get_task_status",
 		"list_running_tasks",
 		"cancel_task",
+		// Analysis tools
+		"analyze_launch_failures",
 	} {
 		if r.GetTool(name) == nil {
 			t.Errorf("tool %q not registered", name)
@@ -148,10 +150,10 @@ func TestRegistry_HasExpectedTools(t *testing.T) {
 	has_search := r.GetTool("search_testops_operations") != nil
 	has_execute := r.GetTool("execute_testops_operation") != nil
 
-	// Expected count: 103 base tools (incl. 3 task tools) + 2 OpenAPI tools (if spec found)
-	expected_count := 103
+	// Expected count: 104 base tools (incl. 3 task tools + 1 analysis) + 2 OpenAPI tools (if spec found)
+	expected_count := 104
 	if has_search && has_execute {
-		expected_count = 105
+		expected_count = 106
 	}
 
 	if got := len(r.ListTools()); got != expected_count {

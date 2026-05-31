@@ -186,6 +186,29 @@ type TextContent struct {
 	Text string `json:"text"`
 }
 
+// Sampling types — server requests LLM inference through the client.
+type SamplingRequest struct {
+	Messages  []SamplingMessage `json:"messages"`
+	MaxTokens int               `json:"maxTokens"`
+	System    string            `json:"systemPrompt,omitempty"`
+}
+
+type SamplingMessage struct {
+	Role    string             `json:"role"`
+	Content SamplingMessageContent `json:"content"`
+}
+
+type SamplingMessageContent struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type SamplingResult struct {
+	Role       string             `json:"role"`
+	Content    SamplingMessageContent `json:"content"`
+	StopReason string             `json:"stopReason"`
+}
+
 // Resource subscription types.
 type SubscribeRequest struct {
 	URI string `json:"uri"`
