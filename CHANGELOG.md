@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-05-31 - MCP Protocol Improvements
+
+### Added
+
+#### Generic Typed Handlers
+- All 104+ tool handlers now use a `Typed[T]` generic wrapper that auto-deserializes JSON input — eliminates ~200 manual `json.Unmarshal` calls.
+- Handler signatures changed from `(ctx, json.RawMessage)` to `(ctx, TypedArgs)` — cleaner and type-safe.
+
+#### slog Integration
+- `internal/core.Logger` now wraps `log/slog` with `slog.NewJSONHandler`. Same public API, standard Go logging internals.
+
+#### Middleware Chain + Panic Recovery
+- New `internal/mcp/middleware.go` with composable `middlewareFunc` chain.
+- **Panic recovery middleware** (first in chain): catches handler panics, logs stack trace, returns `{code: -32603}` instead of crashing the server.
+- Audit logging extracted to its own middleware; `dispatch()` simplified to a single call.
+
+#### MCP Protocol 2025-11-25
+- `ProtocolVersion` bumped to `"2025-11-25"`.
+- Version negotiation in `initialize`: server accepts client's requested version if in supported list (2024-11-05, 2025-03-26, 2025-06-18, 2025-11-25).
+- New `logging` and `elicitation` capability fields in `ServerCapabilities`.
+
+#### Cursor-Based Pagination
+- `tools/list`, `resources/list`, `prompts/list` now support cursor-based pagination (page size 50).
+- Response includes `nextCursor` when more pages exist. Tools list sorted alphabetically for stable cursors.
+
+#### Async Task System
+- New `internal/tasks` package: `Task` struct with status lifecycle (working/succeeded/failed/cancelled), in-memory `Store` with context-based cancellation.
+- Three new tools: **`get_task_status`**, **`list_running_tasks`**, **`cancel_task`**.
+- Long-running operations now return `{task_id, message}` immediately and complete in the background: `run_allure_launch`, `copy_launch`, `merge_launches`, `bulk_run_test_cases_new_launch`, `bulk_run_test_cases_existing_launch`, `bulk_clone_test_cases`.
+
+#### Completion (Argument Autocompletion)
+- New `completion/complete` JSON-RPC method.
+- Registry has a `Complete(promptName, argName, partial)` method — returns up to 10 suggestions.
+- `project_id` arguments complete against live Allure project list when API is configured.
+
+#### Elicitation (Confirmation Dialogs)
+- Server can ask the user to confirm destructive operations via `elicitation/create` notification.
+- `session.ElicitFunc` context key lets handlers call into the elicitation round-trip.
+- Applied to: **`delete_test_case`** and **`bulk_delete_test_cases`** — user must accept before deletion proceeds.
+- Route: `notifications/elicitation/complete` delivers user's answer back to the server.
+
+#### Resource Subscriptions
+- `resources/subscribe` and `resources/unsubscribe` JSON-RPC methods are now handled.
+- `Server.PublishResource(uri)` sends `notifications/resources/updated` to all subscribed sessions.
+- Launch dashboard widget auto-starts a 10-second polling watcher when subscribed via `ui://widgets/launch-dashboard?launch_id=N`.
+- Server advertises `resources.subscribe = true` in capabilities.
+
+#### Sampling (Server → LLM via Client)
+- Server can request LLM inference through the client via `sampling/createMessage`.
+- `session.SamplingFunc` context key exposes this to handlers.
+- New **`analyze_launch_failures`** tool: fetches failed test results and asks Claude to identify root causes and suggest fixes. Gracefully degrades if sampling is unavailable.
+
+### Changed
+- Tool count: 100 → 104 (added `get_task_status`, `list_running_tasks`, `cancel_task`, `analyze_launch_failures`).
+- `initialize` response now includes `logging` capability.
+- `resources.subscribe` is now `true` in `initialize` capabilities.
+
 ## [1.9.0] - 2026-05-31 - MCP Prompts & Resources
 
 ### Added

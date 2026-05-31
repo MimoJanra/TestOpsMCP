@@ -4,7 +4,7 @@
 
 ## Overview
 
-TestOps MCP is a production-grade Go server implementing the Model Context Protocol (MCP, protocol version 2024-11-05). It exposes **102 curated tools** plus a dynamic fallback covering **600+ Allure TestOps API endpoints** via an OpenAPI spec index, **2 prompt templates**, and **4 resources** (including 3 interactive widget resources). Supports two transports: **stdio** (Claude Desktop, single-user) and **HTTP + SSE** (shared team server, multi-user with per-session token isolation).
+TestOps MCP is a production-grade Go server implementing the Model Context Protocol (MCP, protocol version 2025-11-25). It exposes **104 curated tools** plus a dynamic fallback covering **600+ Allure TestOps API endpoints** via an OpenAPI spec index, **2 prompt templates**, and **4 resources** (including 3 interactive widget resources). Supports two transports: **stdio** (Claude Desktop, single-user) and **HTTP + SSE** (shared team server, multi-user with per-session token isolation).
 
 - Module: `github.com/MimoJanra/TestOpsMCP`
 - Language: Go 1.26+
@@ -16,14 +16,15 @@ TestOps MCP is a production-grade Go server implementing the Model Context Proto
 |---------|------|
 | `cmd/server` | Entry point; `--http` flag selects transport |
 | `internal/mcp` | JSON-RPC 2.0 dispatcher, SSE sessions, heartbeat |
-| `internal/tools` | Tool registry, 102 tools, OpenAPI search/execute |
+| `internal/tools` | Tool registry, 104 tools, OpenAPI search/execute |
 | `internal/adapters/allure` | HTTP client for Allure TestOps API, JWT caching |
 | `internal/config` | Env-var configuration loader |
-| `internal/core` | Structured JSON logger |
-| `internal/session` | Context-based session ID, user, and remote addr propagation |
+| `internal/core` | Structured JSON logger (slog-backed) |
+| `internal/session` | Context-based session ID, user, elicitation, sampling propagation |
 | `internal/audit` | Daily JSONL audit log with configurable retention |
+| `internal/tasks` | Async task store (working/succeeded/failed/cancelled lifecycle) |
 
-## Tool Groups (102 total)
+## Tool Groups (104 total)
 
 - **Universal** (3): `configure_allure_token`, `search_testops_operations`, `execute_testops_operation`
 - **Launches** (14): `run_allure_launch`, `get_launch_status`, `get_launch_report`, `list_launches`, `get_launch_details`, `close_launch`, `reopen_launch`, `copy_launch`, `merge_launches`, `get_launch_environment`, `update_launch_environment`, `add_test_cases_to_launch`, `add_test_plan_to_launch`, `get_launch_defects`
@@ -39,6 +40,8 @@ TestOps MCP is a production-grade Go server implementing the Model Context Proto
 - **Projects** (3): `list_projects`, `get_project`, `get_project_stats`
 - **Analytics** (3): `get_launch_trend_analytics`, `get_launch_duration_analytics`, `get_test_success_rate`
 - **Relations** (6): `get_test_case_relations`, `add_test_case_relation`, `remove_test_case_relation`, `get_relation_types`, `bulk_assign_test_results`, `bulk_mute_test_results`, `bulk_unmute_test_results`, `bulk_resolve_test_results`
+- **Tasks** (3): `get_task_status`, `list_running_tasks`, `cancel_task` — track async background operations
+- **Analysis** (1): `analyze_launch_failures` — AI-powered failure root-cause analysis via sampling
 
 ## MCP Prompts (2 templates)
 
