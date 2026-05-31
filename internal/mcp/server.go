@@ -250,6 +250,8 @@ func (s *Server) route(ctx context.Context, req *JSONRPCRequest) *JSONRPCRespons
 		return s.handlePromptsList(req)
 	case "prompts/get":
 		return s.handlePromptsGet(req)
+	case "completion/complete":
+		return s.handleComplete(req)
 	default:
 		s.logger.Warn("unknown method", map[string]any{"method": req.Method})
 		if notification {
@@ -499,6 +501,39 @@ func (s *Server) handleToolsCall(ctx context.Context, req *JSONRPCRequest) *JSON
 		resp.Meta = tool.Meta
 	}
 	return s.okResponse(req.ID, resp)
+}
+
+func (s *Server) handleComplete(req *JSONRPCRequest) *JSONRPCResponse {
+	if len(req.Params) == 0 {
+		return s.errorResponse(req.ID, ErrCodeInvalidParams, "Missing params")
+	}
+	var completeReq CompleteRequest
+	if err := json.Unmarshal(req.Params, &completeReq); err != nil {
+		s.logger.Error("parse completion/complete params", err, nil)
+		return s.errorResponse(req.ID, ErrCodeInvalidParams, "Invalid params")
+	}
+
+	values := s.registry.Complete(completeReq.Ref.Name, completeReq.Argument.Name, completeReq.Argument.Value)
+
+	const maxValues = 10
+	hasMore := false
+	if len(values) > maxValues {
+		values = values[:maxValues]
+		hasMore = true
+	}
+
+	s.logger.Debug("completion/complete", map[string]any{
+		"ref":       completeReq.Ref.Name,
+		"arg":       completeReq.Argument.Name,
+		"results":   len(values),
+	})
+
+	return s.okResponse(req.ID, CompleteResult{
+		Completion: CompleteCompletion{
+			Values:  values,
+			HasMore: hasMore,
+		},
+	})
 }
 
 // ---------------------------------------------------------------------------

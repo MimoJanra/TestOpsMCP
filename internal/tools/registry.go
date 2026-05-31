@@ -439,6 +439,35 @@ func (r *Registry) GetPrompt(name string, args map[string]string) ([]RegistryPro
 	return p.GetMessages(args), p.Description, nil
 }
 
+// Complete returns argument completion suggestions for the named prompt and argument.
+func (r *Registry) Complete(promptName, argName, partial string) []string {
+	switch argName {
+	case "project_id":
+		return r.completeProjectIDs(partial)
+	}
+	return nil
+}
+
+// completeProjectIDs returns project ID suggestions. When the allure client is
+// available it lists real projects; otherwise returns nothing.
+func (r *Registry) completeProjectIDs(partial string) []string {
+	if r.allure == nil {
+		return nil
+	}
+	projects, err := r.allure.ListProjects(context.Background(), 0, 20)
+	if err != nil || projects == nil {
+		return nil
+	}
+	var results []string
+	for _, p := range projects.Content {
+		id := fmt.Sprintf("%d", p.ID)
+		if partial == "" || strings.HasPrefix(id, partial) {
+			results = append(results, id)
+		}
+	}
+	return results
+}
+
 // Search + Execute handlers
 
 func (r *Registry) searchTestOpsOperations(ctx context.Context, req SearchRequest) (any, error) {

@@ -186,6 +186,31 @@ type TextContent struct {
 	Text string `json:"text"`
 }
 
+// Completion types for argument autocompletion (completion/complete).
+type CompleteRequest struct {
+	Ref      CompleteRef      `json:"ref"`
+	Argument CompleteArgument `json:"argument"`
+}
+
+type CompleteRef struct {
+	Type string `json:"type"` // "ref/prompt" | "ref/resource"
+	Name string `json:"name"`
+}
+
+type CompleteArgument struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+type CompleteResult struct {
+	Completion CompleteCompletion `json:"completion"`
+}
+
+type CompleteCompletion struct {
+	Values  []string `json:"values"`
+	HasMore bool     `json:"hasMore,omitempty"`
+}
+
 // JSON-RPC 2.0 error codes used by the server.
 const (
 	ErrCodeParse          = -32700
