@@ -65,17 +65,22 @@ type Resource struct {
 	GetHTML func() string
 }
 
+// PublishResourceFunc notifies subscribers that a resource has been updated.
+// It is set by the MCP server after registry creation to avoid circular imports.
+type PublishResourceFunc func(uri string)
+
 // Registry holds the set of tools exposed by the MCP server.
 // Tools are registered once during NewRegistry and must not be mutated
 // afterwards; ListTools therefore returns shared pointers without copying.
 type Registry struct {
-	tools       map[string]*Tool
-	allure      *allure.Client
-	logger      *core.Logger
-	mu          sync.RWMutex
-	opIndex     *OperationsIndex
-	openAPISpec *OpenAPISpec
-	taskStore   *tasks.Store
+	tools           map[string]*Tool
+	allure          *allure.Client
+	logger          *core.Logger
+	mu              sync.RWMutex
+	opIndex         *OperationsIndex
+	openAPISpec     *OpenAPISpec
+	taskStore       *tasks.Store
+	publishResource PublishResourceFunc
 
 	// sessionTokens maps MCP session ID → user-provided API token.
 	// Each SSE session (HTTP) or the fixed "stdio" session stores its own token
@@ -334,6 +339,25 @@ func (r *Registry) ClearSessionToken(sessID string) {
 	r.sessionTokensMu.Lock()
 	delete(r.sessionTokens, sessID)
 	r.sessionTokensMu.Unlock()
+}
+
+// SetPublishResource wires the resource-update notification callback.
+// Called by the MCP server after construction.
+func (r *Registry) SetPublishResource(fn PublishResourceFunc) {
+	r.publishResource = fn
+}
+
+// OnSubscribe is called by the MCP server when a client subscribes to a resource URI.
+// It starts any required background polling for live-updating resources.
+func (r *Registry) OnSubscribe(ctx context.Context, uri string) {
+	// Start polling for launch dashboard subscriptions.
+	const prefix = "ui://widgets/launch-dashboard?launch_id="
+	if strings.HasPrefix(uri, prefix) {
+		var launchID int64
+		if _, err := fmt.Sscanf(uri[len(prefix):], "%d", &launchID); err == nil && launchID > 0 {
+			r.StartLaunchWatch(ctx, launchID)
+		}
+	}
 }
 
 // RegisterResource adds a resource to the registry.

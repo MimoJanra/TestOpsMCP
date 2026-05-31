@@ -186,6 +186,15 @@ type TextContent struct {
 	Text string `json:"text"`
 }
 
+// Resource subscription types.
+type SubscribeRequest struct {
+	URI string `json:"uri"`
+}
+
+type UnsubscribeRequest struct {
+	URI string `json:"uri"`
+}
+
 // Elicitation types — server asks client/user to confirm or fill a form.
 type ElicitRequest struct {
 	Message         string          `json:"message"`

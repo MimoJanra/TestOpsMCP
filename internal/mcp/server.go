@@ -60,6 +60,9 @@ type session struct {
 
 	pendingMu sync.Mutex
 	pending   map[string]chan *ElicitResult
+
+	subsMu        sync.Mutex
+	subscriptions map[string]struct{} // subscribed resource URIs
 }
 
 func NewServer(registry *tools.Registry, logger *core.Logger, opts Options) *Server {
@@ -74,6 +77,7 @@ func NewServer(registry *tools.Registry, logger *core.Logger, opts Options) *Ser
 		panicRecoveryMiddleware(logger),
 		auditMiddleware(opts.AuditLog),
 	)
+	registry.SetPublishResource(s.PublishResource)
 	return s
 }
 
@@ -250,6 +254,10 @@ func (s *Server) route(ctx context.Context, req *JSONRPCRequest) *JSONRPCRespons
 		return s.handleResourcesList(req)
 	case "resources/read":
 		return s.handleResourcesRead(req)
+	case "resources/subscribe":
+		return s.handleResourcesSubscribe(ctx, req)
+	case "resources/unsubscribe":
+		return s.handleResourcesUnsubscribe(ctx, req)
 	case "prompts/list":
 		return s.handlePromptsList(req)
 	case "prompts/get":
@@ -289,6 +297,7 @@ func (s *Server) handleInitialize(req *JSONRPCRequest) *JSONRPCResponse {
 
 	resp := InitializeResponse{ProtocolVersion: negotiated}
 	resp.Capabilities.Logging = &struct{}{}
+	resp.Capabilities.Resources.Subscribe = true
 	resp.ServerInfo.Name = "allure-mcp-server"
 	resp.ServerInfo.Version = Version
 
@@ -825,11 +834,12 @@ func resultToJSON(result any) string {
 func (s *Server) newSession(parent context.Context) *session {
 	ctx, cancel := context.WithCancel(parent)
 	sess := &session{
-		id:      newSessionID(),
-		send:    make(chan []byte, sessionSendBuffer),
-		ctx:     ctx,
-		cancel:  cancel,
-		pending: make(map[string]chan *ElicitResult),
+		id:            newSessionID(),
+		send:          make(chan []byte, sessionSendBuffer),
+		ctx:           ctx,
+		cancel:        cancel,
+		pending:       make(map[string]chan *ElicitResult),
+		subscriptions: make(map[string]struct{}),
 	}
 	s.mu.Lock()
 	s.sessions[sess.id] = sess
@@ -878,6 +888,75 @@ func (s *Server) checkAuth(r *http.Request) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// --- resource subscriptions ---
+
+func (s *Server) handleResourcesSubscribe(ctx context.Context, req *JSONRPCRequest) *JSONRPCResponse {
+	if len(req.Params) == 0 {
+		return s.errorResponse(req.ID, ErrCodeInvalidParams, "Missing params")
+	}
+	var subReq SubscribeRequest
+	if err := json.Unmarshal(req.Params, &subReq); err != nil || subReq.URI == "" {
+		return s.errorResponse(req.ID, ErrCodeInvalidParams, "Invalid params")
+	}
+	sessID := sessctx.IDFromContext(ctx)
+	sess := s.getSession(sessID)
+	if sess != nil {
+		sess.subsMu.Lock()
+		sess.subscriptions[subReq.URI] = struct{}{}
+		sess.subsMu.Unlock()
+	}
+	// Notify registry of new subscription so it can start any required polling.
+	s.registry.OnSubscribe(ctx, subReq.URI)
+	return s.okResponse(req.ID, map[string]any{})
+}
+
+func (s *Server) handleResourcesUnsubscribe(ctx context.Context, req *JSONRPCRequest) *JSONRPCResponse {
+	if len(req.Params) == 0 {
+		return s.errorResponse(req.ID, ErrCodeInvalidParams, "Missing params")
+	}
+	var unsubReq UnsubscribeRequest
+	if err := json.Unmarshal(req.Params, &unsubReq); err != nil || unsubReq.URI == "" {
+		return s.errorResponse(req.ID, ErrCodeInvalidParams, "Invalid params")
+	}
+	sessID := sessctx.IDFromContext(ctx)
+	sess := s.getSession(sessID)
+	if sess != nil {
+		sess.subsMu.Lock()
+		delete(sess.subscriptions, unsubReq.URI)
+		sess.subsMu.Unlock()
+	}
+	return s.okResponse(req.ID, map[string]any{})
+}
+
+// PublishResource sends a notifications/resources/updated notification to all
+// sessions that are subscribed to the given URI.
+func (s *Server) PublishResource(uri string) {
+	notif, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "notifications/resources/updated",
+		"params":  map[string]any{"uri": uri},
+	})
+
+	s.mu.RLock()
+	sessions := make([]*session, 0, len(s.sessions))
+	for _, sess := range s.sessions {
+		sessions = append(sessions, sess)
+	}
+	s.mu.RUnlock()
+
+	for _, sess := range sessions {
+		sess.subsMu.Lock()
+		_, subscribed := sess.subscriptions[uri]
+		sess.subsMu.Unlock()
+		if subscribed {
+			select {
+			case sess.send <- notif:
+			default:
+			}
+		}
+	}
 }
 
 // --- pagination helpers ---

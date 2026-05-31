@@ -480,6 +480,44 @@ func (r *Registry) registerWidgets() {
 }
 
 // ---------------------------------------------------------------------------
+// Resource watch / subscriptions
+// ---------------------------------------------------------------------------
+
+// watchLaunch polls the launch status every 10 s and calls publishResource when it changes.
+// It runs until ctx is cancelled.
+func (r *Registry) watchLaunch(ctx context.Context, launchID int64) {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	var lastStatus string
+	uri := fmt.Sprintf("%s?launch_id=%d", launchDashboardURI, launchID)
+	for {
+		select {
+		case <-ticker.C:
+			if r.publishResource == nil || r.allure == nil {
+				continue
+			}
+			details, err := r.allure.GetLaunchDetails(ctx, launchID)
+			if err != nil {
+				continue
+			}
+			currentStatus := fmt.Sprintf("%v", details.Status)
+			if currentStatus != lastStatus {
+				lastStatus = currentStatus
+				r.publishResource(uri)
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// StartLaunchWatch begins polling a launch and publishing updates to subscribers.
+// Call this after a client subscribes to a launch dashboard resource.
+func (r *Registry) StartLaunchWatch(ctx context.Context, launchID int64) {
+	go r.watchLaunch(ctx, launchID)
+}
+
+// ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
 
