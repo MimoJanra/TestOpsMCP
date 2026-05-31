@@ -59,6 +59,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `session.SamplingFunc` context key exposes this to handlers.
 - New **`analyze_launch_failures`** tool: fetches failed test results and asks Claude to identify root causes and suggest fixes. Gracefully degrades if sampling is unavailable.
 
+### Fixed
+
+#### Async Task System
+- **Panic recovery in goroutines** — `tasks.Store.Run()` wraps every background goroutine in `recover()`. A panic marks the task `Failed` and logs the stack trace; the server and other sessions remain unaffected.
+- **Session token lost in async context** — `Store.Create()` now accepts `parentCtx` and uses `context.WithoutCancel` to propagate session ID (and all other context values) without inheriting the request's cancellation signal. Async operations (`run_allure_launch`, `copy_launch`, `merge_launches`, `bulk_run_*`, `bulk_clone_test_cases`) now correctly resolve per-user Allure tokens in multi-user deployments.
+- **Data race in task reads** — `Store.Get()` and `Store.List()` now return struct copies under `RLock` instead of raw pointers; `taskToMap` no longer races against concurrent `Update` writes.
+- **Async task timeout** — `taskCtx` carries a 30-minute hard deadline via `context.WithTimeout`; hung Allure calls can no longer leak goroutines and memory indefinitely.
+- **Task store memory leak** — Added background janitor (`StartJanitor`) that purges succeeded/failed/cancelled tasks older than 1 hour; runs every 5 minutes.
+
+#### MCP Protocol — Elicitation & Sampling
+- **Standard JSON-RPC response routing** — `elicitation/create` is now sent as a proper JSON-RPC *request* (with `id`); `sampling/createMessage` already had an `id`. Both now receive the client's standard JSON-RPC response `{id, result}` routed through a new `handleJSONRPCResponse` dispatcher, keyed by the request ID. The previous non-standard methods `notifications/elicitation/complete` and `sampling/createMessage/response` are removed. Compatible with Claude Desktop and any spec-compliant MCP client.
+- **Silent deletion on stdio** — `delete_test_case` and `bulk_delete_test_cases` on the stdio transport previously bypassed the confirmation guard (no `ElicitFunc` in context → the `if ok` block was skipped, and data was deleted silently). Now they return an error: *"deletion requires user confirmation but no interactive session is available"*. Also, transport errors from `elicit()` are now returned as errors instead of being masked as a user cancellation.
+
+#### Resource Subscriptions
+- **Push notifications never arrived** — `handleResourcesSubscribe` was passing the HTTP request context to `OnSubscribe → StartLaunchWatch → watchLaunch`. The request's `r.Context()` was cancelled when the `POST /messages` handler returned (202 Accepted), so the watcher exited before the first 10-second tick. Now `sess.ctx` (session lifetime) is used — the watcher runs until the client disconnects.
+
+#### Other
+- **Unstable pagination** — `resources/list` and `prompts/list` now sort by URI and name respectively before slicing, matching `tools/list` behaviour. Previously, cursor-based pagination over Go maps produced non-deterministic results.
+- **Completion hits Allure on every keystroke** — `Complete` now maintains a 30-second in-process cache of project/launch ID lists fetched with a 5-second timeout derived from the request context. Completion is gated on `ref.type == "ref/prompt"` to avoid unintended Allure calls from resources with identically-named arguments.
+- **UTF-8 truncation in analysis** — `analyzeLaunchFailures` truncated error messages and stack traces by byte index (`msg[:300]`), which split multi-byte runes (Cyrillic, CJK, emoji). Now uses `truncateRunes` which truncates at rune boundary.
+
 ### Changed
 - Tool count: 100 → 104 (added `get_task_status`, `list_running_tasks`, `cancel_task`, `analyze_launch_failures`).
 - `initialize` response now includes `logging` capability.
@@ -400,7 +421,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive documentation: Installation, Deployment, API Reference, Security guides
 - `.env.example` configuration template
 
-[Unreleased]: https://github.com/MimoJanra/TestOpsMCP/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/MimoJanra/TestOpsMCP/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/MimoJanra/TestOpsMCP/compare/v1.9.0...v2.0.0
+[1.9.0]: https://github.com/MimoJanra/TestOpsMCP/compare/v1.8.1...v1.9.0
+[1.8.1]: https://github.com/MimoJanra/TestOpsMCP/compare/v1.8.0...v1.8.1
+[1.8.0]: https://github.com/MimoJanra/TestOpsMCP/compare/v1.7.1...v1.8.0
+[1.7.1]: https://github.com/MimoJanra/TestOpsMCP/compare/v1.7.0...v1.7.1
+[1.7.0]: https://github.com/MimoJanra/TestOpsMCP/compare/v1.6.0...v1.7.0
+[1.6.0]: https://github.com/MimoJanra/TestOpsMCP/compare/v1.5.0...v1.6.0
+[1.5.0]: https://github.com/MimoJanra/TestOpsMCP/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/MimoJanra/TestOpsMCP/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/MimoJanra/TestOpsMCP/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/MimoJanra/TestOpsMCP/compare/v1.2.0...v1.2.1

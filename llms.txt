@@ -4,7 +4,7 @@
 
 ## Overview
 
-TestOps MCP is a production-grade Go server implementing the Model Context Protocol (MCP, protocol version 2025-11-25). It exposes **104 curated tools** plus a dynamic fallback covering **600+ Allure TestOps API endpoints** via an OpenAPI spec index, **2 prompt templates**, and **4 resources** (including 3 interactive widget resources). Supports two transports: **stdio** (Claude Desktop, single-user) and **HTTP + SSE** (shared team server, multi-user with per-session token isolation).
+TestOps MCP is a production-grade Go server implementing the Model Context Protocol (MCP, protocol version 2025-11-25). It exposes **104 curated tools** plus a dynamic fallback covering **600+ Allure TestOps API endpoints** via an OpenAPI spec index, **2 prompt templates**, and **4 resources** (including 3 interactive widget resources). Supports two transports: **stdio** (Claude Desktop, single-user) and **HTTP + SSE** (shared team server, multi-user with per-session token isolation). Async tasks auto-expire after 1 hour; finished-task list is pruned every 5 minutes.
 
 - Module: `github.com/MimoJanra/TestOpsMCP`
 - Language: Go 1.26+

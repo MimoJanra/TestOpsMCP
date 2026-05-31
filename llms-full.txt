@@ -56,9 +56,10 @@ internal/
 - Named user auth via `Authorization: Bearer <token>` (`MCP_AUTH_TOKENS=alice:tok,...`)
 - Heartbeat every 25 s, max 64 queued messages per session, 1 MiB max body
 - Every non-notification request goes through panic recovery + audit middleware
-- Elicitation: server sends `elicitation/create` notifications, routes `notifications/elicitation/complete`
-- Sampling: server sends `sampling/createMessage` requests, routes `sampling/createMessage/response`
-- Resource subscriptions: `resources/subscribe` / `resources/unsubscribe`; `PublishResource` pushes `notifications/resources/updated`
+- Elicitation: server sends `elicitation/create` as JSON-RPC *request* (with `id`); client replies with a standard JSON-RPC response `{id, result: {action, content}}`
+- Sampling: server sends `sampling/createMessage` requests (with `id`); client replies with standard JSON-RPC response `{id, result: {role, content, stopReason}}`
+- Both are dispatched by `handleJSONRPCResponse` keyed on the response `id`; no custom method names required on the client
+- Resource subscriptions: `resources/subscribe` / `resources/unsubscribe`; watcher goroutine is tied to session lifetime (`sess.ctx`), not request lifetime; `PublishResource` pushes `notifications/resources/updated` to all subscribed sessions
 
 **Claude Desktop client config (via mcp-remote — required for custom headers):**
 Windows:
@@ -78,6 +79,16 @@ Each HTTP session gets its own Allure API token. Priority:
 ### JWT caching
 
 `allure.Client` caches JWT tokens keyed by API token string. Auto-refreshes before expiry.
+
+### Async task system
+
+`tasks.Store` runs an in-process background janitor (every 5 min) that deletes succeeded/failed/cancelled tasks older than 1 hour.
+`Store.Create(toolName, parentCtx)` uses `context.WithoutCancel(parentCtx)` + 30-minute timeout, so async goroutines carry the originating session ID (for correct token resolution) without being cancelled when the HTTP request ends.
+`Store.Run(id, ctx, fn)` wraps `fn` in `recover()` — a panic marks the task Failed instead of crashing the server.
+
+### Completion cache
+
+`Registry.Complete(ctx, refType, promptName, argName, partial)` only calls Allure when `refType == "ref/prompt"`. Results are cached in-process for 30 s (fetched with a 5-second timeout). No upstream calls on every keystroke.
 
 ---
 

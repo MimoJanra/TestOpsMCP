@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,10 +16,26 @@ import (
 // ---------------------------------------------------------------------------
 
 const (
-	launchDashboardURI  = "ui://widgets/launch-dashboard"
-	launchDashboardName = "Launch Dashboard"
-	widgetMimeType      = "text/html;profile=mcp-app"
+	launchDashboardURI       = "ui://widgets/launch-dashboard"
+	launchDashboardURIPrefix = launchDashboardURI + "?launch_id="
+	launchDashboardName      = "Launch Dashboard"
+	widgetMimeType           = "text/html;profile=mcp-app"
 )
+
+func launchDashboardURIFor(launchID int64) string {
+	return fmt.Sprintf("%s?launch_id=%d", launchDashboardURI, launchID)
+}
+
+func parseLaunchDashboardURI(uri string) (int64, bool) {
+	if !strings.HasPrefix(uri, launchDashboardURIPrefix) {
+		return 0, false
+	}
+	var id int64
+	if _, err := fmt.Sscanf(uri[len(launchDashboardURIPrefix):], "%d", &id); err != nil || id <= 0 {
+		return 0, false
+	}
+	return id, true
+}
 
 // extAppsCandidates lists CDN URLs for the ext-apps browser bundle, tried in order.
 var extAppsCandidates = []string{
@@ -441,7 +456,7 @@ func (r *Registry) registerWidgets() {
 				"resourceUri": launchDashboardURI,
 			},
 		},
-		Handler: r.getLaunchDashboard,
+		Handler: Typed(r.getLaunchDashboard),
 	})
 
 	// Register the widget resource — HTML is rendered lazily on first request
@@ -489,7 +504,7 @@ func (r *Registry) watchLaunch(ctx context.Context, launchID int64) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	var lastStatus string
-	uri := fmt.Sprintf("%s?launch_id=%d", launchDashboardURI, launchID)
+	uri := launchDashboardURIFor(launchID)
 	for {
 		select {
 		case <-ticker.C:
@@ -521,28 +536,26 @@ func (r *Registry) StartLaunchWatch(ctx context.Context, launchID int64) {
 // Handlers
 // ---------------------------------------------------------------------------
 
-func (r *Registry) getLaunchDashboard(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		LaunchID int64 `json:"launch_id"`
-	}
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-	if params.LaunchID <= 0 {
+type getLaunchDashboardArgs struct {
+	LaunchID int64 `json:"launch_id"`
+}
+
+func (r *Registry) getLaunchDashboard(ctx context.Context, args getLaunchDashboardArgs) (any, error) {
+	if args.LaunchID <= 0 {
 		return nil, fmt.Errorf("launch_id must be positive")
 	}
 
-	r.logger.Info("fetching launch dashboard", map[string]any{"launch_id": params.LaunchID})
+	r.logger.Info("fetching launch dashboard", map[string]any{"launch_id": args.LaunchID})
 
-	details, err := r.allure.GetLaunchDetails(ctx, params.LaunchID)
+	details, err := r.allure.GetLaunchDetails(ctx, args.LaunchID)
 	if err != nil {
-		r.logger.Error("get launch details", err, map[string]any{"launch_id": params.LaunchID})
+		r.logger.Error("get launch details", err, map[string]any{"launch_id": args.LaunchID})
 		return nil, fmt.Errorf("get launch details: %w", err)
 	}
 
-	stats, err := r.allure.GetLaunchStatistics(ctx, params.LaunchID)
+	stats, err := r.allure.GetLaunchStatistics(ctx, args.LaunchID)
 	if err != nil {
-		r.logger.Error("get launch statistics", err, map[string]any{"launch_id": params.LaunchID})
+		r.logger.Error("get launch statistics", err, map[string]any{"launch_id": args.LaunchID})
 		return nil, fmt.Errorf("get launch statistics: %w", err)
 	}
 

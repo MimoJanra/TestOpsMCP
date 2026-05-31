@@ -605,17 +605,22 @@ func (r *Registry) deleteTestCase(ctx context.Context, args deleteTestCaseArgs) 
 		return nil, fmt.Errorf("test_case_id must be positive")
 	}
 
-	if elicit, ok := session.ElicitFromContext(ctx); ok {
-		schema, _ := json.Marshal(map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"confirmed": map[string]any{"type": "boolean", "description": "Confirm permanent deletion"},
-			},
-		})
-		result, err := elicit(ctx, fmt.Sprintf("Permanently delete test case #%d? This cannot be undone.", args.TestCaseID), schema)
-		if err != nil || result.Action != "accept" {
-			return map[string]any{"cancelled": true, "message": "Deletion cancelled."}, nil
-		}
+	elicit, ok := session.ElicitFromContext(ctx)
+	if !ok {
+		return nil, fmt.Errorf("deletion requires user confirmation but no interactive session is available")
+	}
+	schema, _ := json.Marshal(map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"confirmed": map[string]any{"type": "boolean", "description": "Confirm permanent deletion"},
+		},
+	})
+	result, err := elicit(ctx, fmt.Sprintf("Permanently delete test case #%d? This cannot be undone.", args.TestCaseID), schema)
+	if err != nil {
+		return nil, fmt.Errorf("confirmation failed: %w", err)
+	}
+	if result.Action != "accept" {
+		return map[string]any{"cancelled": true, "message": "Deletion cancelled."}, nil
 	}
 
 	r.logger.Info("deleting test case", map[string]any{"test_case_id": args.TestCaseID})

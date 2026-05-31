@@ -4,8 +4,16 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
+	"runtime/debug"
 	"sync"
 	"time"
+)
+
+const (
+	taskTimeout   = 30 * time.Minute
+	taskRetention = 1 * time.Hour  // how long finished tasks are kept before purge
+	janitorPeriod = 5 * time.Minute
 )
 
 type Status string
@@ -39,8 +47,14 @@ func NewStore() *Store {
 	return &Store{tasks: make(map[string]*Task)}
 }
 
-func (s *Store) Create(toolName string) (*Task, context.Context) {
-	ctx, cancel := context.WithCancel(context.Background())
+// Create registers a new task and returns a context that carries values from
+// parentCtx (e.g. session ID for token resolution) but is not cancelled when
+// parentCtx is cancelled. A 30-minute hard timeout is applied.
+func (s *Store) Create(toolName string, parentCtx context.Context) (*Task, context.Context) {
+	// context.WithoutCancel propagates all key-value pairs (session ID, etc.)
+	// without inheriting the parent's cancellation signal.
+	base := context.WithoutCancel(parentCtx)
+	taskCtx, cancel := context.WithTimeout(base, taskTimeout)
 	t := &Task{
 		ID:        newTaskID(),
 		Tool:      toolName,
@@ -52,7 +66,21 @@ func (s *Store) Create(toolName string) (*Task, context.Context) {
 	s.mu.Lock()
 	s.tasks[t.ID] = t
 	s.mu.Unlock()
-	return t, ctx
+	return t, taskCtx
+}
+
+// Run starts fn in a background goroutine. A panic inside fn marks the task
+// as Failed (instead of crashing the whole server).
+func (s *Store) Run(id string, ctx context.Context, fn func(context.Context)) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				s.Update(id, StatusFailed, "", nil,
+					fmt.Errorf("panic: %v\n%s", r, debug.Stack()))
+			}
+		}()
+		fn(ctx)
+	}()
 }
 
 func (s *Store) Update(id string, status Status, msg string, result any, taskErr error) {
@@ -71,19 +99,27 @@ func (s *Store) Update(id string, status Status, msg string, result any, taskErr
 	t.UpdatedAt = time.Now()
 }
 
+// Get returns a copy of the task so callers can read fields without racing
+// against concurrent Update calls.
 func (s *Store) Get(id string) (*Task, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	t, ok := s.tasks[id]
-	return t, ok
+	if !ok {
+		return nil, false
+	}
+	cp := *t
+	return &cp, true
 }
 
+// List returns copies of all tasks for the same reason as Get.
 func (s *Store) List() []*Task {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	list := make([]*Task, 0, len(s.tasks))
 	for _, t := range s.tasks {
-		list = append(list, t)
+		cp := *t
+		list = append(list, &cp)
 	}
 	return list
 }
@@ -101,6 +137,34 @@ func (s *Store) Cancel(id string) bool {
 		t.cancel()
 	}
 	return true
+}
+
+// StartJanitor starts a background goroutine that purges finished tasks older
+// than taskRetention. It stops when ctx is cancelled.
+func (s *Store) StartJanitor(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(janitorPeriod)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				s.purgeOldTasks()
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+func (s *Store) purgeOldTasks() {
+	cutoff := time.Now().Add(-taskRetention)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, t := range s.tasks {
+		if t.Status != StatusWorking && t.UpdatedAt.Before(cutoff) {
+			delete(s.tasks, id)
+		}
+	}
 }
 
 func newTaskID() string {

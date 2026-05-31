@@ -271,6 +271,35 @@ env:
 
 ---
 
+## Destructive Operation Confirmation
+
+`delete_test_case` and `bulk_delete_test_cases` require explicit user confirmation before executing.
+
+### How it works
+
+When a delete tool is called over an HTTP/SSE session, the server sends an **elicitation request** (`elicitation/create`) to the client. The client displays a confirmation dialog; the user must click **Accept** before the deletion proceeds. If the user rejects or cancels, the tool returns `{"cancelled": true}` without touching any data.
+
+```
+Claude → server: tools/call delete_test_case {test_case_id: 42}
+server → client: elicitation/create {message: "Permanently delete test case #42?..."}
+user   → client: [clicks Accept]
+client → server: JSON-RPC response {id: ..., result: {action: "accept"}}
+server → Allure: DELETE /api/testcase/42
+server → Claude: {status: "deleted"}
+```
+
+### Transport requirements
+
+| Transport | Confirmation | Notes |
+|-----------|-------------|-------|
+| HTTP + SSE (`/sse`, `/messages`) | ✓ Elicitation dialog shown | Full support |
+| Streamable HTTP (`/mcp`) | ✓ Elicitation dialog shown | Full support |
+| Stdio | ✗ Returns error | Interactive session required for destructive ops |
+
+**Stdio note:** When running in stdio mode (e.g. a Claude Desktop local binary), there is no interactive session capable of elicitation. Delete tools return an error: *"deletion requires user confirmation but no interactive session is available"*. Use the HTTP transport for deployments where destructive operations are needed.
+
+---
+
 ## Compliance
 
 ### Data Privacy

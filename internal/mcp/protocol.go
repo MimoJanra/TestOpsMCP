@@ -12,8 +12,12 @@ var supportedVersions = []string{"2025-11-25", "2025-06-18", "2025-03-26", "2024
 type JSONRPCRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id,omitempty"`
-	Method  string          `json:"method"`
+	Method  string          `json:"method,omitempty"`
 	Params  json.RawMessage `json:"params,omitempty"`
+	// Result and Error are populated when the client sends a JSON-RPC response
+	// (e.g. replying to a sampling/createMessage or elicitation/create request).
+	Result json.RawMessage `json:"result,omitempty"`
+	Error  *JSONRPCError   `json:"error,omitempty"`
 }
 
 // IsNotification reports whether the request lacks an id and therefore

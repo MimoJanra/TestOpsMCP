@@ -233,6 +233,15 @@ func (s *Server) dispatch(ctx context.Context, req *JSONRPCRequest) *JSONRPCResp
 }
 
 func (s *Server) route(ctx context.Context, req *JSONRPCRequest) *JSONRPCResponse {
+	// Standard JSON-RPC response from the client (no method field, has an ID).
+	// This handles replies to sampling/createMessage and elicitation/create.
+	if req.Method == "" {
+		if !req.IsNotification() {
+			s.handleJSONRPCResponse(ctx, req)
+		}
+		return nil
+	}
+
 	notification := req.IsNotification()
 	s.logger.Debug("handling request", map[string]any{
 		"method":       req.Method,
@@ -265,19 +274,77 @@ func (s *Server) route(ctx context.Context, req *JSONRPCRequest) *JSONRPCRespons
 	case "prompts/get":
 		return s.handlePromptsGet(req)
 	case "completion/complete":
-		return s.handleComplete(req)
-	case "notifications/elicitation/complete":
-		s.handleElicitationComplete(ctx, req)
-		return nil
-	case "sampling/createMessage/response":
-		s.handleSamplingResponse(ctx, req)
-		return nil
+		return s.handleComplete(ctx, req)
 	default:
 		s.logger.Warn("unknown method", map[string]any{"method": req.Method})
 		if notification {
 			return nil
 		}
 		return s.errorResponse(req.ID, ErrCodeMethodNotFound, "Method not found")
+	}
+}
+
+// handleJSONRPCResponse dispatches a standard JSON-RPC response from the client
+// to the pending elicitation or sampling channel keyed by the response ID.
+func (s *Server) handleJSONRPCResponse(ctx context.Context, req *JSONRPCRequest) {
+	// Parse the string value of the ID (json.RawMessage strips JSON quotes).
+	var idStr string
+	if err := json.Unmarshal(req.ID, &idStr); err != nil {
+		idStr = string(req.ID) // numeric or other literal — use as-is
+	}
+
+	sessID := sessctx.IDFromContext(ctx)
+	sess := s.getSession(sessID)
+	if sess == nil {
+		return
+	}
+
+	sess.pendingMu.Lock()
+	elicitCh, isElicit := sess.pending[idStr]
+	sampCh, isSamp := sess.sampling[idStr]
+	sess.pendingMu.Unlock()
+
+	switch {
+	case isElicit:
+		action := "cancel"
+		var content json.RawMessage
+		if req.Error == nil && len(req.Result) > 0 {
+			var r struct {
+				Action  string          `json:"action"`
+				Content json.RawMessage `json:"content,omitempty"`
+			}
+			if err := json.Unmarshal(req.Result, &r); err == nil && r.Action != "" {
+				action = r.Action
+				content = r.Content
+			}
+		}
+		select {
+		case elicitCh <- &ElicitResult{Action: action, Content: content}:
+		default:
+		}
+	case isSamp:
+		if req.Error != nil {
+			// Client rejected or failed; let the 2-minute timeout unblock the caller.
+			return
+		}
+		var r struct {
+			Role    string `json:"role"`
+			Content struct {
+				Text string `json:"text"`
+			} `json:"content"`
+			StopReason string `json:"stopReason"`
+		}
+		if len(req.Result) > 0 {
+			_ = json.Unmarshal(req.Result, &r)
+		}
+		select {
+		case sampCh <- &SamplingResult{
+			Role:       r.Role,
+			Content:    SamplingMessageContent{Type: "text", Text: r.Content.Text},
+			StopReason: r.StopReason,
+		}:
+		default:
+		}
 	}
 }
 
@@ -361,6 +428,7 @@ func (s *Server) handleResourcesList(req *JSONRPCRequest) *JSONRPCResponse {
 
 	const pageSize = 50
 	all := s.registry.ListResources()
+	sort.Slice(all, func(i, j int) bool { return all[i].URI < all[j].URI })
 	offset := cursorToOffset(listReq.Cursor)
 	if offset > len(all) {
 		offset = len(all)
@@ -419,6 +487,7 @@ func (s *Server) handlePromptsList(req *JSONRPCRequest) *JSONRPCResponse {
 
 	const pageSize = 50
 	all := s.registry.ListPrompts()
+	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 	offset := cursorToOffset(listReq.Cursor)
 	if offset > len(all) {
 		offset = len(all)
@@ -524,7 +593,7 @@ func (s *Server) handleToolsCall(ctx context.Context, req *JSONRPCRequest) *JSON
 	return s.okResponse(req.ID, resp)
 }
 
-func (s *Server) handleComplete(req *JSONRPCRequest) *JSONRPCResponse {
+func (s *Server) handleComplete(ctx context.Context, req *JSONRPCRequest) *JSONRPCResponse {
 	if len(req.Params) == 0 {
 		return s.errorResponse(req.ID, ErrCodeInvalidParams, "Missing params")
 	}
@@ -534,7 +603,7 @@ func (s *Server) handleComplete(req *JSONRPCRequest) *JSONRPCResponse {
 		return s.errorResponse(req.ID, ErrCodeInvalidParams, "Invalid params")
 	}
 
-	values := s.registry.Complete(completeReq.Ref.Name, completeReq.Argument.Name, completeReq.Argument.Value)
+	values := s.registry.Complete(ctx, completeReq.Ref.Type, completeReq.Ref.Name, completeReq.Argument.Name, completeReq.Argument.Value)
 
 	const maxValues = 10
 	hasMore := false
@@ -584,11 +653,13 @@ func (s *Server) Elicit(ctx context.Context, req ElicitRequest) (*ElicitResult, 
 		sess.pendingMu.Unlock()
 	}()
 
+	// Send as a JSON-RPC request (with id) so the client sends back a standard
+	// JSON-RPC response; elicitID doubles as both the request id and the map key.
 	notif, _ := json.Marshal(map[string]any{
 		"jsonrpc": "2.0",
+		"id":      elicitID,
 		"method":  "elicitation/create",
 		"params": map[string]any{
-			"elicitationId":   elicitID,
 			"message":         req.Message,
 			"requestedSchema": req.RequestedSchema,
 		},
@@ -606,34 +677,6 @@ func (s *Server) Elicit(ctx context.Context, req ElicitRequest) (*ElicitResult, 
 		return nil, fmt.Errorf("elicitation timeout")
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	}
-}
-
-func (s *Server) handleElicitationComplete(ctx context.Context, req *JSONRPCRequest) {
-	if len(req.Params) == 0 {
-		return
-	}
-	var p struct {
-		ElicitationID string          `json:"elicitationId"`
-		Action        string          `json:"action"`
-		Content       json.RawMessage `json:"content,omitempty"`
-	}
-	if err := json.Unmarshal(req.Params, &p); err != nil || p.ElicitationID == "" {
-		return
-	}
-	sessID := sessctx.IDFromContext(ctx)
-	sess := s.getSession(sessID)
-	if sess == nil {
-		return
-	}
-	sess.pendingMu.Lock()
-	ch, ok := sess.pending[p.ElicitationID]
-	sess.pendingMu.Unlock()
-	if ok {
-		select {
-		case ch <- &ElicitResult{Action: p.Action, Content: p.Content}:
-		default:
-		}
 	}
 }
 
@@ -692,37 +735,6 @@ func (s *Server) CreateMessage(ctx context.Context, req SamplingRequest) (*Sampl
 		return nil, fmt.Errorf("sampling timeout")
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	}
-}
-
-func (s *Server) handleSamplingResponse(ctx context.Context, req *JSONRPCRequest) {
-	if len(req.Params) == 0 {
-		return
-	}
-	var p struct {
-		SamplingID string `json:"samplingId"`
-		Role       string `json:"role"`
-		Content    struct {
-			Text string `json:"text"`
-		} `json:"content"`
-		StopReason string `json:"stopReason"`
-	}
-	if err := json.Unmarshal(req.Params, &p); err != nil || p.SamplingID == "" {
-		return
-	}
-	sessID := sessctx.IDFromContext(ctx)
-	sess := s.getSession(sessID)
-	if sess == nil {
-		return
-	}
-	sess.pendingMu.Lock()
-	ch, ok := sess.sampling[p.SamplingID]
-	sess.pendingMu.Unlock()
-	if ok {
-		select {
-		case ch <- &SamplingResult{Role: p.Role, Content: SamplingMessageContent{Type: "text", Text: p.Content.Text}, StopReason: p.StopReason}:
-		default:
-		}
 	}
 }
 
@@ -1020,9 +1032,10 @@ func (s *Server) handleResourcesSubscribe(ctx context.Context, req *JSONRPCReque
 		sess.subsMu.Lock()
 		sess.subscriptions[subReq.URI] = struct{}{}
 		sess.subsMu.Unlock()
+		// Use sess.ctx so the watcher lives until the session ends, not until
+		// this POST request completes (which would cancel it immediately).
+		s.registry.OnSubscribe(sess.ctx, subReq.URI)
 	}
-	// Notify registry of new subscription so it can start any required polling.
-	s.registry.OnSubscribe(ctx, subReq.URI)
 	return s.okResponse(req.ID, map[string]any{})
 }
 

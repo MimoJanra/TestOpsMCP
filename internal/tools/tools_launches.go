@@ -308,8 +308,8 @@ func (r *Registry) runAllureLaunch(ctx context.Context, args runAllureLaunchArgs
 		"launch_name": args.LaunchName,
 	})
 
-	task, taskCtx := r.taskStore.Create("run_allure_launch")
-	go func() {
+	task, taskCtx := r.taskStore.Create("run_allure_launch", ctx)
+	r.taskStore.Run(task.ID, taskCtx, func(taskCtx context.Context) {
 		launch, err := r.allure.CreateLaunch(taskCtx, args.ProjectID, args.LaunchName)
 		if err != nil {
 			r.logger.Error("create launch", err, map[string]any{"project_id": args.ProjectID})
@@ -321,7 +321,7 @@ func (r *Registry) runAllureLaunch(ctx context.Context, args runAllureLaunchArgs
 			"launch_id": launch.ID,
 			"status":    "started",
 		}, nil)
-	}()
+	})
 
 	return map[string]any{
 		"task_id": task.ID,
@@ -566,8 +566,8 @@ func (r *Registry) copyLaunch(ctx context.Context, args copyLaunchArgs) (any, er
 
 	r.logger.Info("copying launch async", map[string]any{"launch_id": args.LaunchID})
 
-	task, taskCtx := r.taskStore.Create("copy_launch")
-	go func() {
+	task, taskCtx := r.taskStore.Create("copy_launch", ctx)
+	r.taskStore.Run(task.ID, taskCtx, func(taskCtx context.Context) {
 		launch, err := r.allure.CopyLaunch(taskCtx, args.LaunchID)
 		if err != nil {
 			r.logger.Error("copy launch", err, map[string]any{"launch_id": args.LaunchID})
@@ -579,7 +579,7 @@ func (r *Registry) copyLaunch(ctx context.Context, args copyLaunchArgs) (any, er
 			"name":      launch.Name,
 			"status":    "copied",
 		}, nil)
-	}()
+	})
 
 	return map[string]any{
 		"task_id": task.ID,
@@ -605,8 +605,8 @@ func (r *Registry) mergeLaunches(ctx context.Context, args mergeLaunchesArgs) (a
 		"name":  args.LaunchName,
 	})
 
-	task, taskCtx := r.taskStore.Create("merge_launches")
-	go func() {
+	task, taskCtx := r.taskStore.Create("merge_launches", ctx)
+	r.taskStore.Run(task.ID, taskCtx, func(taskCtx context.Context) {
 		launchID, err := r.allure.MergeLaunches(taskCtx, args.LaunchIDs, args.LaunchName)
 		if err != nil {
 			r.logger.Error("merge launches", err, map[string]any{"count": len(args.LaunchIDs)})
@@ -617,7 +617,7 @@ func (r *Registry) mergeLaunches(ctx context.Context, args mergeLaunchesArgs) (a
 			"merged_launch_id": launchID,
 			"status":           "merged",
 		}, nil)
-	}()
+	})
 
 	return map[string]any{
 		"task_id": task.ID,

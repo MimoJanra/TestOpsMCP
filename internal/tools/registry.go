@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/MimoJanra/TestOpsMCP/internal/adapters/allure"
 	"github.com/MimoJanra/TestOpsMCP/internal/core"
@@ -88,6 +89,11 @@ type Registry struct {
 	sessionTokens   map[string]string
 	sessionTokensMu sync.RWMutex
 
+	// completionCache holds recently fetched project/launch ID lists so that
+	// rapid keystrokes don't hammer the Allure API on every character.
+	completionCache   completionCacheEntry
+	completionCacheMu sync.Mutex
+
 	// resources holds MCP resources (e.g. widget HTML pages).
 	resources   map[string]*Resource
 	resourcesMu sync.RWMutex
@@ -107,6 +113,7 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 		prompts:       make(map[string]*RegistryPrompt),
 		taskStore:     tasks.NewStore(),
 	}
+	r.taskStore.StartJanitor(context.Background())
 
 	// Load OpenAPI spec and build operations index
 	if specPath, err := FindSpecFile(); err == nil {
@@ -351,13 +358,8 @@ func (r *Registry) SetPublishResource(fn PublishResourceFunc) {
 // OnSubscribe is called by the MCP server when a client subscribes to a resource URI.
 // It starts any required background polling for live-updating resources.
 func (r *Registry) OnSubscribe(ctx context.Context, uri string) {
-	// Start polling for launch dashboard subscriptions.
-	const prefix = "ui://widgets/launch-dashboard?launch_id="
-	if strings.HasPrefix(uri, prefix) {
-		var launchID int64
-		if _, err := fmt.Sscanf(uri[len(prefix):], "%d", &launchID); err == nil && launchID > 0 {
-			r.StartLaunchWatch(ctx, launchID)
-		}
+	if launchID, ok := parseLaunchDashboardURI(uri); ok {
+		r.StartLaunchWatch(ctx, launchID)
 	}
 }
 
@@ -464,30 +466,84 @@ func (r *Registry) GetPrompt(name string, args map[string]string) ([]RegistryPro
 	return p.GetMessages(args), p.Description, nil
 }
 
-// Complete returns argument completion suggestions for the named prompt and argument.
-func (r *Registry) Complete(promptName, argName, partial string) []string {
+const completionCacheTTL = 30 * time.Second
+
+type completionCacheEntry struct {
+	projectIDs []string
+	launchIDs  []string
+	fetchedAt  time.Time
+}
+
+// Complete returns argument completion suggestions. Only prompt references
+// ("ref/prompt") trigger live Allure calls; results are cached for 30 s to
+// avoid hammering the API on every keystroke.
+func (r *Registry) Complete(ctx context.Context, refType, promptName, argName, partial string) []string {
+	if refType != "ref/prompt" {
+		return nil
+	}
 	switch argName {
 	case "project_id":
-		return r.completeProjectIDs(partial)
+		return r.completeProjectIDs(ctx, partial)
 	case "launch_id":
-		return r.completeLaunchIDs(partial)
+		return r.completeLaunchIDs(ctx, partial)
 	}
 	return nil
 }
 
-// completeProjectIDs returns project ID suggestions. When the allure client is
-// available it lists real projects; otherwise returns nothing.
-func (r *Registry) completeProjectIDs(partial string) []string {
-	if r.allure == nil {
-		return nil
+// warmCompletionCache fetches project and launch IDs into the cache if the
+// cache has expired. Returns cached data under the caller's lock.
+func (r *Registry) warmCompletionCache(ctx context.Context) (projectIDs, launchIDs []string) {
+	r.completionCacheMu.Lock()
+	defer r.completionCacheMu.Unlock()
+
+	if time.Since(r.completionCache.fetchedAt) < completionCacheTTL {
+		return r.completionCache.projectIDs, r.completionCache.launchIDs
 	}
-	projects, err := r.allure.ListProjects(context.Background(), 0, 20)
-	if err != nil || projects == nil {
-		return nil
+
+	// Fetch under a short timeout derived from the request context.
+	fetchCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	var pIDs, lIDs []string
+
+	if r.allure != nil {
+		if projects, err := r.allure.ListProjects(fetchCtx, 0, 20); err == nil && projects != nil {
+			for _, p := range projects.Content {
+				pIDs = append(pIDs, fmt.Sprintf("%d", p.ID))
+			}
+		}
+
+		seen := make(map[string]struct{})
+		if projects, err := r.allure.ListProjects(fetchCtx, 0, 5); err == nil && projects != nil {
+			for _, proj := range projects.Content {
+				if len(lIDs) >= 20 {
+					break
+				}
+				if launches, err := r.allure.ListLaunches(fetchCtx, proj.ID, 0, 10); err == nil && launches != nil {
+					for _, l := range launches.Content {
+						id := fmt.Sprintf("%d", l.ID)
+						if _, dup := seen[id]; !dup {
+							seen[id] = struct{}{}
+							lIDs = append(lIDs, id)
+						}
+					}
+				}
+			}
+		}
 	}
+
+	r.completionCache = completionCacheEntry{
+		projectIDs: pIDs,
+		launchIDs:  lIDs,
+		fetchedAt:  time.Now(),
+	}
+	return pIDs, lIDs
+}
+
+func (r *Registry) completeProjectIDs(ctx context.Context, partial string) []string {
+	projectIDs, _ := r.warmCompletionCache(ctx)
 	var results []string
-	for _, p := range projects.Content {
-		id := fmt.Sprintf("%d", p.ID)
+	for _, id := range projectIDs {
 		if partial == "" || strings.HasPrefix(id, partial) {
 			results = append(results, id)
 		}
@@ -495,37 +551,12 @@ func (r *Registry) completeProjectIDs(partial string) []string {
 	return results
 }
 
-// completeLaunchIDs returns recent launch ID suggestions matching partial.
-// Since completion requests carry no project context, we scan the first few
-// projects and collect up to 20 recent launches total.
-func (r *Registry) completeLaunchIDs(partial string) []string {
-	if r.allure == nil {
-		return nil
-	}
-	ctx := context.Background()
-	projects, err := r.allure.ListProjects(ctx, 0, 5)
-	if err != nil || projects == nil {
-		return nil
-	}
-	seen := make(map[string]struct{})
+func (r *Registry) completeLaunchIDs(ctx context.Context, partial string) []string {
+	_, launchIDs := r.warmCompletionCache(ctx)
 	var results []string
-	for _, proj := range projects.Content {
-		if len(results) >= 20 {
-			break
-		}
-		launches, err := r.allure.ListLaunches(ctx, proj.ID, 0, 10)
-		if err != nil || launches == nil {
-			continue
-		}
-		for _, l := range launches.Content {
-			id := fmt.Sprintf("%d", l.ID)
-			if _, dup := seen[id]; dup {
-				continue
-			}
-			seen[id] = struct{}{}
-			if partial == "" || strings.HasPrefix(id, partial) {
-				results = append(results, id)
-			}
+	for _, id := range launchIDs {
+		if partial == "" || strings.HasPrefix(id, partial) {
+			results = append(results, id)
 		}
 	}
 	return results

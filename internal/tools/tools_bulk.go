@@ -696,17 +696,22 @@ func (r *Registry) bulkDeleteTestCases(ctx context.Context, args bulkDeleteTestC
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
 
-	if elicit, ok := session.ElicitFromContext(ctx); ok {
-		schema, _ := json.Marshal(map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"confirmed": map[string]any{"type": "boolean", "description": "Confirm permanent deletion"},
-			},
-		})
-		result, err := elicit(ctx, fmt.Sprintf("Permanently delete %d test cases from project #%d? This cannot be undone.", len(args.TestCaseIDs), args.ProjectID), schema)
-		if err != nil || result.Action != "accept" {
-			return map[string]any{"cancelled": true, "message": "Deletion cancelled."}, nil
-		}
+	elicit, ok := session.ElicitFromContext(ctx)
+	if !ok {
+		return nil, fmt.Errorf("deletion requires user confirmation but no interactive session is available")
+	}
+	schema, _ := json.Marshal(map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"confirmed": map[string]any{"type": "boolean", "description": "Confirm permanent deletion"},
+		},
+	})
+	result, err := elicit(ctx, fmt.Sprintf("Permanently delete %d test cases from project #%d? This cannot be undone.", len(args.TestCaseIDs), args.ProjectID), schema)
+	if err != nil {
+		return nil, fmt.Errorf("confirmation failed: %w", err)
+	}
+	if result.Action != "accept" {
+		return map[string]any{"cancelled": true, "message": "Deletion cancelled."}, nil
 	}
 
 	if err := r.allure.BulkDeleteTestCases(ctx, args.ProjectID, args.TestCaseIDs); err != nil {
@@ -729,14 +734,14 @@ func (r *Registry) bulkRunTestCasesNewLaunch(ctx context.Context, args bulkRunTe
 	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
-	task, taskCtx := r.taskStore.Create("bulk_run_test_cases_new_launch")
-	go func() {
+	task, taskCtx := r.taskStore.Create("bulk_run_test_cases_new_launch", ctx)
+	r.taskStore.Run(task.ID, taskCtx, func(taskCtx context.Context) {
 		if err := r.allure.BulkRunTestCasesNewLaunch(taskCtx, args.ProjectID, args.TestCaseIDs, args.LaunchName, args.Assignees); err != nil {
 			r.taskStore.Update(task.ID, tasks.StatusFailed, "", nil, err)
 			return
 		}
 		r.taskStore.Update(task.ID, tasks.StatusSucceeded, "", map[string]any{"status": "started", "count": len(args.TestCaseIDs)}, nil)
-	}()
+	})
 	return map[string]any{"task_id": task.ID, "message": "Bulk run started. Use get_task_status to track progress."}, nil
 }
 
@@ -757,14 +762,14 @@ func (r *Registry) bulkRunTestCasesExistingLaunch(ctx context.Context, args bulk
 	if args.LaunchID <= 0 {
 		return nil, fmt.Errorf("launch_id must be positive")
 	}
-	task, taskCtx := r.taskStore.Create("bulk_run_test_cases_existing_launch")
-	go func() {
+	task, taskCtx := r.taskStore.Create("bulk_run_test_cases_existing_launch", ctx)
+	r.taskStore.Run(task.ID, taskCtx, func(taskCtx context.Context) {
 		if err := r.allure.BulkRunTestCasesExistingLaunch(taskCtx, args.ProjectID, args.TestCaseIDs, args.LaunchID, args.Assignees); err != nil {
 			r.taskStore.Update(task.ID, tasks.StatusFailed, "", nil, err)
 			return
 		}
 		r.taskStore.Update(task.ID, tasks.StatusSucceeded, "", map[string]any{"status": "started", "count": len(args.TestCaseIDs)}, nil)
-	}()
+	})
 	return map[string]any{"task_id": task.ID, "message": "Bulk run started. Use get_task_status to track progress."}, nil
 }
 
@@ -911,15 +916,15 @@ func (r *Registry) bulkCloneTestCases(ctx context.Context, args bulkCloneTestCas
 		"count":      len(args.TestCaseIDs),
 	})
 
-	task, taskCtx := r.taskStore.Create("bulk_clone_test_cases")
-	go func() {
+	task, taskCtx := r.taskStore.Create("bulk_clone_test_cases", ctx)
+	r.taskStore.Run(task.ID, taskCtx, func(taskCtx context.Context) {
 		if err := r.allure.BulkCloneTestCases(taskCtx, args.ProjectID, args.TestCaseIDs); err != nil {
 			r.logger.Error("bulk clone test cases", err, map[string]any{"project_id": args.ProjectID})
 			r.taskStore.Update(task.ID, tasks.StatusFailed, "", nil, err)
 			return
 		}
 		r.taskStore.Update(task.ID, tasks.StatusSucceeded, "", map[string]any{"status": "cloning_started", "count": len(args.TestCaseIDs)}, nil)
-	}()
+	})
 
 	return map[string]any{"task_id": task.ID, "message": "Bulk clone started. Use get_task_status to track progress."}, nil
 }

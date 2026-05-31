@@ -8,6 +8,16 @@ import (
 	"github.com/MimoJanra/TestOpsMCP/internal/session"
 )
 
+// truncateRunes truncates s to at most n runes, appending "…" if cut.
+// Safe for any Unicode content including multi-byte sequences.
+func truncateRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
+}
+
 func (r *Registry) registerAnalysisTools() {
 	r.register(&Tool{
 		Name: "analyze_launch_failures",
@@ -77,18 +87,10 @@ func (r *Registry) analyzeLaunchFailures(ctx context.Context, args analyzeLaunch
 	for i, res := range results.Content {
 		fmt.Fprintf(&sb, "%d. %s\n", i+1, res.Name)
 		if res.Message != "" {
-			msg := res.Message
-			if len(msg) > 300 {
-				msg = msg[:300] + "..."
-			}
-			fmt.Fprintf(&sb, "   Error: %s\n", msg)
+			fmt.Fprintf(&sb, "   Error: %s\n", truncateRunes(res.Message, 300))
 		}
 		if res.Trace != "" {
-			trace := res.Trace
-			if len(trace) > 200 {
-				trace = trace[:200] + "..."
-			}
-			fmt.Fprintf(&sb, "   Trace: %s\n", trace)
+			fmt.Fprintf(&sb, "   Trace: %s\n", truncateRunes(res.Trace, 200))
 		}
 		fmt.Fprintln(&sb)
 	}

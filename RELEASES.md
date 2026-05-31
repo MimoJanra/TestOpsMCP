@@ -4,14 +4,15 @@ All pre-built binaries are provided for easy setup without requiring Go installa
 
 ## 🆕 What's New in v2.0.0
 
-- **MCP protocol 2025-11-25** with version negotiation and cursor-based pagination
+- **MCP protocol 2025-11-25** with version negotiation and stable cursor-based pagination
 - **104 tools** (+ `get_task_status`, `list_running_tasks`, `cancel_task`, `analyze_launch_failures`)
-- **Async task system** — `run_allure_launch`, `copy_launch`, `merge_launches`, bulk runs return `task_id` immediately
+- **Async task system** — `run_allure_launch`, `copy_launch`, `merge_launches`, bulk runs return `task_id` immediately; tasks auto-expire after 1 hour
 - **AI failure analysis** — `analyze_launch_failures` asks Claude to identify root causes via MCP sampling
-- **Confirmation dialogs** — `delete_test_case` / `bulk_delete_test_cases` require user confirmation via elicitation
-- **Resource subscriptions** — subscribe to `ui://widgets/launch-dashboard?launch_id=N` for live status updates
-- **Argument completion** — `completion/complete` returns live `project_id` and `launch_id` suggestions
-- **Panic recovery** — handler panics return a JSON-RPC error instead of crashing the server
+- **Confirmation dialogs** — `delete_test_case` / `bulk_delete_test_cases` require user confirmation via elicitation (requires HTTP transport; stdio returns an error)
+- **Resource subscriptions** — subscribe to `ui://widgets/launch-dashboard?launch_id=N` for live push notifications on status change
+- **Argument completion** — `completion/complete` returns live `project_id` and `launch_id` suggestions (30 s cache, no API spam)
+- **Panic recovery** — both sync handlers and async goroutines are covered; panics mark the task Failed instead of crashing the server
+- **Standard elicitation/sampling** — uses proper JSON-RPC request/response pattern; compatible with Claude Desktop and all spec-compliant clients
 - **slog internals** — logger now backed by `log/slog` with JSON output
 
 ## 📥 Available Binaries
