@@ -186,6 +186,17 @@ type TextContent struct {
 	Text string `json:"text"`
 }
 
+// Elicitation types — server asks client/user to confirm or fill a form.
+type ElicitRequest struct {
+	Message         string          `json:"message"`
+	RequestedSchema json.RawMessage `json:"requestedSchema,omitempty"`
+}
+
+type ElicitResult struct {
+	Action  string          `json:"action"`  // "accept" | "reject" | "cancel"
+	Content json.RawMessage `json:"content,omitempty"`
+}
+
 // Completion types for argument autocompletion (completion/complete).
 type CompleteRequest struct {
 	Ref      CompleteRef      `json:"ref"`

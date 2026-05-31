@@ -57,6 +57,9 @@ type session struct {
 	send   chan []byte
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	pendingMu sync.Mutex
+	pending   map[string]chan *ElicitResult
 }
 
 func NewServer(registry *tools.Registry, logger *core.Logger, opts Options) *Server {
@@ -211,6 +214,7 @@ func (s *Server) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reqCtx := sessctx.WithRemoteAddr(sessctx.WithUser(sessctx.WithID(r.Context(), sess.id), msgUser), r.RemoteAddr)
+	reqCtx = sessctx.WithElicit(reqCtx, s.elicitFuncForSession(reqCtx))
 	resp := s.dispatch(reqCtx, &req)
 	if resp != nil {
 		s.sendToSession(sess, resp)
@@ -252,6 +256,9 @@ func (s *Server) route(ctx context.Context, req *JSONRPCRequest) *JSONRPCRespons
 		return s.handlePromptsGet(req)
 	case "completion/complete":
 		return s.handleComplete(req)
+	case "notifications/elicitation/complete":
+		s.handleElicitationComplete(ctx, req)
+		return nil
 	default:
 		s.logger.Warn("unknown method", map[string]any{"method": req.Method})
 		if notification {
@@ -536,6 +543,100 @@ func (s *Server) handleComplete(req *JSONRPCRequest) *JSONRPCResponse {
 	})
 }
 
+// --- elicitation ---
+
+// Elicit sends an elicitation request to the client via SSE and waits for the response.
+// It returns the user's choice: "accept", "reject", or "cancel".
+// If the client doesn't support elicitation or no session is active, returns a reject.
+func (s *Server) Elicit(ctx context.Context, req ElicitRequest) (*ElicitResult, error) {
+	sessID := sessctx.IDFromContext(ctx)
+	if sessID == "" {
+		return &ElicitResult{Action: "reject"}, nil
+	}
+	sess := s.getSession(sessID)
+	if sess == nil {
+		return &ElicitResult{Action: "reject"}, nil
+	}
+
+	elicitID := newSessionID()
+	ch := make(chan *ElicitResult, 1)
+
+	sess.pendingMu.Lock()
+	sess.pending[elicitID] = ch
+	sess.pendingMu.Unlock()
+	defer func() {
+		sess.pendingMu.Lock()
+		delete(sess.pending, elicitID)
+		sess.pendingMu.Unlock()
+	}()
+
+	notif, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "elicitation/create",
+		"params": map[string]any{
+			"elicitationId":   elicitID,
+			"message":         req.Message,
+			"requestedSchema": req.RequestedSchema,
+		},
+	})
+	select {
+	case sess.send <- notif:
+	case <-sess.ctx.Done():
+		return &ElicitResult{Action: "cancel"}, nil
+	}
+
+	select {
+	case result := <-ch:
+		return result, nil
+	case <-time.After(5 * time.Minute):
+		return nil, fmt.Errorf("elicitation timeout")
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (s *Server) handleElicitationComplete(ctx context.Context, req *JSONRPCRequest) {
+	if len(req.Params) == 0 {
+		return
+	}
+	var p struct {
+		ElicitationID string          `json:"elicitationId"`
+		Action        string          `json:"action"`
+		Content       json.RawMessage `json:"content,omitempty"`
+	}
+	if err := json.Unmarshal(req.Params, &p); err != nil || p.ElicitationID == "" {
+		return
+	}
+	sessID := sessctx.IDFromContext(ctx)
+	sess := s.getSession(sessID)
+	if sess == nil {
+		return
+	}
+	sess.pendingMu.Lock()
+	ch, ok := sess.pending[p.ElicitationID]
+	sess.pendingMu.Unlock()
+	if ok {
+		select {
+		case ch <- &ElicitResult{Action: p.Action, Content: p.Content}:
+		default:
+		}
+	}
+}
+
+// elicitFuncForSession builds an ElicitFunc that delegates to this server for a given session context.
+func (s *Server) elicitFuncForSession(ctx context.Context) sessctx.ElicitFunc {
+	return func(elictCtx context.Context, message string, schema []byte) (*sessctx.ElicitResult, error) {
+		result, err := s.Elicit(ctx, ElicitRequest{
+			Message:         message,
+			RequestedSchema: json.RawMessage(schema),
+		})
+		if err != nil {
+			return nil, err
+		}
+		return &sessctx.ElicitResult{Action: result.Action, Content: result.Content}, nil
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Streamable HTTP transport (MCP spec 2025-03-26)
 // ---------------------------------------------------------------------------
@@ -635,7 +736,7 @@ func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request) {
 		"session": sessID,
 	})
 
-	ctx := sessctx.WithID(r.Context(), sessID)
+	ctx := sessctx.WithElicit(sessctx.WithID(r.Context(), sessID), s.elicitFuncForSession(sessctx.WithID(r.Context(), sessID)))
 	resp := s.dispatch(ctx, &req)
 
 	// Notifications (no id) require no response body; reply 202 Accepted.
@@ -724,10 +825,11 @@ func resultToJSON(result any) string {
 func (s *Server) newSession(parent context.Context) *session {
 	ctx, cancel := context.WithCancel(parent)
 	sess := &session{
-		id:     newSessionID(),
-		send:   make(chan []byte, sessionSendBuffer),
-		ctx:    ctx,
-		cancel: cancel,
+		id:      newSessionID(),
+		send:    make(chan []byte, sessionSendBuffer),
+		ctx:     ctx,
+		cancel:  cancel,
+		pending: make(map[string]chan *ElicitResult),
 	}
 	s.mu.Lock()
 	s.sessions[sess.id] = sess

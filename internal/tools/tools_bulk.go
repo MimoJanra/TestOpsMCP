@@ -2,9 +2,11 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/MimoJanra/TestOpsMCP/internal/adapters/allure"
+	"github.com/MimoJanra/TestOpsMCP/internal/session"
 	"github.com/MimoJanra/TestOpsMCP/internal/tasks"
 )
 
@@ -693,6 +695,20 @@ func (r *Registry) bulkDeleteTestCases(ctx context.Context, args bulkDeleteTestC
 	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
+
+	if elicit, ok := session.ElicitFromContext(ctx); ok {
+		schema, _ := json.Marshal(map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"confirmed": map[string]any{"type": "boolean", "description": "Confirm permanent deletion"},
+			},
+		})
+		result, err := elicit(ctx, fmt.Sprintf("Permanently delete %d test cases from project #%d? This cannot be undone.", len(args.TestCaseIDs), args.ProjectID), schema)
+		if err != nil || result.Action != "accept" {
+			return map[string]any{"cancelled": true, "message": "Deletion cancelled."}, nil
+		}
+	}
+
 	if err := r.allure.BulkDeleteTestCases(ctx, args.ProjectID, args.TestCaseIDs); err != nil {
 		return nil, fmt.Errorf("bulk delete: %w", err)
 	}

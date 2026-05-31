@@ -2,9 +2,11 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/MimoJanra/TestOpsMCP/internal/adapters/allure"
+	"github.com/MimoJanra/TestOpsMCP/internal/session"
 )
 
 func (r *Registry) registerTestCaseTools() {
@@ -601,6 +603,19 @@ type deleteTestCaseArgs struct {
 func (r *Registry) deleteTestCase(ctx context.Context, args deleteTestCaseArgs) (any, error) {
 	if args.TestCaseID <= 0 {
 		return nil, fmt.Errorf("test_case_id must be positive")
+	}
+
+	if elicit, ok := session.ElicitFromContext(ctx); ok {
+		schema, _ := json.Marshal(map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"confirmed": map[string]any{"type": "boolean", "description": "Confirm permanent deletion"},
+			},
+		})
+		result, err := elicit(ctx, fmt.Sprintf("Permanently delete test case #%d? This cannot be undone.", args.TestCaseID), schema)
+		if err != nil || result.Action != "accept" {
+			return map[string]any{"cancelled": true, "message": "Deletion cancelled."}, nil
+		}
 	}
 
 	r.logger.Info("deleting test case", map[string]any{"test_case_id": args.TestCaseID})

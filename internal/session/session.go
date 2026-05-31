@@ -2,6 +2,30 @@ package session
 
 import "context"
 
+// ElicitResult is the response from an elicitation request.
+type ElicitResult struct {
+	Action  string // "accept" | "reject" | "cancel"
+	Content []byte // JSON-encoded content (filled form)
+}
+
+// ElicitFunc asks the user to confirm or fill a form.
+// message is the prompt text; schema is a JSON Schema for the form (may be nil).
+// Returns the user's choice via ElicitResult.
+type ElicitFunc func(ctx context.Context, message string, schema []byte) (*ElicitResult, error)
+
+type elicitFuncKey struct{}
+
+// WithElicit stores an ElicitFunc in the context.
+func WithElicit(ctx context.Context, fn ElicitFunc) context.Context {
+	return context.WithValue(ctx, elicitFuncKey{}, fn)
+}
+
+// ElicitFromContext retrieves the ElicitFunc from the context, if any.
+func ElicitFromContext(ctx context.Context) (ElicitFunc, bool) {
+	fn, ok := ctx.Value(elicitFuncKey{}).(ElicitFunc)
+	return fn, ok
+}
+
 type idKey struct{}
 type userKey struct{}
 type remoteAddrKey struct{}
