@@ -14,6 +14,17 @@ import (
 
 type HandlerFunc func(ctx context.Context, input json.RawMessage) (any, error)
 
+// Typed wraps a typed handler into a HandlerFunc with auto-unmarshaling.
+func Typed[T any](fn func(context.Context, T) (any, error)) HandlerFunc {
+	return func(ctx context.Context, input json.RawMessage) (any, error) {
+		var args T
+		if err := json.Unmarshal(input, &args); err != nil {
+			return nil, fmt.Errorf("invalid arguments: %w", err)
+		}
+		return fn(ctx, args)
+	}
+}
+
 type PromptArg struct {
 	Name        string
 	Description string
@@ -154,7 +165,7 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 				"readOnlyHint":    false,
 				"destructiveHint": false,
 			},
-			Handler: r.configureAllureToken,
+			Handler: Typed(r.configureAllureToken),
 		})
 	}
 
@@ -184,7 +195,7 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 				},
 			},
 			// autoAnnotate will classify search_ prefix as readOnly
-			Handler: r.searchTestOpsOperations,
+			Handler: Typed(r.searchTestOpsOperations),
 		})
 
 		r.register(&Tool{
@@ -220,7 +231,7 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 				"readOnlyHint":    false,
 				"destructiveHint": true,
 			},
-			Handler: r.executeTestOpsOperation,
+			Handler: Typed(r.executeTestOpsOperation),
 		})
 	}
 
@@ -270,15 +281,12 @@ func (r *Registry) ListTools() []*Tool {
 
 // Token configuration handler
 
-func (r *Registry) configureAllureToken(ctx context.Context, input json.RawMessage) (any, error) {
-	var req struct {
-		Token string `json:"token"`
-	}
-	if err := json.Unmarshal(input, &req); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
+type configureAllureTokenArgs struct {
+	Token string `json:"token"`
+}
 
-	if req.Token == "" {
+func (r *Registry) configureAllureToken(ctx context.Context, args configureAllureTokenArgs) (any, error) {
+	if args.Token == "" {
 		return nil, fmt.Errorf("token cannot be empty")
 	}
 
@@ -288,7 +296,7 @@ func (r *Registry) configureAllureToken(ctx context.Context, input json.RawMessa
 	}
 
 	r.sessionTokensMu.Lock()
-	r.sessionTokens[sessID] = req.Token
+	r.sessionTokens[sessID] = args.Token
 	r.sessionTokensMu.Unlock()
 
 	r.logger.Info("session token configured", map[string]any{
@@ -429,12 +437,7 @@ func (r *Registry) GetPrompt(name string, args map[string]string) ([]RegistryPro
 
 // Search + Execute handlers
 
-func (r *Registry) searchTestOpsOperations(ctx context.Context, input json.RawMessage) (any, error) {
-	var req SearchRequest
-	if err := json.Unmarshal(input, &req); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
+func (r *Registry) searchTestOpsOperations(ctx context.Context, req SearchRequest) (any, error) {
 	if req.Intent == "" {
 		return nil, fmt.Errorf("intent is required")
 	}
@@ -458,12 +461,7 @@ func (r *Registry) searchTestOpsOperations(ctx context.Context, input json.RawMe
 	}, nil
 }
 
-func (r *Registry) executeTestOpsOperation(ctx context.Context, input json.RawMessage) (any, error) {
-	var req ExecuteRequest
-	if err := json.Unmarshal(input, &req); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
+func (r *Registry) executeTestOpsOperation(ctx context.Context, req ExecuteRequest) (any, error) {
 	if req.OperationID == "" {
 		return nil, fmt.Errorf("operation_id is required")
 	}

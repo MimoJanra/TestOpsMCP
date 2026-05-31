@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 )
 
@@ -20,7 +19,7 @@ func (r *Registry) registerAnalyticsTools() {
 			},
 			"required": []string{"project_id"},
 		},
-		Handler: r.getLaunchTrendAnalytics,
+		Handler: Typed(r.getLaunchTrendAnalytics),
 	})
 
 	r.register(&Tool{
@@ -36,7 +35,7 @@ func (r *Registry) registerAnalyticsTools() {
 			},
 			"required": []string{"project_id"},
 		},
-		Handler: r.getLaunchDurationAnalytics,
+		Handler: Typed(r.getLaunchDurationAnalytics),
 	})
 
 	r.register(&Tool{
@@ -52,28 +51,24 @@ func (r *Registry) registerAnalyticsTools() {
 			},
 			"required": []string{"project_id"},
 		},
-		Handler: r.getTestSuccessRate,
+		Handler: Typed(r.getTestSuccessRate),
 	})
 }
 
-func (r *Registry) getLaunchTrendAnalytics(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		ProjectID int64 `json:"project_id"`
-	}
+type getLaunchTrendAnalyticsArgs struct {
+	ProjectID int64 `json:"project_id"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.ProjectID <= 0 {
+func (r *Registry) getLaunchTrendAnalytics(ctx context.Context, args getLaunchTrendAnalyticsArgs) (any, error) {
+	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
 
-	r.logger.Info("fetching launch trend analytics", map[string]any{"project_id": params.ProjectID})
+	r.logger.Info("fetching launch trend analytics", map[string]any{"project_id": args.ProjectID})
 
-	trends, err := r.allure.GetLaunchTrendAnalytics(ctx, params.ProjectID)
+	trends, err := r.allure.GetLaunchTrendAnalytics(ctx, args.ProjectID)
 	if err != nil {
-		r.logger.Error("get launch trend analytics", err, map[string]any{"project_id": params.ProjectID})
+		r.logger.Error("get launch trend analytics", err, map[string]any{"project_id": args.ProjectID})
 		return nil, fmt.Errorf("get launch trend analytics: %w", err)
 	}
 
@@ -90,48 +85,40 @@ func (r *Registry) getLaunchTrendAnalytics(ctx context.Context, input json.RawMe
 	return map[string]any{"trends": trendItems}, nil
 }
 
-func (r *Registry) getLaunchDurationAnalytics(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		ProjectID int64 `json:"project_id"`
-	}
+type getLaunchDurationAnalyticsArgs struct {
+	ProjectID int64 `json:"project_id"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.ProjectID <= 0 {
+func (r *Registry) getLaunchDurationAnalytics(ctx context.Context, args getLaunchDurationAnalyticsArgs) (any, error) {
+	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
 
-	r.logger.Info("fetching launch duration analytics", map[string]any{"project_id": params.ProjectID})
+	r.logger.Info("fetching launch duration analytics", map[string]any{"project_id": args.ProjectID})
 
-	data, err := r.allure.GetLaunchDurationAnalytics(ctx, params.ProjectID)
+	data, err := r.allure.GetLaunchDurationAnalytics(ctx, args.ProjectID)
 	if err != nil {
-		r.logger.Error("get launch duration analytics", err, map[string]any{"project_id": params.ProjectID})
+		r.logger.Error("get launch duration analytics", err, map[string]any{"project_id": args.ProjectID})
 		return nil, fmt.Errorf("get launch duration analytics: %w", err)
 	}
 
 	return map[string]any{"duration_histogram": data}, nil
 }
 
-func (r *Registry) getTestSuccessRate(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		ProjectID int64 `json:"project_id"`
-	}
+type getTestSuccessRateArgs struct {
+	ProjectID int64 `json:"project_id"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.ProjectID <= 0 {
+func (r *Registry) getTestSuccessRate(ctx context.Context, args getTestSuccessRateArgs) (any, error) {
+	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
 
-	r.logger.Info("fetching test success rate", map[string]any{"project_id": params.ProjectID})
+	r.logger.Info("fetching test success rate", map[string]any{"project_id": args.ProjectID})
 
-	data, err := r.allure.GetTestSuccessRateAnalytics(ctx, params.ProjectID)
+	data, err := r.allure.GetTestSuccessRateAnalytics(ctx, args.ProjectID)
 	if err != nil {
-		r.logger.Error("get test success rate", err, map[string]any{"project_id": params.ProjectID})
+		r.logger.Error("get test success rate", err, map[string]any{"project_id": args.ProjectID})
 		return nil, fmt.Errorf("get test success rate: %w", err)
 	}
 

@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 )
 
@@ -34,7 +33,7 @@ func (r *Registry) registerResultTools() {
 			},
 			"required": []string{"launch_id"},
 		},
-		Handler: r.listTestResults,
+		Handler: Typed(r.listTestResults),
 	})
 
 	r.register(&Tool{
@@ -50,7 +49,7 @@ func (r *Registry) registerResultTools() {
 			},
 			"required": []string{"test_result_id"},
 		},
-		Handler: r.getTestResult,
+		Handler: Typed(r.getTestResult),
 	})
 
 	r.register(&Tool{
@@ -70,7 +69,7 @@ func (r *Registry) registerResultTools() {
 			},
 			"required": []string{"test_result_id", "username"},
 		},
-		Handler: r.assignTestResult,
+		Handler: Typed(r.assignTestResult),
 	})
 
 	r.register(&Tool{
@@ -90,7 +89,7 @@ func (r *Registry) registerResultTools() {
 			},
 			"required": []string{"test_result_id"},
 		},
-		Handler: r.muteTestResult,
+		Handler: Typed(r.muteTestResult),
 	})
 
 	r.register(&Tool{
@@ -106,7 +105,7 @@ func (r *Registry) registerResultTools() {
 			},
 			"required": []string{"test_result_id"},
 		},
-		Handler: r.resolveTestResult,
+		Handler: Typed(r.resolveTestResult),
 	})
 
 	r.register(&Tool{
@@ -122,43 +121,39 @@ func (r *Registry) registerResultTools() {
 			},
 			"required": []string{"test_result_id"},
 		},
-		Handler: r.unmuteTestResult,
+		Handler: Typed(r.unmuteTestResult),
 	})
 }
 
-func (r *Registry) listTestResults(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		LaunchID int64  `json:"launch_id"`
-		Status   string `json:"status"`
-		Page     int    `json:"page"`
-		Size     int    `json:"size"`
-	}
+type listTestResultsArgs struct {
+	LaunchID int64  `json:"launch_id"`
+	Status   string `json:"status"`
+	Page     int    `json:"page"`
+	Size     int    `json:"size"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.LaunchID <= 0 {
+func (r *Registry) listTestResults(ctx context.Context, args listTestResultsArgs) (any, error) {
+	if args.LaunchID <= 0 {
 		return nil, fmt.Errorf("launch_id must be positive")
 	}
 
-	if params.Size <= 0 {
-		params.Size = 10
+	if args.Size <= 0 {
+		args.Size = 10
 	}
-	if params.Size > 100 {
-		params.Size = 100
+	if args.Size > 100 {
+		args.Size = 100
 	}
 
 	r.logger.Info("listing test results", map[string]any{
-		"launch_id": params.LaunchID,
-		"status":    params.Status,
-		"page":      params.Page,
-		"size":      params.Size,
+		"launch_id": args.LaunchID,
+		"status":    args.Status,
+		"page":      args.Page,
+		"size":      args.Size,
 	})
 
-	results, err := r.allure.ListTestResults(ctx, params.LaunchID, params.Status, params.Page, params.Size)
+	results, err := r.allure.ListTestResults(ctx, args.LaunchID, args.Status, args.Page, args.Size)
 	if err != nil {
-		r.logger.Error("list test results", err, map[string]any{"launch_id": params.LaunchID})
+		r.logger.Error("list test results", err, map[string]any{"launch_id": args.LaunchID})
 		return nil, fmt.Errorf("list test results: %w", err)
 	}
 
@@ -188,24 +183,20 @@ func (r *Registry) listTestResults(ctx context.Context, input json.RawMessage) (
 	}, nil
 }
 
-func (r *Registry) getTestResult(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		TestResultID int64 `json:"test_result_id"`
-	}
+type getTestResultArgs struct {
+	TestResultID int64 `json:"test_result_id"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.TestResultID <= 0 {
+func (r *Registry) getTestResult(ctx context.Context, args getTestResultArgs) (any, error) {
+	if args.TestResultID <= 0 {
 		return nil, fmt.Errorf("test_result_id must be positive")
 	}
 
-	r.logger.Info("fetching test result", map[string]any{"test_result_id": params.TestResultID})
+	r.logger.Info("fetching test result", map[string]any{"test_result_id": args.TestResultID})
 
-	result, err := r.allure.GetTestResult(ctx, params.TestResultID)
+	result, err := r.allure.GetTestResult(ctx, args.TestResultID)
 	if err != nil {
-		r.logger.Error("get test result", err, map[string]any{"test_result_id": params.TestResultID})
+		r.logger.Error("get test result", err, map[string]any{"test_result_id": args.TestResultID})
 		return nil, fmt.Errorf("get test result: %w", err)
 	}
 
@@ -246,104 +237,87 @@ func (r *Registry) getTestResult(ctx context.Context, input json.RawMessage) (an
 	}, nil
 }
 
-func (r *Registry) assignTestResult(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		TestResultID int64  `json:"test_result_id"`
-		Username     string `json:"username"`
-	}
+type assignTestResultArgs struct {
+	TestResultID int64  `json:"test_result_id"`
+	Username     string `json:"username"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.TestResultID <= 0 {
+func (r *Registry) assignTestResult(ctx context.Context, args assignTestResultArgs) (any, error) {
+	if args.TestResultID <= 0 {
 		return nil, fmt.Errorf("test_result_id must be positive")
 	}
-
-	if params.Username == "" {
+	if args.Username == "" {
 		return nil, fmt.Errorf("username is required")
 	}
 
 	r.logger.Info("assigning test result", map[string]any{
-		"test_result_id": params.TestResultID,
-		"username":       params.Username,
+		"test_result_id": args.TestResultID,
+		"username":       args.Username,
 	})
 
-	if err := r.allure.AssignTestResult(ctx, params.TestResultID, params.Username); err != nil {
-		r.logger.Error("assign test result", err, map[string]any{"test_result_id": params.TestResultID})
+	if err := r.allure.AssignTestResult(ctx, args.TestResultID, args.Username); err != nil {
+		r.logger.Error("assign test result", err, map[string]any{"test_result_id": args.TestResultID})
 		return nil, fmt.Errorf("assign test result: %w", err)
 	}
 
 	return map[string]any{"status": "assigned"}, nil
 }
 
-func (r *Registry) muteTestResult(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		TestResultID int64  `json:"test_result_id"`
-		Reason       string `json:"reason"`
-	}
+type muteTestResultArgs struct {
+	TestResultID int64  `json:"test_result_id"`
+	Reason       string `json:"reason"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.TestResultID <= 0 {
+func (r *Registry) muteTestResult(ctx context.Context, args muteTestResultArgs) (any, error) {
+	if args.TestResultID <= 0 {
 		return nil, fmt.Errorf("test_result_id must be positive")
 	}
 
 	r.logger.Info("muting test result", map[string]any{
-		"test_result_id": params.TestResultID,
-		"reason":         params.Reason,
+		"test_result_id": args.TestResultID,
+		"reason":         args.Reason,
 	})
 
-	if err := r.allure.MuteTestResult(ctx, params.TestResultID, params.Reason); err != nil {
-		r.logger.Error("mute test result", err, map[string]any{"test_result_id": params.TestResultID})
+	if err := r.allure.MuteTestResult(ctx, args.TestResultID, args.Reason); err != nil {
+		r.logger.Error("mute test result", err, map[string]any{"test_result_id": args.TestResultID})
 		return nil, fmt.Errorf("mute test result: %w", err)
 	}
 
 	return map[string]any{"status": "muted"}, nil
 }
 
-func (r *Registry) resolveTestResult(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		TestResultID int64 `json:"test_result_id"`
-	}
+type resolveTestResultArgs struct {
+	TestResultID int64 `json:"test_result_id"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.TestResultID <= 0 {
+func (r *Registry) resolveTestResult(ctx context.Context, args resolveTestResultArgs) (any, error) {
+	if args.TestResultID <= 0 {
 		return nil, fmt.Errorf("test_result_id must be positive")
 	}
 
-	r.logger.Info("resolving test result", map[string]any{"test_result_id": params.TestResultID})
+	r.logger.Info("resolving test result", map[string]any{"test_result_id": args.TestResultID})
 
-	if err := r.allure.ResolveTestResult(ctx, params.TestResultID); err != nil {
-		r.logger.Error("resolve test result", err, map[string]any{"test_result_id": params.TestResultID})
+	if err := r.allure.ResolveTestResult(ctx, args.TestResultID); err != nil {
+		r.logger.Error("resolve test result", err, map[string]any{"test_result_id": args.TestResultID})
 		return nil, fmt.Errorf("resolve test result: %w", err)
 	}
 
 	return map[string]any{"status": "resolved"}, nil
 }
 
-func (r *Registry) unmuteTestResult(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		TestResultID int64 `json:"test_result_id"`
-	}
+type unmuteTestResultArgs struct {
+	TestResultID int64 `json:"test_result_id"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.TestResultID <= 0 {
+func (r *Registry) unmuteTestResult(ctx context.Context, args unmuteTestResultArgs) (any, error) {
+	if args.TestResultID <= 0 {
 		return nil, fmt.Errorf("test_result_id must be positive")
 	}
 
-	r.logger.Info("unmuting test result", map[string]any{"test_result_id": params.TestResultID})
+	r.logger.Info("unmuting test result", map[string]any{"test_result_id": args.TestResultID})
 
-	if err := r.allure.UnmuteTestResult(ctx, params.TestResultID); err != nil {
-		r.logger.Error("unmute test result", err, map[string]any{"test_result_id": params.TestResultID})
+	if err := r.allure.UnmuteTestResult(ctx, args.TestResultID); err != nil {
+		r.logger.Error("unmute test result", err, map[string]any{"test_result_id": args.TestResultID})
 		return nil, fmt.Errorf("unmute test result: %w", err)
 	}
 

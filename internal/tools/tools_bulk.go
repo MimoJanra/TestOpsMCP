@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/MimoJanra/TestOpsMCP/internal/adapters/allure"
@@ -37,7 +36,7 @@ func (r *Registry) registerBulkTools() {
 			},
 			"required": []string{"project_id", "test_case_ids", "status_id", "workflow_id"},
 		},
-		Handler: r.bulkSetTestCaseStatus,
+		Handler: Typed(r.bulkSetTestCaseStatus),
 	})
 
 	r.register(&Tool{
@@ -75,7 +74,7 @@ func (r *Registry) registerBulkTools() {
 			},
 			"required": []string{"project_id", "test_case_ids", "tags"},
 		},
-		Handler: r.bulkAddTestCaseTags,
+		Handler: Typed(r.bulkAddTestCaseTags),
 	})
 
 	r.register(&Tool{
@@ -113,7 +112,7 @@ func (r *Registry) registerBulkTools() {
 			},
 			"required": []string{"project_id", "test_case_ids", "tags"},
 		},
-		Handler: r.bulkRemoveTestCaseTags,
+		Handler: Typed(r.bulkRemoveTestCaseTags),
 	})
 
 	r.register(&Tool{
@@ -136,7 +135,7 @@ func (r *Registry) registerBulkTools() {
 			},
 			"required": []string{"project_id", "test_case_ids"},
 		},
-		Handler: r.bulkCloneTestCases,
+		Handler: Typed(r.bulkCloneTestCases),
 	})
 
 	r.register(&Tool{
@@ -166,7 +165,7 @@ func (r *Registry) registerBulkTools() {
 			},
 			"required": []string{"launch_id", "test_result_ids"},
 		},
-		Handler: r.bulkAssignTestResults,
+		Handler: Typed(r.bulkAssignTestResults),
 	})
 
 	r.register(&Tool{
@@ -193,7 +192,7 @@ func (r *Registry) registerBulkTools() {
 			},
 			"required": []string{"launch_id", "test_result_ids"},
 		},
-		Handler: r.bulkMuteTestResults,
+		Handler: Typed(r.bulkMuteTestResults),
 	})
 
 	r.register(&Tool{
@@ -216,7 +215,7 @@ func (r *Registry) registerBulkTools() {
 			},
 			"required": []string{"launch_id", "test_result_ids"},
 		},
-		Handler: r.bulkUnmuteTestResults,
+		Handler: Typed(r.bulkUnmuteTestResults),
 	})
 
 	r.register(&Tool{
@@ -239,7 +238,7 @@ func (r *Registry) registerBulkTools() {
 			},
 			"required": []string{"launch_id", "test_result_ids"},
 		},
-		Handler: r.bulkResolveTestResults,
+		Handler: Typed(r.bulkResolveTestResults),
 	})
 
 	// ── Test case bulk: members ───────────────────────────────────────────────
@@ -254,14 +253,14 @@ func (r *Registry) registerBulkTools() {
 				"name": map[string]any{"type": "string"},
 			},
 		}),
-		Handler: r.bulkAddTestCaseMembersTool,
+		Handler: Typed(r.bulkAddTestCaseMembersTool),
 	})
 
 	r.register(&Tool{
 		Name:        "bulk_remove_test_case_members",
 		Description: "Bulk remove members from multiple test cases by member IDs",
 		InputSchema: bulkTCSchema("member_ids", "array", "Member IDs to remove", map[string]any{"type": "integer"}),
-		Handler:     r.bulkRemoveTestCaseMembersTool,
+		Handler:     Typed(r.bulkRemoveTestCaseMembersTool),
 	})
 
 	// ── Test case bulk: custom fields ─────────────────────────────────────────
@@ -277,14 +276,14 @@ func (r *Registry) registerBulkTools() {
 			},
 			"required": []string{"custom_field_id", "value_ids"},
 		}),
-		Handler: r.bulkAddTestCaseCustomFields,
+		Handler: Typed(r.bulkAddTestCaseCustomFields),
 	})
 
 	r.register(&Tool{
 		Name:        "bulk_remove_test_case_custom_fields",
 		Description: "Bulk remove custom fields from multiple test cases by custom field IDs",
 		InputSchema: bulkTCSchema("custom_field_ids", "array", "Custom field IDs to remove", map[string]any{"type": "integer"}),
-		Handler:     r.bulkRemoveTestCaseCustomFields,
+		Handler:     Typed(r.bulkRemoveTestCaseCustomFields),
 	})
 
 	// ── Test case bulk: external links ────────────────────────────────────────
@@ -301,7 +300,7 @@ func (r *Registry) registerBulkTools() {
 			},
 			"required": []string{"url"},
 		}),
-		Handler: r.bulkAddTestCaseExternalLinks,
+		Handler: Typed(r.bulkAddTestCaseExternalLinks),
 	})
 
 	// ── Test case bulk: issues ────────────────────────────────────────────────
@@ -318,14 +317,14 @@ func (r *Registry) registerBulkTools() {
 				"integration_id": map[string]any{"type": "integer"},
 			},
 		}),
-		Handler: r.bulkAddTestCaseIssues,
+		Handler: Typed(r.bulkAddTestCaseIssues),
 	})
 
 	r.register(&Tool{
 		Name:        "bulk_remove_test_case_issues",
 		Description: "Bulk remove issues from multiple test cases by issue IDs",
 		InputSchema: bulkTCSchema("issue_ids", "array", "Issue IDs to remove", map[string]any{"type": "integer"}),
-		Handler:     r.bulkRemoveTestCaseIssues,
+		Handler:     Typed(r.bulkRemoveTestCaseIssues),
 	})
 
 	// ── Test case bulk: layer / move / delete ─────────────────────────────────
@@ -342,7 +341,7 @@ func (r *Registry) registerBulkTools() {
 			},
 			"required": []string{"project_id", "test_case_ids", "layer_id"},
 		},
-		Handler: r.bulkSetTestCaseLayer,
+		Handler: Typed(r.bulkSetTestCaseLayer),
 	})
 
 	r.register(&Tool{
@@ -357,7 +356,7 @@ func (r *Registry) registerBulkTools() {
 			},
 			"required": []string{"project_id", "test_case_ids", "to_project_id"},
 		},
-		Handler: r.bulkMoveTestCases,
+		Handler: Typed(r.bulkMoveTestCases),
 	})
 
 	r.register(&Tool{
@@ -371,7 +370,7 @@ func (r *Registry) registerBulkTools() {
 			},
 			"required": []string{"project_id", "test_case_ids"},
 		},
-		Handler: r.bulkDeleteTestCases,
+		Handler: Typed(r.bulkDeleteTestCases),
 	})
 
 	// ── Test case bulk: run ───────────────────────────────────────────────────
@@ -389,7 +388,7 @@ func (r *Registry) registerBulkTools() {
 			},
 			"required": []string{"project_id", "test_case_ids"},
 		},
-		Handler: r.bulkRunTestCasesNewLaunch,
+		Handler: Typed(r.bulkRunTestCasesNewLaunch),
 	})
 
 	r.register(&Tool{
@@ -405,7 +404,7 @@ func (r *Registry) registerBulkTools() {
 			},
 			"required": []string{"project_id", "test_case_ids", "launch_id"},
 		},
-		Handler: r.bulkRunTestCasesExistingLaunch,
+		Handler: Typed(r.bulkRunTestCasesExistingLaunch),
 	})
 
 	// ── Test case bulk: test plan / mute ──────────────────────────────────────
@@ -422,7 +421,7 @@ func (r *Registry) registerBulkTools() {
 			},
 			"required": []string{"project_id", "test_case_ids", "test_plan_name"},
 		},
-		Handler: r.bulkCreateTestPlan,
+		Handler: Typed(r.bulkCreateTestPlan),
 	})
 
 	r.register(&Tool{
@@ -436,7 +435,7 @@ func (r *Registry) registerBulkTools() {
 			},
 			"required": []string{"project_id", "test_case_ids"},
 		},
-		Handler: r.bulkMuteTestCases,
+		Handler: Typed(r.bulkMuteTestCases),
 	})
 }
 
@@ -458,84 +457,77 @@ func bulkTCSchema(field, fieldType, desc string, items map[string]any) map[strin
 	}
 }
 
-// ── Bulk handlers (new) ───────────────────────────────────────────────────────
+// ── Bulk handlers ─────────────────────────────────────────────────────────────
 
-func (r *Registry) bulkAddTestCaseMembersTool(ctx context.Context, input json.RawMessage) (any, error) {
-	var p struct {
-		ProjectID   int64              `json:"project_id"`
-		TestCaseIDs []int64            `json:"test_case_ids"`
-		Members     []allure.MemberDto `json:"members"`
-	}
-	if err := json.Unmarshal(input, &p); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-	if p.ProjectID <= 0 {
+type bulkAddTestCaseMembersArgs struct {
+	ProjectID   int64              `json:"project_id"`
+	TestCaseIDs []int64            `json:"test_case_ids"`
+	Members     []allure.MemberDto `json:"members"`
+}
+
+func (r *Registry) bulkAddTestCaseMembersTool(ctx context.Context, args bulkAddTestCaseMembersArgs) (any, error) {
+	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-	if len(p.TestCaseIDs) == 0 {
+	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
-	if len(p.Members) == 0 {
+	if len(args.Members) == 0 {
 		return nil, fmt.Errorf("members must not be empty")
 	}
-	if err := r.allure.BulkAddTestCaseMembers(ctx, p.ProjectID, p.TestCaseIDs, p.Members); err != nil {
+	if err := r.allure.BulkAddTestCaseMembers(ctx, args.ProjectID, args.TestCaseIDs, args.Members); err != nil {
 		return nil, fmt.Errorf("bulk add members: %w", err)
 	}
-	return map[string]any{"status": "success", "count": len(p.TestCaseIDs)}, nil
+	return map[string]any{"status": "success", "count": len(args.TestCaseIDs)}, nil
 }
 
-func (r *Registry) bulkRemoveTestCaseMembersTool(ctx context.Context, input json.RawMessage) (any, error) {
-	var p struct {
-		ProjectID   int64   `json:"project_id"`
-		TestCaseIDs []int64 `json:"test_case_ids"`
-		MemberIDs   []int64 `json:"member_ids"`
-	}
-	if err := json.Unmarshal(input, &p); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-	if p.ProjectID <= 0 {
+type bulkRemoveTestCaseMembersArgs struct {
+	ProjectID   int64   `json:"project_id"`
+	TestCaseIDs []int64 `json:"test_case_ids"`
+	MemberIDs   []int64 `json:"member_ids"`
+}
+
+func (r *Registry) bulkRemoveTestCaseMembersTool(ctx context.Context, args bulkRemoveTestCaseMembersArgs) (any, error) {
+	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-	if len(p.TestCaseIDs) == 0 {
+	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
-	if len(p.MemberIDs) == 0 {
+	if len(args.MemberIDs) == 0 {
 		return nil, fmt.Errorf("member_ids must not be empty")
 	}
-	// Build MemberDto list from IDs
-	members := make([]allure.MemberDto, len(p.MemberIDs))
-	for i, id := range p.MemberIDs {
+	members := make([]allure.MemberDto, len(args.MemberIDs))
+	for i, id := range args.MemberIDs {
 		members[i] = allure.MemberDto{ID: id}
 	}
-	if err := r.allure.BulkRemoveTestCaseMembers(ctx, p.ProjectID, p.TestCaseIDs, members); err != nil {
+	if err := r.allure.BulkRemoveTestCaseMembers(ctx, args.ProjectID, args.TestCaseIDs, members); err != nil {
 		return nil, fmt.Errorf("bulk remove members: %w", err)
 	}
-	return map[string]any{"status": "success", "count": len(p.TestCaseIDs)}, nil
+	return map[string]any{"status": "success", "count": len(args.TestCaseIDs)}, nil
 }
 
-func (r *Registry) bulkAddTestCaseCustomFields(ctx context.Context, input json.RawMessage) (any, error) {
-	var p struct {
-		ProjectID   int64   `json:"project_id"`
-		TestCaseIDs []int64 `json:"test_case_ids"`
-		CustomFields []struct {
-			CustomFieldID int64   `json:"custom_field_id"`
-			ValueIDs      []int64 `json:"value_ids"`
-		} `json:"custom_fields"`
-	}
-	if err := json.Unmarshal(input, &p); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-	if p.ProjectID <= 0 {
+type bulkAddTestCaseCustomFieldsArgs struct {
+	ProjectID   int64   `json:"project_id"`
+	TestCaseIDs []int64 `json:"test_case_ids"`
+	CustomFields []struct {
+		CustomFieldID int64   `json:"custom_field_id"`
+		ValueIDs      []int64 `json:"value_ids"`
+	} `json:"custom_fields"`
+}
+
+func (r *Registry) bulkAddTestCaseCustomFields(ctx context.Context, args bulkAddTestCaseCustomFieldsArgs) (any, error) {
+	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-	if len(p.TestCaseIDs) == 0 {
+	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
-	if len(p.CustomFields) == 0 {
+	if len(args.CustomFields) == 0 {
 		return nil, fmt.Errorf("custom_fields must not be empty")
 	}
-	cfv := make([]allure.CustomFieldWithValuesDto, len(p.CustomFields))
-	for i, cf := range p.CustomFields {
+	cfv := make([]allure.CustomFieldWithValuesDto, len(args.CustomFields))
+	for i, cf := range args.CustomFields {
 		vals := make([]allure.CustomFieldValueDto, len(cf.ValueIDs))
 		for j, vid := range cf.ValueIDs {
 			vals[j] = allure.CustomFieldValueDto{ID: vid}
@@ -545,506 +537,451 @@ func (r *Registry) bulkAddTestCaseCustomFields(ctx context.Context, input json.R
 			Values:      vals,
 		}
 	}
-	if err := r.allure.BulkAddTestCaseCustomFields(ctx, p.ProjectID, p.TestCaseIDs, cfv); err != nil {
+	if err := r.allure.BulkAddTestCaseCustomFields(ctx, args.ProjectID, args.TestCaseIDs, cfv); err != nil {
 		return nil, fmt.Errorf("bulk add custom fields: %w", err)
 	}
-	return map[string]any{"status": "success", "count": len(p.TestCaseIDs)}, nil
+	return map[string]any{"status": "success", "count": len(args.TestCaseIDs)}, nil
 }
 
-func (r *Registry) bulkRemoveTestCaseCustomFields(ctx context.Context, input json.RawMessage) (any, error) {
-	var p struct {
-		ProjectID      int64   `json:"project_id"`
-		TestCaseIDs    []int64 `json:"test_case_ids"`
-		CustomFieldIDs []int64 `json:"custom_field_ids"`
-	}
-	if err := json.Unmarshal(input, &p); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-	if p.ProjectID <= 0 {
+type bulkRemoveTestCaseCustomFieldsArgs struct {
+	ProjectID      int64   `json:"project_id"`
+	TestCaseIDs    []int64 `json:"test_case_ids"`
+	CustomFieldIDs []int64 `json:"custom_field_ids"`
+}
+
+func (r *Registry) bulkRemoveTestCaseCustomFields(ctx context.Context, args bulkRemoveTestCaseCustomFieldsArgs) (any, error) {
+	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-	if len(p.TestCaseIDs) == 0 {
+	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
-	if err := r.allure.BulkRemoveTestCaseCustomFields(ctx, p.ProjectID, p.TestCaseIDs, p.CustomFieldIDs); err != nil {
+	if err := r.allure.BulkRemoveTestCaseCustomFields(ctx, args.ProjectID, args.TestCaseIDs, args.CustomFieldIDs); err != nil {
 		return nil, fmt.Errorf("bulk remove custom fields: %w", err)
 	}
-	return map[string]any{"status": "success", "count": len(p.TestCaseIDs)}, nil
+	return map[string]any{"status": "success", "count": len(args.TestCaseIDs)}, nil
 }
 
-func (r *Registry) bulkAddTestCaseExternalLinks(ctx context.Context, input json.RawMessage) (any, error) {
-	var p struct {
-		ProjectID   int64  `json:"project_id"`
-		TestCaseIDs []int64 `json:"test_case_ids"`
-		Links       []struct {
-			Name string `json:"name"`
-			Type string `json:"type"`
-			URL  string `json:"url"`
-		} `json:"links"`
-	}
-	if err := json.Unmarshal(input, &p); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-	if p.ProjectID <= 0 {
+type bulkAddTestCaseExternalLinksArgs struct {
+	ProjectID   int64   `json:"project_id"`
+	TestCaseIDs []int64 `json:"test_case_ids"`
+	Links       []struct {
+		Name string `json:"name"`
+		Type string `json:"type"`
+		URL  string `json:"url"`
+	} `json:"links"`
+}
+
+func (r *Registry) bulkAddTestCaseExternalLinks(ctx context.Context, args bulkAddTestCaseExternalLinksArgs) (any, error) {
+	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-	if len(p.TestCaseIDs) == 0 {
+	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
-	links := make([]allure.ExternalLinkDto, len(p.Links))
-	for i, l := range p.Links {
+	links := make([]allure.ExternalLinkDto, len(args.Links))
+	for i, l := range args.Links {
 		links[i] = allure.ExternalLinkDto{Name: l.Name, Type: l.Type, URL: l.URL}
 	}
-	if err := r.allure.BulkAddTestCaseExternalLinks(ctx, p.ProjectID, p.TestCaseIDs, links); err != nil {
+	if err := r.allure.BulkAddTestCaseExternalLinks(ctx, args.ProjectID, args.TestCaseIDs, links); err != nil {
 		return nil, fmt.Errorf("bulk add external links: %w", err)
 	}
-	return map[string]any{"status": "success", "count": len(p.TestCaseIDs)}, nil
+	return map[string]any{"status": "success", "count": len(args.TestCaseIDs)}, nil
 }
 
-func (r *Registry) bulkAddTestCaseIssues(ctx context.Context, input json.RawMessage) (any, error) {
-	var p struct {
-		ProjectID   int64   `json:"project_id"`
-		TestCaseIDs []int64 `json:"test_case_ids"`
-		Issues      []struct {
-			ID            int64  `json:"id"`
-			DisplayName   string `json:"display_name"`
-			URL           string `json:"url"`
-			IntegrationID int64  `json:"integration_id"`
-		} `json:"issues"`
-	}
-	if err := json.Unmarshal(input, &p); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-	if p.ProjectID <= 0 {
+type bulkAddTestCaseIssuesArgs struct {
+	ProjectID   int64   `json:"project_id"`
+	TestCaseIDs []int64 `json:"test_case_ids"`
+	Issues      []struct {
+		ID            int64  `json:"id"`
+		DisplayName   string `json:"display_name"`
+		URL           string `json:"url"`
+		IntegrationID int64  `json:"integration_id"`
+	} `json:"issues"`
+}
+
+func (r *Registry) bulkAddTestCaseIssues(ctx context.Context, args bulkAddTestCaseIssuesArgs) (any, error) {
+	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-	if len(p.TestCaseIDs) == 0 {
+	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
-	issues := make([]allure.IssueDto, len(p.Issues))
-	for i, iss := range p.Issues {
+	issues := make([]allure.IssueDto, len(args.Issues))
+	for i, iss := range args.Issues {
 		issues[i] = allure.IssueDto{ID: iss.ID, DisplayName: iss.DisplayName, URL: iss.URL, IntegrationID: iss.IntegrationID}
 	}
-	if err := r.allure.BulkAddTestCaseIssues(ctx, p.ProjectID, p.TestCaseIDs, issues); err != nil {
+	if err := r.allure.BulkAddTestCaseIssues(ctx, args.ProjectID, args.TestCaseIDs, issues); err != nil {
 		return nil, fmt.Errorf("bulk add issues: %w", err)
 	}
-	return map[string]any{"status": "success", "count": len(p.TestCaseIDs)}, nil
+	return map[string]any{"status": "success", "count": len(args.TestCaseIDs)}, nil
 }
 
-func (r *Registry) bulkRemoveTestCaseIssues(ctx context.Context, input json.RawMessage) (any, error) {
-	var p struct {
-		ProjectID   int64   `json:"project_id"`
-		TestCaseIDs []int64 `json:"test_case_ids"`
-		IssueIDs    []int64 `json:"issue_ids"`
-	}
-	if err := json.Unmarshal(input, &p); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-	if p.ProjectID <= 0 {
+type bulkRemoveTestCaseIssuesArgs struct {
+	ProjectID   int64   `json:"project_id"`
+	TestCaseIDs []int64 `json:"test_case_ids"`
+	IssueIDs    []int64 `json:"issue_ids"`
+}
+
+func (r *Registry) bulkRemoveTestCaseIssues(ctx context.Context, args bulkRemoveTestCaseIssuesArgs) (any, error) {
+	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-	if len(p.TestCaseIDs) == 0 {
+	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
-	if err := r.allure.BulkRemoveTestCaseIssues(ctx, p.ProjectID, p.TestCaseIDs, p.IssueIDs); err != nil {
+	if err := r.allure.BulkRemoveTestCaseIssues(ctx, args.ProjectID, args.TestCaseIDs, args.IssueIDs); err != nil {
 		return nil, fmt.Errorf("bulk remove issues: %w", err)
 	}
-	return map[string]any{"status": "success", "count": len(p.TestCaseIDs)}, nil
+	return map[string]any{"status": "success", "count": len(args.TestCaseIDs)}, nil
 }
 
-func (r *Registry) bulkSetTestCaseLayer(ctx context.Context, input json.RawMessage) (any, error) {
-	var p struct {
-		ProjectID   int64   `json:"project_id"`
-		TestCaseIDs []int64 `json:"test_case_ids"`
-		LayerID     int64   `json:"layer_id"`
-	}
-	if err := json.Unmarshal(input, &p); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-	if p.ProjectID <= 0 {
+type bulkSetTestCaseLayerArgs struct {
+	ProjectID   int64   `json:"project_id"`
+	TestCaseIDs []int64 `json:"test_case_ids"`
+	LayerID     int64   `json:"layer_id"`
+}
+
+func (r *Registry) bulkSetTestCaseLayer(ctx context.Context, args bulkSetTestCaseLayerArgs) (any, error) {
+	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-	if len(p.TestCaseIDs) == 0 {
+	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
-	if p.LayerID <= 0 {
+	if args.LayerID <= 0 {
 		return nil, fmt.Errorf("layer_id must be positive")
 	}
-	if err := r.allure.BulkSetTestCaseLayer(ctx, p.ProjectID, p.TestCaseIDs, p.LayerID); err != nil {
+	if err := r.allure.BulkSetTestCaseLayer(ctx, args.ProjectID, args.TestCaseIDs, args.LayerID); err != nil {
 		return nil, fmt.Errorf("bulk set layer: %w", err)
 	}
-	return map[string]any{"status": "success", "count": len(p.TestCaseIDs)}, nil
+	return map[string]any{"status": "success", "count": len(args.TestCaseIDs)}, nil
 }
 
-func (r *Registry) bulkMoveTestCases(ctx context.Context, input json.RawMessage) (any, error) {
-	var p struct {
-		ProjectID   int64   `json:"project_id"`
-		TestCaseIDs []int64 `json:"test_case_ids"`
-		ToProjectID int64   `json:"to_project_id"`
-	}
-	if err := json.Unmarshal(input, &p); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-	if p.ProjectID <= 0 {
+type bulkMoveTestCasesArgs struct {
+	ProjectID   int64   `json:"project_id"`
+	TestCaseIDs []int64 `json:"test_case_ids"`
+	ToProjectID int64   `json:"to_project_id"`
+}
+
+func (r *Registry) bulkMoveTestCases(ctx context.Context, args bulkMoveTestCasesArgs) (any, error) {
+	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-	if len(p.TestCaseIDs) == 0 {
+	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
-	if p.ToProjectID <= 0 {
+	if args.ToProjectID <= 0 {
 		return nil, fmt.Errorf("to_project_id must be positive")
 	}
-	if err := r.allure.BulkMoveTestCases(ctx, p.ProjectID, p.TestCaseIDs, p.ToProjectID); err != nil {
+	if err := r.allure.BulkMoveTestCases(ctx, args.ProjectID, args.TestCaseIDs, args.ToProjectID); err != nil {
 		return nil, fmt.Errorf("bulk move: %w", err)
 	}
-	return map[string]any{"status": "success", "count": len(p.TestCaseIDs)}, nil
+	return map[string]any{"status": "success", "count": len(args.TestCaseIDs)}, nil
 }
 
-func (r *Registry) bulkDeleteTestCases(ctx context.Context, input json.RawMessage) (any, error) {
-	var p struct {
-		ProjectID   int64   `json:"project_id"`
-		TestCaseIDs []int64 `json:"test_case_ids"`
-	}
-	if err := json.Unmarshal(input, &p); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-	if p.ProjectID <= 0 {
+type bulkDeleteTestCasesArgs struct {
+	ProjectID   int64   `json:"project_id"`
+	TestCaseIDs []int64 `json:"test_case_ids"`
+}
+
+func (r *Registry) bulkDeleteTestCases(ctx context.Context, args bulkDeleteTestCasesArgs) (any, error) {
+	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-	if len(p.TestCaseIDs) == 0 {
+	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
-	if err := r.allure.BulkDeleteTestCases(ctx, p.ProjectID, p.TestCaseIDs); err != nil {
+	if err := r.allure.BulkDeleteTestCases(ctx, args.ProjectID, args.TestCaseIDs); err != nil {
 		return nil, fmt.Errorf("bulk delete: %w", err)
 	}
-	return map[string]any{"status": "success", "count": len(p.TestCaseIDs)}, nil
+	return map[string]any{"status": "success", "count": len(args.TestCaseIDs)}, nil
 }
 
-func (r *Registry) bulkRunTestCasesNewLaunch(ctx context.Context, input json.RawMessage) (any, error) {
-	var p struct {
-		ProjectID   int64    `json:"project_id"`
-		TestCaseIDs []int64  `json:"test_case_ids"`
-		LaunchName  string   `json:"launch_name"`
-		Assignees   []string `json:"assignees"`
-	}
-	if err := json.Unmarshal(input, &p); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-	if p.ProjectID <= 0 {
+type bulkRunTestCasesNewLaunchArgs struct {
+	ProjectID   int64    `json:"project_id"`
+	TestCaseIDs []int64  `json:"test_case_ids"`
+	LaunchName  string   `json:"launch_name"`
+	Assignees   []string `json:"assignees"`
+}
+
+func (r *Registry) bulkRunTestCasesNewLaunch(ctx context.Context, args bulkRunTestCasesNewLaunchArgs) (any, error) {
+	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-	if len(p.TestCaseIDs) == 0 {
+	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
-	if err := r.allure.BulkRunTestCasesNewLaunch(ctx, p.ProjectID, p.TestCaseIDs, p.LaunchName, p.Assignees); err != nil {
+	if err := r.allure.BulkRunTestCasesNewLaunch(ctx, args.ProjectID, args.TestCaseIDs, args.LaunchName, args.Assignees); err != nil {
 		return nil, fmt.Errorf("bulk run new launch: %w", err)
 	}
-	return map[string]any{"status": "started", "count": len(p.TestCaseIDs)}, nil
+	return map[string]any{"status": "started", "count": len(args.TestCaseIDs)}, nil
 }
 
-func (r *Registry) bulkRunTestCasesExistingLaunch(ctx context.Context, input json.RawMessage) (any, error) {
-	var p struct {
-		ProjectID   int64    `json:"project_id"`
-		TestCaseIDs []int64  `json:"test_case_ids"`
-		LaunchID    int64    `json:"launch_id"`
-		Assignees   []string `json:"assignees"`
-	}
-	if err := json.Unmarshal(input, &p); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-	if p.ProjectID <= 0 {
+type bulkRunTestCasesExistingLaunchArgs struct {
+	ProjectID   int64    `json:"project_id"`
+	TestCaseIDs []int64  `json:"test_case_ids"`
+	LaunchID    int64    `json:"launch_id"`
+	Assignees   []string `json:"assignees"`
+}
+
+func (r *Registry) bulkRunTestCasesExistingLaunch(ctx context.Context, args bulkRunTestCasesExistingLaunchArgs) (any, error) {
+	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-	if len(p.TestCaseIDs) == 0 {
+	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
-	if p.LaunchID <= 0 {
+	if args.LaunchID <= 0 {
 		return nil, fmt.Errorf("launch_id must be positive")
 	}
-	if err := r.allure.BulkRunTestCasesExistingLaunch(ctx, p.ProjectID, p.TestCaseIDs, p.LaunchID, p.Assignees); err != nil {
+	if err := r.allure.BulkRunTestCasesExistingLaunch(ctx, args.ProjectID, args.TestCaseIDs, args.LaunchID, args.Assignees); err != nil {
 		return nil, fmt.Errorf("bulk run existing launch: %w", err)
 	}
-	return map[string]any{"status": "started", "count": len(p.TestCaseIDs)}, nil
+	return map[string]any{"status": "started", "count": len(args.TestCaseIDs)}, nil
 }
 
-func (r *Registry) bulkCreateTestPlan(ctx context.Context, input json.RawMessage) (any, error) {
-	var p struct {
-		ProjectID    int64   `json:"project_id"`
-		TestCaseIDs  []int64 `json:"test_case_ids"`
-		TestPlanName string  `json:"test_plan_name"`
-	}
-	if err := json.Unmarshal(input, &p); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-	if p.ProjectID <= 0 {
+type bulkCreateTestPlanArgs struct {
+	ProjectID    int64   `json:"project_id"`
+	TestCaseIDs  []int64 `json:"test_case_ids"`
+	TestPlanName string  `json:"test_plan_name"`
+}
+
+func (r *Registry) bulkCreateTestPlan(ctx context.Context, args bulkCreateTestPlanArgs) (any, error) {
+	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-	if len(p.TestCaseIDs) == 0 {
+	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
-	if p.TestPlanName == "" {
+	if args.TestPlanName == "" {
 		return nil, fmt.Errorf("test_plan_name is required")
 	}
-	if err := r.allure.BulkCreateTestPlan(ctx, p.ProjectID, p.TestCaseIDs, p.TestPlanName); err != nil {
+	if err := r.allure.BulkCreateTestPlan(ctx, args.ProjectID, args.TestCaseIDs, args.TestPlanName); err != nil {
 		return nil, fmt.Errorf("bulk create test plan: %w", err)
 	}
 	return map[string]any{"status": "created"}, nil
 }
 
-func (r *Registry) bulkMuteTestCases(ctx context.Context, input json.RawMessage) (any, error) {
-	var p struct {
-		ProjectID   int64   `json:"project_id"`
-		TestCaseIDs []int64 `json:"test_case_ids"`
-	}
-	if err := json.Unmarshal(input, &p); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-	if p.ProjectID <= 0 {
-		return nil, fmt.Errorf("project_id must be positive")
-	}
-	if len(p.TestCaseIDs) == 0 {
-		return nil, fmt.Errorf("test_case_ids must not be empty")
-	}
-	if err := r.allure.BulkMuteTestCases(ctx, p.ProjectID, p.TestCaseIDs); err != nil {
-		return nil, fmt.Errorf("bulk mute: %w", err)
-	}
-	return map[string]any{"status": "success", "count": len(p.TestCaseIDs)}, nil
+type bulkMuteTestCasesArgs struct {
+	ProjectID   int64   `json:"project_id"`
+	TestCaseIDs []int64 `json:"test_case_ids"`
 }
 
-func (r *Registry) bulkSetTestCaseStatus(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		ProjectID   int64   `json:"project_id"`
-		TestCaseIDs []int64 `json:"test_case_ids"`
-		StatusID    int64   `json:"status_id"`
-		WorkflowID  int64   `json:"workflow_id"`
-	}
-
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.ProjectID <= 0 {
+func (r *Registry) bulkMuteTestCases(ctx context.Context, args bulkMuteTestCasesArgs) (any, error) {
+	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-	if len(params.TestCaseIDs) == 0 {
+	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
-	if params.StatusID <= 0 {
+	if err := r.allure.BulkMuteTestCases(ctx, args.ProjectID, args.TestCaseIDs); err != nil {
+		return nil, fmt.Errorf("bulk mute: %w", err)
+	}
+	return map[string]any{"status": "success", "count": len(args.TestCaseIDs)}, nil
+}
+
+type bulkSetTestCaseStatusArgs struct {
+	ProjectID   int64   `json:"project_id"`
+	TestCaseIDs []int64 `json:"test_case_ids"`
+	StatusID    int64   `json:"status_id"`
+	WorkflowID  int64   `json:"workflow_id"`
+}
+
+func (r *Registry) bulkSetTestCaseStatus(ctx context.Context, args bulkSetTestCaseStatusArgs) (any, error) {
+	if args.ProjectID <= 0 {
+		return nil, fmt.Errorf("project_id must be positive")
+	}
+	if len(args.TestCaseIDs) == 0 {
+		return nil, fmt.Errorf("test_case_ids must not be empty")
+	}
+	if args.StatusID <= 0 {
 		return nil, fmt.Errorf("status_id must be positive")
 	}
-	if params.WorkflowID <= 0 {
+	if args.WorkflowID <= 0 {
 		return nil, fmt.Errorf("workflow_id must be positive")
 	}
 
-	r.logger.Info("bulk setting test case status", map[string]any{"project_id": params.ProjectID, "count": len(params.TestCaseIDs)})
+	r.logger.Info("bulk setting test case status", map[string]any{"project_id": args.ProjectID, "count": len(args.TestCaseIDs)})
 
-	if err := r.allure.BulkSetTestCaseStatus(ctx, params.ProjectID, params.StatusID, params.WorkflowID, params.TestCaseIDs); err != nil {
-		r.logger.Error("bulk set test case status", err, map[string]any{"project_id": params.ProjectID})
+	if err := r.allure.BulkSetTestCaseStatus(ctx, args.ProjectID, args.StatusID, args.WorkflowID, args.TestCaseIDs); err != nil {
+		r.logger.Error("bulk set test case status", err, map[string]any{"project_id": args.ProjectID})
 		return nil, fmt.Errorf("bulk set status: %w", err)
 	}
 
-	return map[string]any{"status": "success", "count": len(params.TestCaseIDs)}, nil
+	return map[string]any{"status": "success", "count": len(args.TestCaseIDs)}, nil
 }
 
-func (r *Registry) bulkAddTestCaseTags(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		ProjectID   int64               `json:"project_id"`
-		TestCaseIDs []int64             `json:"test_case_ids"`
-		Tags        []allure.TestTagDto `json:"tags"`
-	}
+type bulkAddTestCaseTagsArgs struct {
+	ProjectID   int64               `json:"project_id"`
+	TestCaseIDs []int64             `json:"test_case_ids"`
+	Tags        []allure.TestTagDto `json:"tags"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.ProjectID <= 0 {
+func (r *Registry) bulkAddTestCaseTags(ctx context.Context, args bulkAddTestCaseTagsArgs) (any, error) {
+	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-	if len(params.TestCaseIDs) == 0 {
+	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
-	if len(params.Tags) == 0 {
+	if len(args.Tags) == 0 {
 		return nil, fmt.Errorf("tags must not be empty")
 	}
 
-	r.logger.Info("bulk adding test case tags", map[string]any{"project_id": params.ProjectID, "count": len(params.TestCaseIDs)})
+	r.logger.Info("bulk adding test case tags", map[string]any{"project_id": args.ProjectID, "count": len(args.TestCaseIDs)})
 
-	if err := r.allure.BulkAddTestCaseTags(ctx, params.ProjectID, params.TestCaseIDs, params.Tags); err != nil {
-		r.logger.Error("bulk add test case tags", err, map[string]any{"project_id": params.ProjectID})
+	if err := r.allure.BulkAddTestCaseTags(ctx, args.ProjectID, args.TestCaseIDs, args.Tags); err != nil {
+		r.logger.Error("bulk add test case tags", err, map[string]any{"project_id": args.ProjectID})
 		return nil, fmt.Errorf("bulk add tags: %w", err)
 	}
 
-	return map[string]any{"status": "success", "count": len(params.TestCaseIDs)}, nil
+	return map[string]any{"status": "success", "count": len(args.TestCaseIDs)}, nil
 }
 
-func (r *Registry) bulkRemoveTestCaseTags(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		ProjectID   int64               `json:"project_id"`
-		TestCaseIDs []int64             `json:"test_case_ids"`
-		Tags        []allure.TestTagDto `json:"tags"`
-	}
+type bulkRemoveTestCaseTagsArgs struct {
+	ProjectID   int64               `json:"project_id"`
+	TestCaseIDs []int64             `json:"test_case_ids"`
+	Tags        []allure.TestTagDto `json:"tags"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.ProjectID <= 0 {
+func (r *Registry) bulkRemoveTestCaseTags(ctx context.Context, args bulkRemoveTestCaseTagsArgs) (any, error) {
+	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-	if len(params.TestCaseIDs) == 0 {
+	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
-	if len(params.Tags) == 0 {
+	if len(args.Tags) == 0 {
 		return nil, fmt.Errorf("tags must not be empty")
 	}
 
-	r.logger.Info("bulk removing test case tags", map[string]any{"project_id": params.ProjectID, "count": len(params.TestCaseIDs)})
+	r.logger.Info("bulk removing test case tags", map[string]any{"project_id": args.ProjectID, "count": len(args.TestCaseIDs)})
 
-	if err := r.allure.BulkRemoveTestCaseTags(ctx, params.ProjectID, params.TestCaseIDs, params.Tags); err != nil {
-		r.logger.Error("bulk remove test case tags", err, map[string]any{"project_id": params.ProjectID})
+	if err := r.allure.BulkRemoveTestCaseTags(ctx, args.ProjectID, args.TestCaseIDs, args.Tags); err != nil {
+		r.logger.Error("bulk remove test case tags", err, map[string]any{"project_id": args.ProjectID})
 		return nil, fmt.Errorf("bulk remove tags: %w", err)
 	}
 
-	return map[string]any{"status": "success", "count": len(params.TestCaseIDs)}, nil
+	return map[string]any{"status": "success", "count": len(args.TestCaseIDs)}, nil
 }
 
-func (r *Registry) bulkCloneTestCases(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		ProjectID   int64   `json:"project_id"`
-		TestCaseIDs []int64 `json:"test_case_ids"`
-	}
+type bulkCloneTestCasesArgs struct {
+	ProjectID   int64   `json:"project_id"`
+	TestCaseIDs []int64 `json:"test_case_ids"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.ProjectID <= 0 {
+func (r *Registry) bulkCloneTestCases(ctx context.Context, args bulkCloneTestCasesArgs) (any, error) {
+	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-
-	if len(params.TestCaseIDs) == 0 {
+	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
 
 	r.logger.Info("bulk cloning test cases", map[string]any{
-		"project_id": params.ProjectID,
-		"count":      len(params.TestCaseIDs),
+		"project_id": args.ProjectID,
+		"count":      len(args.TestCaseIDs),
 	})
 
-	if err := r.allure.BulkCloneTestCases(ctx, params.ProjectID, params.TestCaseIDs); err != nil {
-		r.logger.Error("bulk clone test cases", err, map[string]any{"project_id": params.ProjectID})
+	if err := r.allure.BulkCloneTestCases(ctx, args.ProjectID, args.TestCaseIDs); err != nil {
+		r.logger.Error("bulk clone test cases", err, map[string]any{"project_id": args.ProjectID})
 		return nil, fmt.Errorf("bulk clone test cases: %w", err)
 	}
 
-	return map[string]any{"status": "cloning_started", "count": len(params.TestCaseIDs)}, nil
+	return map[string]any{"status": "cloning_started", "count": len(args.TestCaseIDs)}, nil
 }
 
-func (r *Registry) bulkAssignTestResults(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		LaunchID      int64    `json:"launch_id"`
-		TestResultIDs []int64  `json:"test_result_ids"`
-		Assignees     []string `json:"assignees"`
-	}
+type bulkAssignTestResultsArgs struct {
+	LaunchID      int64    `json:"launch_id"`
+	TestResultIDs []int64  `json:"test_result_ids"`
+	Assignees     []string `json:"assignees"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.LaunchID <= 0 {
+func (r *Registry) bulkAssignTestResults(ctx context.Context, args bulkAssignTestResultsArgs) (any, error) {
+	if args.LaunchID <= 0 {
 		return nil, fmt.Errorf("launch_id must be positive")
 	}
-	if len(params.TestResultIDs) == 0 {
+	if len(args.TestResultIDs) == 0 {
 		return nil, fmt.Errorf("test_result_ids must not be empty")
 	}
 
-	r.logger.Info("bulk assigning test results", map[string]any{"launch_id": params.LaunchID, "count": len(params.TestResultIDs)})
+	r.logger.Info("bulk assigning test results", map[string]any{"launch_id": args.LaunchID, "count": len(args.TestResultIDs)})
 
-	if err := r.allure.BulkAssignTestResults(ctx, params.LaunchID, params.TestResultIDs, params.Assignees); err != nil {
-		r.logger.Error("bulk assign test results", err, map[string]any{"launch_id": params.LaunchID})
+	if err := r.allure.BulkAssignTestResults(ctx, args.LaunchID, args.TestResultIDs, args.Assignees); err != nil {
+		r.logger.Error("bulk assign test results", err, map[string]any{"launch_id": args.LaunchID})
 		return nil, fmt.Errorf("bulk assign: %w", err)
 	}
 
-	return map[string]any{"status": "success", "count": len(params.TestResultIDs)}, nil
+	return map[string]any{"status": "success", "count": len(args.TestResultIDs)}, nil
 }
 
-func (r *Registry) bulkMuteTestResults(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		LaunchID      int64   `json:"launch_id"`
-		TestResultIDs []int64 `json:"test_result_ids"`
-		Reason        string  `json:"reason"`
-	}
+type bulkMuteTestResultsArgs struct {
+	LaunchID      int64   `json:"launch_id"`
+	TestResultIDs []int64 `json:"test_result_ids"`
+	Reason        string  `json:"reason"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.LaunchID <= 0 {
+func (r *Registry) bulkMuteTestResults(ctx context.Context, args bulkMuteTestResultsArgs) (any, error) {
+	if args.LaunchID <= 0 {
 		return nil, fmt.Errorf("launch_id must be positive")
 	}
-	if len(params.TestResultIDs) == 0 {
+	if len(args.TestResultIDs) == 0 {
 		return nil, fmt.Errorf("test_result_ids must not be empty")
 	}
 
-	r.logger.Info("bulk muting test results", map[string]any{"launch_id": params.LaunchID, "count": len(params.TestResultIDs)})
+	r.logger.Info("bulk muting test results", map[string]any{"launch_id": args.LaunchID, "count": len(args.TestResultIDs)})
 
-	if err := r.allure.BulkMuteTestResults(ctx, params.LaunchID, params.TestResultIDs, params.Reason); err != nil {
-		r.logger.Error("bulk mute test results", err, map[string]any{"launch_id": params.LaunchID})
+	if err := r.allure.BulkMuteTestResults(ctx, args.LaunchID, args.TestResultIDs, args.Reason); err != nil {
+		r.logger.Error("bulk mute test results", err, map[string]any{"launch_id": args.LaunchID})
 		return nil, fmt.Errorf("bulk mute: %w", err)
 	}
 
-	return map[string]any{"status": "success", "count": len(params.TestResultIDs)}, nil
+	return map[string]any{"status": "success", "count": len(args.TestResultIDs)}, nil
 }
 
-func (r *Registry) bulkUnmuteTestResults(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		LaunchID      int64   `json:"launch_id"`
-		TestResultIDs []int64 `json:"test_result_ids"`
-	}
+type bulkUnmuteTestResultsArgs struct {
+	LaunchID      int64   `json:"launch_id"`
+	TestResultIDs []int64 `json:"test_result_ids"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.LaunchID <= 0 {
+func (r *Registry) bulkUnmuteTestResults(ctx context.Context, args bulkUnmuteTestResultsArgs) (any, error) {
+	if args.LaunchID <= 0 {
 		return nil, fmt.Errorf("launch_id must be positive")
 	}
-	if len(params.TestResultIDs) == 0 {
+	if len(args.TestResultIDs) == 0 {
 		return nil, fmt.Errorf("test_result_ids must not be empty")
 	}
 
-	r.logger.Info("bulk unmuting test results", map[string]any{"launch_id": params.LaunchID, "count": len(params.TestResultIDs)})
+	r.logger.Info("bulk unmuting test results", map[string]any{"launch_id": args.LaunchID, "count": len(args.TestResultIDs)})
 
-	if err := r.allure.BulkUnmuteTestResults(ctx, params.LaunchID, params.TestResultIDs); err != nil {
-		r.logger.Error("bulk unmute test results", err, map[string]any{"launch_id": params.LaunchID})
+	if err := r.allure.BulkUnmuteTestResults(ctx, args.LaunchID, args.TestResultIDs); err != nil {
+		r.logger.Error("bulk unmute test results", err, map[string]any{"launch_id": args.LaunchID})
 		return nil, fmt.Errorf("bulk unmute: %w", err)
 	}
 
-	return map[string]any{"status": "success", "count": len(params.TestResultIDs)}, nil
+	return map[string]any{"status": "success", "count": len(args.TestResultIDs)}, nil
 }
 
-func (r *Registry) bulkResolveTestResults(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		LaunchID      int64   `json:"launch_id"`
-		TestResultIDs []int64 `json:"test_result_ids"`
-	}
+type bulkResolveTestResultsArgs struct {
+	LaunchID      int64   `json:"launch_id"`
+	TestResultIDs []int64 `json:"test_result_ids"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.LaunchID <= 0 {
+func (r *Registry) bulkResolveTestResults(ctx context.Context, args bulkResolveTestResultsArgs) (any, error) {
+	if args.LaunchID <= 0 {
 		return nil, fmt.Errorf("launch_id must be positive")
 	}
-	if len(params.TestResultIDs) == 0 {
+	if len(args.TestResultIDs) == 0 {
 		return nil, fmt.Errorf("test_result_ids must not be empty")
 	}
 
-	r.logger.Info("bulk resolving test results", map[string]any{"launch_id": params.LaunchID, "count": len(params.TestResultIDs)})
+	r.logger.Info("bulk resolving test results", map[string]any{"launch_id": args.LaunchID, "count": len(args.TestResultIDs)})
 
-	if err := r.allure.BulkResolveTestResults(ctx, params.LaunchID, params.TestResultIDs); err != nil {
-		r.logger.Error("bulk resolve test results", err, map[string]any{"launch_id": params.LaunchID})
+	if err := r.allure.BulkResolveTestResults(ctx, args.LaunchID, args.TestResultIDs); err != nil {
+		r.logger.Error("bulk resolve test results", err, map[string]any{"launch_id": args.LaunchID})
 		return nil, fmt.Errorf("bulk resolve: %w", err)
 	}
 
-	return map[string]any{"status": "success", "count": len(params.TestResultIDs)}, nil
+	return map[string]any{"status": "success", "count": len(args.TestResultIDs)}, nil
 }

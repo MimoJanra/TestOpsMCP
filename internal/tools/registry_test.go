@@ -14,6 +14,14 @@ func newTestRegistry(t *testing.T) *Registry {
 	return NewRegistry(nil, logger)
 }
 
+func callTool(r *Registry, name string, input string) (any, error) {
+	tool := r.GetTool(name)
+	if tool == nil {
+		return nil, nil
+	}
+	return tool.Handler(context.Background(), json.RawMessage(input))
+}
+
 func TestRegistry_HasExpectedTools(t *testing.T) {
 	r := newTestRegistry(t)
 	for _, name := range []string{
@@ -156,7 +164,6 @@ func TestRegistry_GetToolUnknown(t *testing.T) {
 
 func TestRunAllureLaunch_ValidatesInput(t *testing.T) {
 	r := newTestRegistry(t)
-	ctx := context.Background()
 
 	cases := []struct {
 		name  string
@@ -169,8 +176,7 @@ func TestRunAllureLaunch_ValidatesInput(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := r.runAllureLaunch(ctx, json.RawMessage(tc.input))
-			if err == nil {
+			if _, err := callTool(r, "run_allure_launch", tc.input); err == nil {
 				t.Errorf("expected error for input %q", tc.input)
 			}
 		})
@@ -179,16 +185,9 @@ func TestRunAllureLaunch_ValidatesInput(t *testing.T) {
 
 func TestGetLaunchStatus_ValidatesInput(t *testing.T) {
 	r := newTestRegistry(t)
-	ctx := context.Background()
 
-	cases := []string{
-		`{}`,
-		`{"launch_id":0}`,
-		`{"launch_id":-1}`,
-		`not-json`,
-	}
-	for _, in := range cases {
-		if _, err := r.getLaunchStatus(ctx, json.RawMessage(in)); err == nil {
+	for _, in := range []string{`{}`, `{"launch_id":0}`, `{"launch_id":-1}`, `not-json`} {
+		if _, err := callTool(r, "get_launch_status", in); err == nil {
 			t.Errorf("expected error for input %q", in)
 		}
 	}
@@ -196,25 +195,17 @@ func TestGetLaunchStatus_ValidatesInput(t *testing.T) {
 
 func TestGetLaunchReport_ValidatesInput(t *testing.T) {
 	r := newTestRegistry(t)
-	ctx := context.Background()
 
-	if _, err := r.getLaunchReport(ctx, json.RawMessage(`{"launch_id":0}`)); err == nil {
+	if _, err := callTool(r, "get_launch_report", `{"launch_id":0}`); err == nil {
 		t.Error("expected error for non-positive launch_id")
 	}
 }
 
 func TestCloseLaunch_ValidatesInput(t *testing.T) {
 	r := newTestRegistry(t)
-	ctx := context.Background()
 
-	cases := []string{
-		`{}`,
-		`{"launch_id":0}`,
-		`{"launch_id":-1}`,
-		`not-json`,
-	}
-	for _, in := range cases {
-		if _, err := r.closeLaunch(ctx, json.RawMessage(in)); err == nil {
+	for _, in := range []string{`{}`, `{"launch_id":0}`, `{"launch_id":-1}`, `not-json`} {
+		if _, err := callTool(r, "close_launch", in); err == nil {
 			t.Errorf("expected error for input %q", in)
 		}
 	}
@@ -222,16 +213,9 @@ func TestCloseLaunch_ValidatesInput(t *testing.T) {
 
 func TestReopenLaunch_ValidatesInput(t *testing.T) {
 	r := newTestRegistry(t)
-	ctx := context.Background()
 
-	cases := []string{
-		`{}`,
-		`{"launch_id":0}`,
-		`{"launch_id":-1}`,
-		`not-json`,
-	}
-	for _, in := range cases {
-		if _, err := r.reopenLaunch(ctx, json.RawMessage(in)); err == nil {
+	for _, in := range []string{`{}`, `{"launch_id":0}`, `{"launch_id":-1}`, `not-json`} {
+		if _, err := callTool(r, "reopen_launch", in); err == nil {
 			t.Errorf("expected error for input %q", in)
 		}
 	}
@@ -239,16 +223,9 @@ func TestReopenLaunch_ValidatesInput(t *testing.T) {
 
 func TestListLaunches_ValidatesInput(t *testing.T) {
 	r := newTestRegistry(t)
-	ctx := context.Background()
 
-	cases := []string{
-		`{}`,
-		`{"project_id":0}`,
-		`{"project_id":-1}`,
-		`not-json`,
-	}
-	for _, in := range cases {
-		if _, err := r.listLaunches(ctx, json.RawMessage(in)); err == nil {
+	for _, in := range []string{`{}`, `{"project_id":0}`, `{"project_id":-1}`, `not-json`} {
+		if _, err := callTool(r, "list_launches", in); err == nil {
 			t.Errorf("expected error for input %q", in)
 		}
 	}
@@ -256,16 +233,9 @@ func TestListLaunches_ValidatesInput(t *testing.T) {
 
 func TestGetLaunchDetails_ValidatesInput(t *testing.T) {
 	r := newTestRegistry(t)
-	ctx := context.Background()
 
-	cases := []string{
-		`{}`,
-		`{"launch_id":0}`,
-		`{"launch_id":-1}`,
-		`not-json`,
-	}
-	for _, in := range cases {
-		if _, err := r.getLaunchDetails(ctx, json.RawMessage(in)); err == nil {
+	for _, in := range []string{`{}`, `{"launch_id":0}`, `{"launch_id":-1}`, `not-json`} {
+		if _, err := callTool(r, "get_launch_details", in); err == nil {
 			t.Errorf("expected error for input %q", in)
 		}
 	}
@@ -273,16 +243,9 @@ func TestGetLaunchDetails_ValidatesInput(t *testing.T) {
 
 func TestListTestResults_ValidatesInput(t *testing.T) {
 	r := newTestRegistry(t)
-	ctx := context.Background()
 
-	cases := []string{
-		`{}`,
-		`{"launch_id":0}`,
-		`{"launch_id":-1}`,
-		`not-json`,
-	}
-	for _, in := range cases {
-		if _, err := r.listTestResults(ctx, json.RawMessage(in)); err == nil {
+	for _, in := range []string{`{}`, `{"launch_id":0}`, `{"launch_id":-1}`, `not-json`} {
+		if _, err := callTool(r, "list_test_results", in); err == nil {
 			t.Errorf("expected error for input %q", in)
 		}
 	}
@@ -290,16 +253,9 @@ func TestListTestResults_ValidatesInput(t *testing.T) {
 
 func TestGetTestResult_ValidatesInput(t *testing.T) {
 	r := newTestRegistry(t)
-	ctx := context.Background()
 
-	cases := []string{
-		`{}`,
-		`{"test_result_id":0}`,
-		`{"test_result_id":-1}`,
-		`not-json`,
-	}
-	for _, in := range cases {
-		if _, err := r.getTestResult(ctx, json.RawMessage(in)); err == nil {
+	for _, in := range []string{`{}`, `{"test_result_id":0}`, `{"test_result_id":-1}`, `not-json`} {
+		if _, err := callTool(r, "get_test_result", in); err == nil {
 			t.Errorf("expected error for input %q", in)
 		}
 	}
@@ -307,7 +263,6 @@ func TestGetTestResult_ValidatesInput(t *testing.T) {
 
 func TestAssignTestResult_ValidatesInput(t *testing.T) {
 	r := newTestRegistry(t)
-	ctx := context.Background()
 
 	cases := []string{
 		`{}`,
@@ -318,7 +273,7 @@ func TestAssignTestResult_ValidatesInput(t *testing.T) {
 		`not-json`,
 	}
 	for _, in := range cases {
-		if _, err := r.assignTestResult(ctx, json.RawMessage(in)); err == nil {
+		if _, err := callTool(r, "assign_test_result", in); err == nil {
 			t.Errorf("expected error for input %q", in)
 		}
 	}
@@ -326,16 +281,9 @@ func TestAssignTestResult_ValidatesInput(t *testing.T) {
 
 func TestMuteTestResult_ValidatesInput(t *testing.T) {
 	r := newTestRegistry(t)
-	ctx := context.Background()
 
-	cases := []string{
-		`{}`,
-		`{"test_result_id":0}`,
-		`{"test_result_id":-1}`,
-		`not-json`,
-	}
-	for _, in := range cases {
-		if _, err := r.muteTestResult(ctx, json.RawMessage(in)); err == nil {
+	for _, in := range []string{`{}`, `{"test_result_id":0}`, `{"test_result_id":-1}`, `not-json`} {
+		if _, err := callTool(r, "mute_test_result", in); err == nil {
 			t.Errorf("expected error for input %q", in)
 		}
 	}
@@ -343,16 +291,9 @@ func TestMuteTestResult_ValidatesInput(t *testing.T) {
 
 func TestListTestCases_ValidatesInput(t *testing.T) {
 	r := newTestRegistry(t)
-	ctx := context.Background()
 
-	cases := []string{
-		`{}`,
-		`{"project_id":0}`,
-		`{"project_id":-1}`,
-		`not-json`,
-	}
-	for _, in := range cases {
-		if _, err := r.listTestCases(ctx, json.RawMessage(in)); err == nil {
+	for _, in := range []string{`{}`, `{"project_id":0}`, `{"project_id":-1}`, `not-json`} {
+		if _, err := callTool(r, "list_test_cases", in); err == nil {
 			t.Errorf("expected error for input %q", in)
 		}
 	}
@@ -360,16 +301,9 @@ func TestListTestCases_ValidatesInput(t *testing.T) {
 
 func TestGetTestCase_ValidatesInput(t *testing.T) {
 	r := newTestRegistry(t)
-	ctx := context.Background()
 
-	cases := []string{
-		`{}`,
-		`{"test_case_id":0}`,
-		`{"test_case_id":-1}`,
-		`not-json`,
-	}
-	for _, in := range cases {
-		if _, err := r.getTestCase(ctx, json.RawMessage(in)); err == nil {
+	for _, in := range []string{`{}`, `{"test_case_id":0}`, `{"test_case_id":-1}`, `not-json`} {
+		if _, err := callTool(r, "get_test_case", in); err == nil {
 			t.Errorf("expected error for input %q", in)
 		}
 	}
@@ -377,7 +311,6 @@ func TestGetTestCase_ValidatesInput(t *testing.T) {
 
 func TestRunTestCase_ValidatesInput(t *testing.T) {
 	r := newTestRegistry(t)
-	ctx := context.Background()
 
 	cases := []string{
 		`{}`,
@@ -388,7 +321,7 @@ func TestRunTestCase_ValidatesInput(t *testing.T) {
 		`not-json`,
 	}
 	for _, in := range cases {
-		if _, err := r.runTestCase(ctx, json.RawMessage(in)); err == nil {
+		if _, err := callTool(r, "run_test_case", in); err == nil {
 			t.Errorf("expected error for input %q", in)
 		}
 	}
@@ -396,25 +329,17 @@ func TestRunTestCase_ValidatesInput(t *testing.T) {
 
 func TestListProjects_ValidatesInput(t *testing.T) {
 	r := newTestRegistry(t)
-	ctx := context.Background()
 
-	if _, err := r.listProjects(ctx, json.RawMessage(`not-json`)); err == nil {
+	if _, err := callTool(r, "list_projects", `not-json`); err == nil {
 		t.Error("expected error for bad json")
 	}
 }
 
 func TestGetProject_ValidatesInput(t *testing.T) {
 	r := newTestRegistry(t)
-	ctx := context.Background()
 
-	cases := []string{
-		`{}`,
-		`{"project_id":0}`,
-		`{"project_id":-1}`,
-		`not-json`,
-	}
-	for _, in := range cases {
-		if _, err := r.getProject(ctx, json.RawMessage(in)); err == nil {
+	for _, in := range []string{`{}`, `{"project_id":0}`, `{"project_id":-1}`, `not-json`} {
+		if _, err := callTool(r, "get_project", in); err == nil {
 			t.Errorf("expected error for input %q", in)
 		}
 	}
@@ -422,16 +347,9 @@ func TestGetProject_ValidatesInput(t *testing.T) {
 
 func TestGetProjectStats_ValidatesInput(t *testing.T) {
 	r := newTestRegistry(t)
-	ctx := context.Background()
 
-	cases := []string{
-		`{}`,
-		`{"project_id":0}`,
-		`{"project_id":-1}`,
-		`not-json`,
-	}
-	for _, in := range cases {
-		if _, err := r.getProjectStats(ctx, json.RawMessage(in)); err == nil {
+	for _, in := range []string{`{}`, `{"project_id":0}`, `{"project_id":-1}`, `not-json`} {
+		if _, err := callTool(r, "get_project_stats", in); err == nil {
 			t.Errorf("expected error for input %q", in)
 		}
 	}
@@ -439,16 +357,9 @@ func TestGetProjectStats_ValidatesInput(t *testing.T) {
 
 func TestGetLaunchTrendAnalytics_ValidatesInput(t *testing.T) {
 	r := newTestRegistry(t)
-	ctx := context.Background()
 
-	cases := []string{
-		`{}`,
-		`{"project_id":0}`,
-		`{"project_id":-1}`,
-		`not-json`,
-	}
-	for _, in := range cases {
-		if _, err := r.getLaunchTrendAnalytics(ctx, json.RawMessage(in)); err == nil {
+	for _, in := range []string{`{}`, `{"project_id":0}`, `{"project_id":-1}`, `not-json`} {
+		if _, err := callTool(r, "get_launch_trend_analytics", in); err == nil {
 			t.Errorf("expected error for input %q", in)
 		}
 	}
@@ -456,16 +367,9 @@ func TestGetLaunchTrendAnalytics_ValidatesInput(t *testing.T) {
 
 func TestGetLaunchDurationAnalytics_ValidatesInput(t *testing.T) {
 	r := newTestRegistry(t)
-	ctx := context.Background()
 
-	cases := []string{
-		`{}`,
-		`{"project_id":0}`,
-		`{"project_id":-1}`,
-		`not-json`,
-	}
-	for _, in := range cases {
-		if _, err := r.getLaunchDurationAnalytics(ctx, json.RawMessage(in)); err == nil {
+	for _, in := range []string{`{}`, `{"project_id":0}`, `{"project_id":-1}`, `not-json`} {
+		if _, err := callTool(r, "get_launch_duration_analytics", in); err == nil {
 			t.Errorf("expected error for input %q", in)
 		}
 	}
@@ -473,16 +377,9 @@ func TestGetLaunchDurationAnalytics_ValidatesInput(t *testing.T) {
 
 func TestGetTestSuccessRate_ValidatesInput(t *testing.T) {
 	r := newTestRegistry(t)
-	ctx := context.Background()
 
-	cases := []string{
-		`{}`,
-		`{"project_id":0}`,
-		`{"project_id":-1}`,
-		`not-json`,
-	}
-	for _, in := range cases {
-		if _, err := r.getTestSuccessRate(ctx, json.RawMessage(in)); err == nil {
+	for _, in := range []string{`{}`, `{"project_id":0}`, `{"project_id":-1}`, `not-json`} {
+		if _, err := callTool(r, "get_test_success_rate", in); err == nil {
 			t.Errorf("expected error for input %q", in)
 		}
 	}
@@ -490,7 +387,6 @@ func TestGetTestSuccessRate_ValidatesInput(t *testing.T) {
 
 func TestCreateTestCase_ValidatesInput(t *testing.T) {
 	r := newTestRegistry(t)
-	ctx := context.Background()
 
 	cases := []string{
 		`{}`,
@@ -501,7 +397,7 @@ func TestCreateTestCase_ValidatesInput(t *testing.T) {
 		`not-json`,
 	}
 	for _, in := range cases {
-		if _, err := r.createTestCase(ctx, json.RawMessage(in)); err == nil {
+		if _, err := callTool(r, "create_test_case", in); err == nil {
 			t.Errorf("expected error for input %q", in)
 		}
 	}
@@ -509,7 +405,6 @@ func TestCreateTestCase_ValidatesInput(t *testing.T) {
 
 func TestUpdateTestCase_ValidatesInput(t *testing.T) {
 	r := newTestRegistry(t)
-	ctx := context.Background()
 
 	cases := []string{
 		`{}`,
@@ -519,7 +414,7 @@ func TestUpdateTestCase_ValidatesInput(t *testing.T) {
 		`not-json`,
 	}
 	for _, in := range cases {
-		if _, err := r.updateTestCase(ctx, json.RawMessage(in)); err == nil {
+		if _, err := callTool(r, "update_test_case", in); err == nil {
 			t.Errorf("expected error for input %q", in)
 		}
 	}
@@ -527,16 +422,9 @@ func TestUpdateTestCase_ValidatesInput(t *testing.T) {
 
 func TestDeleteTestCase_ValidatesInput(t *testing.T) {
 	r := newTestRegistry(t)
-	ctx := context.Background()
 
-	cases := []string{
-		`{}`,
-		`{"test_case_id":0}`,
-		`{"test_case_id":-1}`,
-		`not-json`,
-	}
-	for _, in := range cases {
-		if _, err := r.deleteTestCase(ctx, json.RawMessage(in)); err == nil {
+	for _, in := range []string{`{}`, `{"test_case_id":0}`, `{"test_case_id":-1}`, `not-json`} {
+		if _, err := callTool(r, "delete_test_case", in); err == nil {
 			t.Errorf("expected error for input %q", in)
 		}
 	}

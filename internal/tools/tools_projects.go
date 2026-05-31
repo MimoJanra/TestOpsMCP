@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 )
 
@@ -25,7 +24,7 @@ func (r *Registry) registerProjectTools() {
 				},
 			},
 		},
-		Handler: r.listProjects,
+		Handler: Typed(r.listProjects),
 	})
 
 	r.register(&Tool{
@@ -41,7 +40,7 @@ func (r *Registry) registerProjectTools() {
 			},
 			"required": []string{"project_id"},
 		},
-		Handler: r.getProject,
+		Handler: Typed(r.getProject),
 	})
 
 	r.register(&Tool{
@@ -57,33 +56,29 @@ func (r *Registry) registerProjectTools() {
 			},
 			"required": []string{"project_id"},
 		},
-		Handler: r.getProjectStats,
+		Handler: Typed(r.getProjectStats),
 	})
 }
 
-func (r *Registry) listProjects(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		Page int `json:"page"`
-		Size int `json:"size"`
-	}
+type listProjectsArgs struct {
+	Page int `json:"page"`
+	Size int `json:"size"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
+func (r *Registry) listProjects(ctx context.Context, args listProjectsArgs) (any, error) {
+	if args.Size <= 0 {
+		args.Size = 10
 	}
-
-	if params.Size <= 0 {
-		params.Size = 10
-	}
-	if params.Size > 100 {
-		params.Size = 100
+	if args.Size > 100 {
+		args.Size = 100
 	}
 
 	r.logger.Info("listing projects", map[string]any{
-		"page": params.Page,
-		"size": params.Size,
+		"page": args.Page,
+		"size": args.Size,
 	})
 
-	projects, err := r.allure.ListProjects(ctx, params.Page, params.Size)
+	projects, err := r.allure.ListProjects(ctx, args.Page, args.Size)
 	if err != nil {
 		r.logger.Error("list projects", err, map[string]any{})
 		return nil, fmt.Errorf("list projects: %w", err)
@@ -107,24 +102,20 @@ func (r *Registry) listProjects(ctx context.Context, input json.RawMessage) (any
 	}, nil
 }
 
-func (r *Registry) getProject(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		ProjectID int64 `json:"project_id"`
-	}
+type getProjectArgs struct {
+	ProjectID int64 `json:"project_id"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.ProjectID <= 0 {
+func (r *Registry) getProject(ctx context.Context, args getProjectArgs) (any, error) {
+	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
 
-	r.logger.Info("fetching project", map[string]any{"project_id": params.ProjectID})
+	r.logger.Info("fetching project", map[string]any{"project_id": args.ProjectID})
 
-	project, err := r.allure.GetProject(ctx, params.ProjectID)
+	project, err := r.allure.GetProject(ctx, args.ProjectID)
 	if err != nil {
-		r.logger.Error("get project", err, map[string]any{"project_id": params.ProjectID})
+		r.logger.Error("get project", err, map[string]any{"project_id": args.ProjectID})
 		return nil, fmt.Errorf("get project: %w", err)
 	}
 
@@ -136,24 +127,20 @@ func (r *Registry) getProject(ctx context.Context, input json.RawMessage) (any, 
 	}, nil
 }
 
-func (r *Registry) getProjectStats(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		ProjectID int64 `json:"project_id"`
-	}
+type getProjectStatsArgs struct {
+	ProjectID int64 `json:"project_id"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.ProjectID <= 0 {
+func (r *Registry) getProjectStats(ctx context.Context, args getProjectStatsArgs) (any, error) {
+	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
 
-	r.logger.Info("fetching project stats", map[string]any{"project_id": params.ProjectID})
+	r.logger.Info("fetching project stats", map[string]any{"project_id": args.ProjectID})
 
-	stats, err := r.allure.GetProjectStats(ctx, params.ProjectID)
+	stats, err := r.allure.GetProjectStats(ctx, args.ProjectID)
 	if err != nil {
-		r.logger.Error("get project stats", err, map[string]any{"project_id": params.ProjectID})
+		r.logger.Error("get project stats", err, map[string]any{"project_id": args.ProjectID})
 		return nil, fmt.Errorf("get project stats: %w", err)
 	}
 

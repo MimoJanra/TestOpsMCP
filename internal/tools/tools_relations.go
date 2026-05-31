@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/MimoJanra/TestOpsMCP/internal/adapters/allure"
@@ -32,7 +31,7 @@ func (r *Registry) registerRelationTools() {
 			},
 			"required": []string{"test_case_id"},
 		},
-		Handler: r.getTestCaseDefects,
+		Handler: Typed(r.getTestCaseDefects),
 	})
 
 	r.register(&Tool{
@@ -52,7 +51,7 @@ func (r *Registry) registerRelationTools() {
 			},
 			"required": []string{"test_case_id", "defect_id"},
 		},
-		Handler: r.addTestCaseDefect,
+		Handler: Typed(r.addTestCaseDefect),
 	})
 
 	r.register(&Tool{
@@ -72,7 +71,7 @@ func (r *Registry) registerRelationTools() {
 			},
 			"required": []string{"test_case_id", "defect_id"},
 		},
-		Handler: r.removeTestCaseDefect,
+		Handler: Typed(r.removeTestCaseDefect),
 	})
 
 	r.register(&Tool{
@@ -88,7 +87,7 @@ func (r *Registry) registerRelationTools() {
 			},
 			"required": []string{"test_case_id"},
 		},
-		Handler: r.getTestCaseMembers,
+		Handler: Typed(r.getTestCaseMembers),
 	})
 
 	r.register(&Tool{
@@ -115,7 +114,7 @@ func (r *Registry) registerRelationTools() {
 			},
 			"required": []string{"test_case_id", "members"},
 		},
-		Handler: r.addTestCaseMembers,
+		Handler: Typed(r.addTestCaseMembers),
 	})
 
 	r.register(&Tool{
@@ -138,7 +137,7 @@ func (r *Registry) registerRelationTools() {
 			},
 			"required": []string{"test_case_id", "member_ids"},
 		},
-		Handler: r.removeTestCaseMembers,
+		Handler: Typed(r.removeTestCaseMembers),
 	})
 
 	r.register(&Tool{
@@ -154,7 +153,7 @@ func (r *Registry) registerRelationTools() {
 			},
 			"required": []string{"test_case_id"},
 		},
-		Handler: r.getTestCaseExternalLinks,
+		Handler: Typed(r.getTestCaseExternalLinks),
 	})
 
 	r.register(&Tool{
@@ -182,7 +181,7 @@ func (r *Registry) registerRelationTools() {
 			},
 			"required": []string{"test_case_id", "url"},
 		},
-		Handler: r.addTestCaseExternalLink,
+		Handler: Typed(r.addTestCaseExternalLink),
 	})
 
 	r.register(&Tool{
@@ -202,127 +201,109 @@ func (r *Registry) registerRelationTools() {
 			},
 			"required": []string{"test_case_id", "url"},
 		},
-		Handler: r.deleteTestCaseExternalLink,
+		Handler: Typed(r.deleteTestCaseExternalLink),
 	})
 }
 
-func (r *Registry) getTestCaseDefects(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		TestCaseID int64 `json:"test_case_id"`
-		Page       int   `json:"page"`
-		Size       int   `json:"size"`
-	}
+type getTestCaseDefectsArgs struct {
+	TestCaseID int64 `json:"test_case_id"`
+	Page       int   `json:"page"`
+	Size       int   `json:"size"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.TestCaseID <= 0 {
+func (r *Registry) getTestCaseDefects(ctx context.Context, args getTestCaseDefectsArgs) (any, error) {
+	if args.TestCaseID <= 0 {
 		return nil, fmt.Errorf("test_case_id must be positive")
 	}
 
-	if params.Size <= 0 {
-		params.Size = 10
+	if args.Size <= 0 {
+		args.Size = 10
 	}
-	if params.Size > 100 {
-		params.Size = 100
+	if args.Size > 100 {
+		args.Size = 100
 	}
 
 	r.logger.Info("fetching test case defects", map[string]any{
-		"test_case_id": params.TestCaseID,
-		"page":         params.Page,
-		"size":         params.Size,
+		"test_case_id": args.TestCaseID,
+		"page":         args.Page,
+		"size":         args.Size,
 	})
 
-	defects, err := r.allure.GetTestCaseDefects(ctx, params.TestCaseID, params.Page, params.Size)
+	defects, err := r.allure.GetTestCaseDefects(ctx, args.TestCaseID, args.Page, args.Size)
 	if err != nil {
-		r.logger.Error("get test case defects", err, map[string]any{"test_case_id": params.TestCaseID})
+		r.logger.Error("get test case defects", err, map[string]any{"test_case_id": args.TestCaseID})
 		return nil, fmt.Errorf("get test case defects: %w", err)
 	}
 
 	return defects, nil
 }
 
-func (r *Registry) addTestCaseDefect(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		TestCaseID int64 `json:"test_case_id"`
-		DefectID   int64 `json:"defect_id"`
-	}
+type addTestCaseDefectArgs struct {
+	TestCaseID int64 `json:"test_case_id"`
+	DefectID   int64 `json:"defect_id"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.TestCaseID <= 0 {
+func (r *Registry) addTestCaseDefect(ctx context.Context, args addTestCaseDefectArgs) (any, error) {
+	if args.TestCaseID <= 0 {
 		return nil, fmt.Errorf("test_case_id must be positive")
 	}
-
-	if params.DefectID <= 0 {
+	if args.DefectID <= 0 {
 		return nil, fmt.Errorf("defect_id must be positive")
 	}
 
 	r.logger.Info("adding defect to test case", map[string]any{
-		"test_case_id": params.TestCaseID,
-		"defect_id":    params.DefectID,
+		"test_case_id": args.TestCaseID,
+		"defect_id":    args.DefectID,
 	})
 
-	if err := r.allure.AddTestCaseDefect(ctx, params.TestCaseID, params.DefectID); err != nil {
-		r.logger.Error("add test case defect", err, map[string]any{"test_case_id": params.TestCaseID})
+	if err := r.allure.AddTestCaseDefect(ctx, args.TestCaseID, args.DefectID); err != nil {
+		r.logger.Error("add test case defect", err, map[string]any{"test_case_id": args.TestCaseID})
 		return nil, fmt.Errorf("add test case defect: %w", err)
 	}
 
 	return map[string]any{"status": "defect_added"}, nil
 }
 
-func (r *Registry) removeTestCaseDefect(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		TestCaseID int64 `json:"test_case_id"`
-		DefectID   int64 `json:"defect_id"`
-	}
+type removeTestCaseDefectArgs struct {
+	TestCaseID int64 `json:"test_case_id"`
+	DefectID   int64 `json:"defect_id"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.TestCaseID <= 0 {
+func (r *Registry) removeTestCaseDefect(ctx context.Context, args removeTestCaseDefectArgs) (any, error) {
+	if args.TestCaseID <= 0 {
 		return nil, fmt.Errorf("test_case_id must be positive")
 	}
-
-	if params.DefectID <= 0 {
+	if args.DefectID <= 0 {
 		return nil, fmt.Errorf("defect_id must be positive")
 	}
 
 	r.logger.Info("removing defect from test case", map[string]any{
-		"test_case_id": params.TestCaseID,
-		"defect_id":    params.DefectID,
+		"test_case_id": args.TestCaseID,
+		"defect_id":    args.DefectID,
 	})
 
-	if err := r.allure.RemoveTestCaseDefect(ctx, params.TestCaseID, params.DefectID); err != nil {
-		r.logger.Error("remove test case defect", err, map[string]any{"test_case_id": params.TestCaseID})
+	if err := r.allure.RemoveTestCaseDefect(ctx, args.TestCaseID, args.DefectID); err != nil {
+		r.logger.Error("remove test case defect", err, map[string]any{"test_case_id": args.TestCaseID})
 		return nil, fmt.Errorf("remove test case defect: %w", err)
 	}
 
 	return map[string]any{"status": "defect_removed"}, nil
 }
 
-func (r *Registry) getTestCaseMembers(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		TestCaseID int64 `json:"test_case_id"`
-	}
+type getTestCaseMembersArgs struct {
+	TestCaseID int64 `json:"test_case_id"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.TestCaseID <= 0 {
+func (r *Registry) getTestCaseMembers(ctx context.Context, args getTestCaseMembersArgs) (any, error) {
+	if args.TestCaseID <= 0 {
 		return nil, fmt.Errorf("test_case_id must be positive")
 	}
 
-	r.logger.Info("fetching test case members", map[string]any{"test_case_id": params.TestCaseID})
+	r.logger.Info("fetching test case members", map[string]any{"test_case_id": args.TestCaseID})
 
-	members, err := r.allure.GetTestCaseMembers(ctx, params.TestCaseID)
+	members, err := r.allure.GetTestCaseMembers(ctx, args.TestCaseID)
 	if err != nil {
-		r.logger.Error("get test case members", err, map[string]any{"test_case_id": params.TestCaseID})
+		r.logger.Error("get test case members", err, map[string]any{"test_case_id": args.TestCaseID})
 		return nil, fmt.Errorf("get test case members: %w", err)
 	}
 
@@ -337,86 +318,72 @@ func (r *Registry) getTestCaseMembers(ctx context.Context, input json.RawMessage
 	return map[string]any{"members": items}, nil
 }
 
-func (r *Registry) addTestCaseMembers(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		TestCaseID int64              `json:"test_case_id"`
-		Members    []allure.MemberDto `json:"members"`
-	}
+type addTestCaseMembersArgs struct {
+	TestCaseID int64              `json:"test_case_id"`
+	Members    []allure.MemberDto `json:"members"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.TestCaseID <= 0 {
+func (r *Registry) addTestCaseMembers(ctx context.Context, args addTestCaseMembersArgs) (any, error) {
+	if args.TestCaseID <= 0 {
 		return nil, fmt.Errorf("test_case_id must be positive")
 	}
-
-	if len(params.Members) == 0 {
+	if len(args.Members) == 0 {
 		return nil, fmt.Errorf("members must not be empty")
 	}
 
 	r.logger.Info("adding members to test case", map[string]any{
-		"test_case_id": params.TestCaseID,
-		"count":        len(params.Members),
+		"test_case_id": args.TestCaseID,
+		"count":        len(args.Members),
 	})
 
-	if err := r.allure.AddTestCaseMembers(ctx, params.TestCaseID, params.Members); err != nil {
-		r.logger.Error("add test case members", err, map[string]any{"test_case_id": params.TestCaseID})
+	if err := r.allure.AddTestCaseMembers(ctx, args.TestCaseID, args.Members); err != nil {
+		r.logger.Error("add test case members", err, map[string]any{"test_case_id": args.TestCaseID})
 		return nil, fmt.Errorf("add test case members: %w", err)
 	}
 
-	return map[string]any{"status": "members_added", "count": len(params.Members)}, nil
+	return map[string]any{"status": "members_added", "count": len(args.Members)}, nil
 }
 
-func (r *Registry) removeTestCaseMembers(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		TestCaseID int64   `json:"test_case_id"`
-		MemberIDs  []int64 `json:"member_ids"`
-	}
+type removeTestCaseMembersArgs struct {
+	TestCaseID int64   `json:"test_case_id"`
+	MemberIDs  []int64 `json:"member_ids"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.TestCaseID <= 0 {
+func (r *Registry) removeTestCaseMembers(ctx context.Context, args removeTestCaseMembersArgs) (any, error) {
+	if args.TestCaseID <= 0 {
 		return nil, fmt.Errorf("test_case_id must be positive")
 	}
-
-	if len(params.MemberIDs) == 0 {
+	if len(args.MemberIDs) == 0 {
 		return nil, fmt.Errorf("member_ids must not be empty")
 	}
 
 	r.logger.Info("removing members from test case", map[string]any{
-		"test_case_id": params.TestCaseID,
-		"count":        len(params.MemberIDs),
+		"test_case_id": args.TestCaseID,
+		"count":        len(args.MemberIDs),
 	})
 
-	if err := r.allure.RemoveTestCaseMembers(ctx, params.TestCaseID, params.MemberIDs); err != nil {
-		r.logger.Error("remove test case members", err, map[string]any{"test_case_id": params.TestCaseID})
+	if err := r.allure.RemoveTestCaseMembers(ctx, args.TestCaseID, args.MemberIDs); err != nil {
+		r.logger.Error("remove test case members", err, map[string]any{"test_case_id": args.TestCaseID})
 		return nil, fmt.Errorf("remove test case members: %w", err)
 	}
 
-	return map[string]any{"status": "members_removed", "count": len(params.MemberIDs)}, nil
+	return map[string]any{"status": "members_removed", "count": len(args.MemberIDs)}, nil
 }
 
-func (r *Registry) getTestCaseExternalLinks(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		TestCaseID int64 `json:"test_case_id"`
-	}
+type getTestCaseExternalLinksArgs struct {
+	TestCaseID int64 `json:"test_case_id"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.TestCaseID <= 0 {
+func (r *Registry) getTestCaseExternalLinks(ctx context.Context, args getTestCaseExternalLinksArgs) (any, error) {
+	if args.TestCaseID <= 0 {
 		return nil, fmt.Errorf("test_case_id must be positive")
 	}
 
-	r.logger.Info("fetching test case external links", map[string]any{"test_case_id": params.TestCaseID})
+	r.logger.Info("fetching test case external links", map[string]any{"test_case_id": args.TestCaseID})
 
-	links, err := r.allure.GetTestCaseExternalLinks(ctx, params.TestCaseID)
+	links, err := r.allure.GetTestCaseExternalLinks(ctx, args.TestCaseID)
 	if err != nil {
-		r.logger.Error("get test case external links", err, map[string]any{"test_case_id": params.TestCaseID})
+		r.logger.Error("get test case external links", err, map[string]any{"test_case_id": args.TestCaseID})
 		return nil, fmt.Errorf("get test case external links: %w", err)
 	}
 
@@ -432,70 +399,60 @@ func (r *Registry) getTestCaseExternalLinks(ctx context.Context, input json.RawM
 	return map[string]any{"links": items}, nil
 }
 
-func (r *Registry) addTestCaseExternalLink(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		TestCaseID int64  `json:"test_case_id"`
-		Name       string `json:"name"`
-		Type       string `json:"type"`
-		URL        string `json:"url"`
-	}
+type addTestCaseExternalLinkArgs struct {
+	TestCaseID int64  `json:"test_case_id"`
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	URL        string `json:"url"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.TestCaseID <= 0 {
+func (r *Registry) addTestCaseExternalLink(ctx context.Context, args addTestCaseExternalLinkArgs) (any, error) {
+	if args.TestCaseID <= 0 {
 		return nil, fmt.Errorf("test_case_id must be positive")
 	}
-
-	if params.URL == "" {
+	if args.URL == "" {
 		return nil, fmt.Errorf("url is required")
 	}
 
 	link := allure.ExternalLinkDto{
-		Name: params.Name,
-		Type: params.Type,
-		URL:  params.URL,
+		Name: args.Name,
+		Type: args.Type,
+		URL:  args.URL,
 	}
 
 	r.logger.Info("adding external link to test case", map[string]any{
-		"test_case_id": params.TestCaseID,
-		"url":          params.URL,
+		"test_case_id": args.TestCaseID,
+		"url":          args.URL,
 	})
 
-	if err := r.allure.AddTestCaseExternalLink(ctx, params.TestCaseID, link); err != nil {
-		r.logger.Error("add test case external link", err, map[string]any{"test_case_id": params.TestCaseID})
+	if err := r.allure.AddTestCaseExternalLink(ctx, args.TestCaseID, link); err != nil {
+		r.logger.Error("add test case external link", err, map[string]any{"test_case_id": args.TestCaseID})
 		return nil, fmt.Errorf("add test case external link: %w", err)
 	}
 
 	return map[string]any{"status": "link_added"}, nil
 }
 
-func (r *Registry) deleteTestCaseExternalLink(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		TestCaseID int64  `json:"test_case_id"`
-		URL        string `json:"url"`
-	}
+type deleteTestCaseExternalLinkArgs struct {
+	TestCaseID int64  `json:"test_case_id"`
+	URL        string `json:"url"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.TestCaseID <= 0 {
+func (r *Registry) deleteTestCaseExternalLink(ctx context.Context, args deleteTestCaseExternalLinkArgs) (any, error) {
+	if args.TestCaseID <= 0 {
 		return nil, fmt.Errorf("test_case_id must be positive")
 	}
-
-	if params.URL == "" {
+	if args.URL == "" {
 		return nil, fmt.Errorf("url is required")
 	}
 
 	r.logger.Info("deleting external link from test case", map[string]any{
-		"test_case_id": params.TestCaseID,
-		"url":          params.URL,
+		"test_case_id": args.TestCaseID,
+		"url":          args.URL,
 	})
 
-	if err := r.allure.DeleteTestCaseExternalLink(ctx, params.TestCaseID, params.URL); err != nil {
-		r.logger.Error("delete test case external link", err, map[string]any{"test_case_id": params.TestCaseID})
+	if err := r.allure.DeleteTestCaseExternalLink(ctx, args.TestCaseID, args.URL); err != nil {
+		r.logger.Error("delete test case external link", err, map[string]any{"test_case_id": args.TestCaseID})
 		return nil, fmt.Errorf("delete test case external link: %w", err)
 	}
 

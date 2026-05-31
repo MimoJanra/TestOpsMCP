@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 )
 
@@ -24,7 +23,7 @@ func (r *Registry) registerLaunchTools() {
 			},
 			"required": []string{"project_id", "launch_name"},
 		},
-		Handler: r.runAllureLaunch,
+		Handler: Typed(r.runAllureLaunch),
 	})
 
 	r.register(&Tool{
@@ -40,7 +39,7 @@ func (r *Registry) registerLaunchTools() {
 			},
 			"required": []string{"launch_id"},
 		},
-		Handler: r.getLaunchStatus,
+		Handler: Typed(r.getLaunchStatus),
 	})
 
 	r.register(&Tool{
@@ -56,7 +55,7 @@ func (r *Registry) registerLaunchTools() {
 			},
 			"required": []string{"launch_id"},
 		},
-		Handler: r.getLaunchReport,
+		Handler: Typed(r.getLaunchReport),
 	})
 
 	r.register(&Tool{
@@ -72,7 +71,7 @@ func (r *Registry) registerLaunchTools() {
 			},
 			"required": []string{"launch_id"},
 		},
-		Handler: r.closeLaunch,
+		Handler: Typed(r.closeLaunch),
 	})
 
 	r.register(&Tool{
@@ -88,7 +87,7 @@ func (r *Registry) registerLaunchTools() {
 			},
 			"required": []string{"launch_id"},
 		},
-		Handler: r.reopenLaunch,
+		Handler: Typed(r.reopenLaunch),
 	})
 
 	r.register(&Tool{
@@ -114,7 +113,7 @@ func (r *Registry) registerLaunchTools() {
 			},
 			"required": []string{"project_id"},
 		},
-		Handler: r.listLaunches,
+		Handler: Typed(r.listLaunches),
 	})
 
 	r.register(&Tool{
@@ -130,7 +129,7 @@ func (r *Registry) registerLaunchTools() {
 			},
 			"required": []string{"launch_id"},
 		},
-		Handler: r.getLaunchDetails,
+		Handler: Typed(r.getLaunchDetails),
 	})
 
 	r.register(&Tool{
@@ -146,7 +145,7 @@ func (r *Registry) registerLaunchTools() {
 			},
 			"required": []string{"launch_id"},
 		},
-		Handler: r.getLaunchEnvironment,
+		Handler: Typed(r.getLaunchEnvironment),
 	})
 
 	r.register(&Tool{
@@ -166,7 +165,7 @@ func (r *Registry) registerLaunchTools() {
 			},
 			"required": []string{"launch_id", "environment"},
 		},
-		Handler: r.updateLaunchEnvironment,
+		Handler: Typed(r.updateLaunchEnvironment),
 	})
 
 	r.register(&Tool{
@@ -182,7 +181,7 @@ func (r *Registry) registerLaunchTools() {
 			},
 			"required": []string{"launch_id"},
 		},
-		Handler: r.copyLaunch,
+		Handler: Typed(r.copyLaunch),
 	})
 
 	r.register(&Tool{
@@ -205,7 +204,7 @@ func (r *Registry) registerLaunchTools() {
 			},
 			"required": []string{"launch_ids", "launch_name"},
 		},
-		Handler: r.mergeLaunches,
+		Handler: Typed(r.mergeLaunches),
 	})
 
 	r.register(&Tool{
@@ -239,7 +238,7 @@ func (r *Registry) registerLaunchTools() {
 			},
 			"required": []string{"launch_id", "project_id", "test_case_ids"},
 		},
-		Handler: r.addTestCasesToLaunch,
+		Handler: Typed(r.addTestCasesToLaunch),
 	})
 
 	r.register(&Tool{
@@ -259,7 +258,7 @@ func (r *Registry) registerLaunchTools() {
 			},
 			"required": []string{"launch_id", "test_plan_id"},
 		},
-		Handler: r.addTestPlanToLaunch,
+		Handler: Typed(r.addTestPlanToLaunch),
 	})
 
 	r.register(&Tool{
@@ -285,38 +284,31 @@ func (r *Registry) registerLaunchTools() {
 			},
 			"required": []string{"launch_id"},
 		},
-		Handler: r.getLaunchDefects,
+		Handler: Typed(r.getLaunchDefects),
 	})
 }
 
-func (r *Registry) runAllureLaunch(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		ProjectID  int64  `json:"project_id"`
-		LaunchName string `json:"launch_name"`
-	}
+type runAllureLaunchArgs struct {
+	ProjectID  int64  `json:"project_id"`
+	LaunchName string `json:"launch_name"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.ProjectID <= 0 {
+func (r *Registry) runAllureLaunch(ctx context.Context, args runAllureLaunchArgs) (any, error) {
+	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-
-	if params.LaunchName == "" {
+	if args.LaunchName == "" {
 		return nil, fmt.Errorf("launch_name is required")
 	}
 
 	r.logger.Info("starting Allure launch", map[string]any{
-		"project_id":  params.ProjectID,
-		"launch_name": params.LaunchName,
+		"project_id":  args.ProjectID,
+		"launch_name": args.LaunchName,
 	})
 
-	launch, err := r.allure.CreateLaunch(ctx, params.ProjectID, params.LaunchName)
+	launch, err := r.allure.CreateLaunch(ctx, args.ProjectID, args.LaunchName)
 	if err != nil {
-		r.logger.Error("create launch", err, map[string]any{
-			"project_id": params.ProjectID,
-		})
+		r.logger.Error("create launch", err, map[string]any{"project_id": args.ProjectID})
 		return nil, fmt.Errorf("create launch: %w", err)
 	}
 
@@ -328,48 +320,40 @@ func (r *Registry) runAllureLaunch(ctx context.Context, input json.RawMessage) (
 	}, nil
 }
 
-func (r *Registry) getLaunchStatus(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		LaunchID int64 `json:"launch_id"`
-	}
+type getLaunchStatusArgs struct {
+	LaunchID int64 `json:"launch_id"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.LaunchID <= 0 {
+func (r *Registry) getLaunchStatus(ctx context.Context, args getLaunchStatusArgs) (any, error) {
+	if args.LaunchID <= 0 {
 		return nil, fmt.Errorf("launch_id must be positive")
 	}
 
-	r.logger.Info("fetching launch status", map[string]any{"launch_id": params.LaunchID})
+	r.logger.Info("fetching launch status", map[string]any{"launch_id": args.LaunchID})
 
-	status, err := r.allure.GetLaunchStatus(ctx, params.LaunchID)
+	status, err := r.allure.GetLaunchStatus(ctx, args.LaunchID)
 	if err != nil {
-		r.logger.Error("get launch status", err, map[string]any{"launch_id": params.LaunchID})
+		r.logger.Error("get launch status", err, map[string]any{"launch_id": args.LaunchID})
 		return nil, fmt.Errorf("get launch status: %w", err)
 	}
 
 	return map[string]any{"status": status}, nil
 }
 
-func (r *Registry) getLaunchReport(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		LaunchID int64 `json:"launch_id"`
-	}
+type getLaunchReportArgs struct {
+	LaunchID int64 `json:"launch_id"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.LaunchID <= 0 {
+func (r *Registry) getLaunchReport(ctx context.Context, args getLaunchReportArgs) (any, error) {
+	if args.LaunchID <= 0 {
 		return nil, fmt.Errorf("launch_id must be positive")
 	}
 
-	r.logger.Info("fetching launch report", map[string]any{"launch_id": params.LaunchID})
+	r.logger.Info("fetching launch report", map[string]any{"launch_id": args.LaunchID})
 
-	stats, err := r.allure.GetLaunchStatistics(ctx, params.LaunchID)
+	stats, err := r.allure.GetLaunchStatistics(ctx, args.LaunchID)
 	if err != nil {
-		r.logger.Error("get launch statistics", err, map[string]any{"launch_id": params.LaunchID})
+		r.logger.Error("get launch statistics", err, map[string]any{"launch_id": args.LaunchID})
 		return nil, fmt.Errorf("get launch statistics: %w", err)
 	}
 
@@ -381,83 +365,71 @@ func (r *Registry) getLaunchReport(ctx context.Context, input json.RawMessage) (
 	}, nil
 }
 
-func (r *Registry) closeLaunch(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		LaunchID int64 `json:"launch_id"`
-	}
+type closeLaunchArgs struct {
+	LaunchID int64 `json:"launch_id"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.LaunchID <= 0 {
+func (r *Registry) closeLaunch(ctx context.Context, args closeLaunchArgs) (any, error) {
+	if args.LaunchID <= 0 {
 		return nil, fmt.Errorf("launch_id must be positive")
 	}
 
-	r.logger.Info("closing launch", map[string]any{"launch_id": params.LaunchID})
+	r.logger.Info("closing launch", map[string]any{"launch_id": args.LaunchID})
 
-	if err := r.allure.CloseLaunch(ctx, params.LaunchID); err != nil {
-		r.logger.Error("close launch", err, map[string]any{"launch_id": params.LaunchID})
+	if err := r.allure.CloseLaunch(ctx, args.LaunchID); err != nil {
+		r.logger.Error("close launch", err, map[string]any{"launch_id": args.LaunchID})
 		return nil, fmt.Errorf("close launch: %w", err)
 	}
 
 	return map[string]any{"status": "closed"}, nil
 }
 
-func (r *Registry) reopenLaunch(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		LaunchID int64 `json:"launch_id"`
-	}
+type reopenLaunchArgs struct {
+	LaunchID int64 `json:"launch_id"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.LaunchID <= 0 {
+func (r *Registry) reopenLaunch(ctx context.Context, args reopenLaunchArgs) (any, error) {
+	if args.LaunchID <= 0 {
 		return nil, fmt.Errorf("launch_id must be positive")
 	}
 
-	r.logger.Info("reopening launch", map[string]any{"launch_id": params.LaunchID})
+	r.logger.Info("reopening launch", map[string]any{"launch_id": args.LaunchID})
 
-	if err := r.allure.ReopenLaunch(ctx, params.LaunchID); err != nil {
-		r.logger.Error("reopen launch", err, map[string]any{"launch_id": params.LaunchID})
+	if err := r.allure.ReopenLaunch(ctx, args.LaunchID); err != nil {
+		r.logger.Error("reopen launch", err, map[string]any{"launch_id": args.LaunchID})
 		return nil, fmt.Errorf("reopen launch: %w", err)
 	}
 
 	return map[string]any{"status": "reopened"}, nil
 }
 
-func (r *Registry) listLaunches(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		ProjectID int64 `json:"project_id"`
-		Page      int   `json:"page"`
-		Size      int   `json:"size"`
-	}
+type listLaunchesArgs struct {
+	ProjectID int64 `json:"project_id"`
+	Page      int   `json:"page"`
+	Size      int   `json:"size"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.ProjectID <= 0 {
+func (r *Registry) listLaunches(ctx context.Context, args listLaunchesArgs) (any, error) {
+	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
 
-	if params.Size <= 0 {
-		params.Size = 10
+	if args.Size <= 0 {
+		args.Size = 10
 	}
-	if params.Size > 100 {
-		params.Size = 100
+	if args.Size > 100 {
+		args.Size = 100
 	}
 
 	r.logger.Info("listing launches", map[string]any{
-		"project_id": params.ProjectID,
-		"page":       params.Page,
-		"size":       params.Size,
+		"project_id": args.ProjectID,
+		"page":       args.Page,
+		"size":       args.Size,
 	})
 
-	launches, err := r.allure.ListLaunches(ctx, params.ProjectID, params.Page, params.Size)
+	launches, err := r.allure.ListLaunches(ctx, args.ProjectID, args.Page, args.Size)
 	if err != nil {
-		r.logger.Error("list launches", err, map[string]any{"project_id": params.ProjectID})
+		r.logger.Error("list launches", err, map[string]any{"project_id": args.ProjectID})
 		return nil, fmt.Errorf("list launches: %w", err)
 	}
 
@@ -491,24 +463,20 @@ func (r *Registry) listLaunches(ctx context.Context, input json.RawMessage) (any
 	}, nil
 }
 
-func (r *Registry) getLaunchDetails(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		LaunchID int64 `json:"launch_id"`
-	}
+type getLaunchDetailsArgs struct {
+	LaunchID int64 `json:"launch_id"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.LaunchID <= 0 {
+func (r *Registry) getLaunchDetails(ctx context.Context, args getLaunchDetailsArgs) (any, error) {
+	if args.LaunchID <= 0 {
 		return nil, fmt.Errorf("launch_id must be positive")
 	}
 
-	r.logger.Info("fetching launch details", map[string]any{"launch_id": params.LaunchID})
+	r.logger.Info("fetching launch details", map[string]any{"launch_id": args.LaunchID})
 
-	details, err := r.allure.GetLaunchDetails(ctx, params.LaunchID)
+	details, err := r.allure.GetLaunchDetails(ctx, args.LaunchID)
 	if err != nil {
-		r.logger.Error("get launch details", err, map[string]any{"launch_id": params.LaunchID})
+		r.logger.Error("get launch details", err, map[string]any{"launch_id": args.LaunchID})
 		return nil, fmt.Errorf("get launch details: %w", err)
 	}
 
@@ -535,76 +503,63 @@ func (r *Registry) getLaunchDetails(ctx context.Context, input json.RawMessage) 
 	}, nil
 }
 
-func (r *Registry) getLaunchEnvironment(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		LaunchID int64 `json:"launch_id"`
-	}
+type getLaunchEnvironmentArgs struct {
+	LaunchID int64 `json:"launch_id"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.LaunchID <= 0 {
+func (r *Registry) getLaunchEnvironment(ctx context.Context, args getLaunchEnvironmentArgs) (any, error) {
+	if args.LaunchID <= 0 {
 		return nil, fmt.Errorf("launch_id must be positive")
 	}
 
-	r.logger.Info("fetching launch environment", map[string]any{"launch_id": params.LaunchID})
+	r.logger.Info("fetching launch environment", map[string]any{"launch_id": args.LaunchID})
 
-	env, err := r.allure.GetLaunchEnvironment(ctx, params.LaunchID)
+	env, err := r.allure.GetLaunchEnvironment(ctx, args.LaunchID)
 	if err != nil {
-		r.logger.Error("get launch environment", err, map[string]any{"launch_id": params.LaunchID})
+		r.logger.Error("get launch environment", err, map[string]any{"launch_id": args.LaunchID})
 		return nil, fmt.Errorf("get launch environment: %w", err)
 	}
 
 	return map[string]any{"environment": env}, nil
 }
 
-func (r *Registry) updateLaunchEnvironment(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		LaunchID    int64          `json:"launch_id"`
-		Environment map[string]any `json:"environment"`
-	}
+type updateLaunchEnvironmentArgs struct {
+	LaunchID    int64          `json:"launch_id"`
+	Environment map[string]any `json:"environment"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.LaunchID <= 0 {
+func (r *Registry) updateLaunchEnvironment(ctx context.Context, args updateLaunchEnvironmentArgs) (any, error) {
+	if args.LaunchID <= 0 {
 		return nil, fmt.Errorf("launch_id must be positive")
 	}
-
-	if len(params.Environment) == 0 {
+	if len(args.Environment) == 0 {
 		return nil, fmt.Errorf("environment must not be empty")
 	}
 
-	r.logger.Info("updating launch environment", map[string]any{"launch_id": params.LaunchID})
+	r.logger.Info("updating launch environment", map[string]any{"launch_id": args.LaunchID})
 
-	if err := r.allure.UpdateLaunchEnvironment(ctx, params.LaunchID, params.Environment); err != nil {
-		r.logger.Error("update launch environment", err, map[string]any{"launch_id": params.LaunchID})
+	if err := r.allure.UpdateLaunchEnvironment(ctx, args.LaunchID, args.Environment); err != nil {
+		r.logger.Error("update launch environment", err, map[string]any{"launch_id": args.LaunchID})
 		return nil, fmt.Errorf("update launch environment: %w", err)
 	}
 
 	return map[string]any{"status": "updated"}, nil
 }
 
-func (r *Registry) copyLaunch(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		LaunchID int64 `json:"launch_id"`
-	}
+type copyLaunchArgs struct {
+	LaunchID int64 `json:"launch_id"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.LaunchID <= 0 {
+func (r *Registry) copyLaunch(ctx context.Context, args copyLaunchArgs) (any, error) {
+	if args.LaunchID <= 0 {
 		return nil, fmt.Errorf("launch_id must be positive")
 	}
 
-	r.logger.Info("copying launch", map[string]any{"launch_id": params.LaunchID})
+	r.logger.Info("copying launch", map[string]any{"launch_id": args.LaunchID})
 
-	launch, err := r.allure.CopyLaunch(ctx, params.LaunchID)
+	launch, err := r.allure.CopyLaunch(ctx, args.LaunchID)
 	if err != nil {
-		r.logger.Error("copy launch", err, map[string]any{"launch_id": params.LaunchID})
+		r.logger.Error("copy launch", err, map[string]any{"launch_id": args.LaunchID})
 		return nil, fmt.Errorf("copy launch: %w", err)
 	}
 
@@ -615,32 +570,27 @@ func (r *Registry) copyLaunch(ctx context.Context, input json.RawMessage) (any, 
 	}, nil
 }
 
-func (r *Registry) mergeLaunches(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		LaunchIDs  []int64 `json:"launch_ids"`
-		LaunchName string  `json:"launch_name"`
-	}
+type mergeLaunchesArgs struct {
+	LaunchIDs  []int64 `json:"launch_ids"`
+	LaunchName string  `json:"launch_name"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if len(params.LaunchIDs) == 0 {
+func (r *Registry) mergeLaunches(ctx context.Context, args mergeLaunchesArgs) (any, error) {
+	if len(args.LaunchIDs) == 0 {
 		return nil, fmt.Errorf("launch_ids must not be empty")
 	}
-
-	if params.LaunchName == "" {
+	if args.LaunchName == "" {
 		return nil, fmt.Errorf("launch_name is required")
 	}
 
 	r.logger.Info("merging launches", map[string]any{
-		"count": len(params.LaunchIDs),
-		"name":  params.LaunchName,
+		"count": len(args.LaunchIDs),
+		"name":  args.LaunchName,
 	})
 
-	launchID, err := r.allure.MergeLaunches(ctx, params.LaunchIDs, params.LaunchName)
+	launchID, err := r.allure.MergeLaunches(ctx, args.LaunchIDs, args.LaunchName)
 	if err != nil {
-		r.logger.Error("merge launches", err, map[string]any{"count": len(params.LaunchIDs)})
+		r.logger.Error("merge launches", err, map[string]any{"count": len(args.LaunchIDs)})
 		return nil, fmt.Errorf("merge launches: %w", err)
 	}
 
@@ -650,96 +600,84 @@ func (r *Registry) mergeLaunches(ctx context.Context, input json.RawMessage) (an
 	}, nil
 }
 
-func (r *Registry) addTestCasesToLaunch(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		LaunchID    int64    `json:"launch_id"`
-		ProjectID   int64    `json:"project_id"`
-		TestCaseIDs []int64  `json:"test_case_ids"`
-		Assignees   []string `json:"assignees"`
-	}
+type addTestCasesToLaunchArgs struct {
+	LaunchID    int64    `json:"launch_id"`
+	ProjectID   int64    `json:"project_id"`
+	TestCaseIDs []int64  `json:"test_case_ids"`
+	Assignees   []string `json:"assignees"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.LaunchID <= 0 {
+func (r *Registry) addTestCasesToLaunch(ctx context.Context, args addTestCasesToLaunchArgs) (any, error) {
+	if args.LaunchID <= 0 {
 		return nil, fmt.Errorf("launch_id must be positive")
 	}
-	if params.ProjectID <= 0 {
+	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-	if len(params.TestCaseIDs) == 0 {
+	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
 
-	r.logger.Info("adding test cases to launch", map[string]any{"launch_id": params.LaunchID, "count": len(params.TestCaseIDs)})
+	r.logger.Info("adding test cases to launch", map[string]any{"launch_id": args.LaunchID, "count": len(args.TestCaseIDs)})
 
-	if err := r.allure.AddTestCasesToLaunch(ctx, params.LaunchID, params.ProjectID, params.TestCaseIDs, params.Assignees); err != nil {
-		r.logger.Error("add test cases to launch", err, map[string]any{"launch_id": params.LaunchID})
+	if err := r.allure.AddTestCasesToLaunch(ctx, args.LaunchID, args.ProjectID, args.TestCaseIDs, args.Assignees); err != nil {
+		r.logger.Error("add test cases to launch", err, map[string]any{"launch_id": args.LaunchID})
 		return nil, fmt.Errorf("add test cases: %w", err)
 	}
 
-	return map[string]any{"status": "success", "count": len(params.TestCaseIDs)}, nil
+	return map[string]any{"status": "success", "count": len(args.TestCaseIDs)}, nil
 }
 
-func (r *Registry) addTestPlanToLaunch(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		LaunchID   int64 `json:"launch_id"`
-		TestPlanID int64 `json:"test_plan_id"`
-	}
+type addTestPlanToLaunchArgs struct {
+	LaunchID   int64 `json:"launch_id"`
+	TestPlanID int64 `json:"test_plan_id"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.LaunchID <= 0 {
+func (r *Registry) addTestPlanToLaunch(ctx context.Context, args addTestPlanToLaunchArgs) (any, error) {
+	if args.LaunchID <= 0 {
 		return nil, fmt.Errorf("launch_id must be positive")
 	}
-	if params.TestPlanID <= 0 {
+	if args.TestPlanID <= 0 {
 		return nil, fmt.Errorf("test_plan_id must be positive")
 	}
 
-	r.logger.Info("adding test plan to launch", map[string]any{"launch_id": params.LaunchID, "test_plan_id": params.TestPlanID})
+	r.logger.Info("adding test plan to launch", map[string]any{"launch_id": args.LaunchID, "test_plan_id": args.TestPlanID})
 
-	if err := r.allure.AddTestPlanToLaunch(ctx, params.LaunchID, params.TestPlanID); err != nil {
-		r.logger.Error("add test plan to launch", err, map[string]any{"launch_id": params.LaunchID})
+	if err := r.allure.AddTestPlanToLaunch(ctx, args.LaunchID, args.TestPlanID); err != nil {
+		r.logger.Error("add test plan to launch", err, map[string]any{"launch_id": args.LaunchID})
 		return nil, fmt.Errorf("add test plan: %w", err)
 	}
 
 	return map[string]any{"status": "success"}, nil
 }
 
-func (r *Registry) getLaunchDefects(ctx context.Context, input json.RawMessage) (any, error) {
-	var params struct {
-		LaunchID int64 `json:"launch_id"`
-		Page     int   `json:"page"`
-		Size     int   `json:"size"`
-	}
+type getLaunchDefectsArgs struct {
+	LaunchID int64 `json:"launch_id"`
+	Page     int   `json:"page"`
+	Size     int   `json:"size"`
+}
 
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
-	}
-
-	if params.LaunchID <= 0 {
+func (r *Registry) getLaunchDefects(ctx context.Context, args getLaunchDefectsArgs) (any, error) {
+	if args.LaunchID <= 0 {
 		return nil, fmt.Errorf("launch_id must be positive")
 	}
 
-	if params.Size <= 0 {
-		params.Size = 10
+	if args.Size <= 0 {
+		args.Size = 10
 	}
-	if params.Size > 100 {
-		params.Size = 100
+	if args.Size > 100 {
+		args.Size = 100
 	}
 
 	r.logger.Info("fetching launch defects", map[string]any{
-		"launch_id": params.LaunchID,
-		"page":      params.Page,
-		"size":      params.Size,
+		"launch_id": args.LaunchID,
+		"page":      args.Page,
+		"size":      args.Size,
 	})
 
-	defects, err := r.allure.GetLaunchDefects(ctx, params.LaunchID, params.Page, params.Size)
+	defects, err := r.allure.GetLaunchDefects(ctx, args.LaunchID, args.Page, args.Size)
 	if err != nil {
-		r.logger.Error("get launch defects", err, map[string]any{"launch_id": params.LaunchID})
+		r.logger.Error("get launch defects", err, map[string]any{"launch_id": args.LaunchID})
 		return nil, fmt.Errorf("get launch defects: %w", err)
 	}
 
