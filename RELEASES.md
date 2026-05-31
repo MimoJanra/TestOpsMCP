@@ -2,6 +2,18 @@
 
 All pre-built binaries are provided for easy setup without requiring Go installation.
 
+## 🆕 What's New in v2.0.0
+
+- **MCP protocol 2025-11-25** with version negotiation and cursor-based pagination
+- **104 tools** (+ `get_task_status`, `list_running_tasks`, `cancel_task`, `analyze_launch_failures`)
+- **Async task system** — `run_allure_launch`, `copy_launch`, `merge_launches`, bulk runs return `task_id` immediately
+- **AI failure analysis** — `analyze_launch_failures` asks Claude to identify root causes via MCP sampling
+- **Confirmation dialogs** — `delete_test_case` / `bulk_delete_test_cases` require user confirmation via elicitation
+- **Resource subscriptions** — subscribe to `ui://widgets/launch-dashboard?launch_id=N` for live status updates
+- **Argument completion** — `completion/complete` returns live `project_id` and `launch_id` suggestions
+- **Panic recovery** — handler panics return a JSON-RPC error instead of crashing the server
+- **slog internals** — logger now backed by `log/slog` with JSON output
+
 ## 📥 Available Binaries
 
 | Platform | Download | Architecture |
@@ -107,6 +119,15 @@ Used for Claude Desktop integration via MCP configuration.
 ```
 Runs on `http://localhost:3000` for team deployments.
 
+## 🔧 Additional Configuration (v2.0+)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MCP_AUTH_TOKENS` | — | Named user tokens: `alice:tok1,bob:tok2` |
+| `MCP_AUTH_TOKEN` | — | Single legacy token (user `"default"`) |
+| `AUDIT_LOG_PATH` | `audit` | Directory for daily audit JSONL files |
+| `AUDIT_RETENTION_DAYS` | `30` | Days to keep audit files |
+
 ## 📋 Getting Your API Token
 
 1. Log in to Allure TestOps
@@ -159,16 +180,18 @@ xattr -d com.apple.quarantine ./testops-darwin-amd64
 
 ## 📚 Available Tools
 
-Over **102 MCP tools** for Allure TestOps integration:
+Over **104 MCP tools** for Allure TestOps integration:
 
-- Launch management (create, run, close, reopen, copy, merge)
-- Test case operations (create, update, delete, clone, restore, versions, audit)
+- Launch management (create, run\*, close, reopen, copy\*, merge\*) — \*async
+- Test case operations (create, update, delete†, clone, restore, versions, audit) — †with confirmation
 - Test result handling (assign, mute, resolve, unmute, bulk operations)
 - Custom fields, tags, issues, members, external links
 - Relations and integration keys (Jira, Azure DevOps, etc.)
-- Bulk operations (mass clone, bulk updates, bulk delete, bulk run)
+- Bulk operations (mass clone\*, bulk updates, bulk delete†, bulk run\*) — \*async, †with confirmation
 - Analytics and reporting
-- Interactive widgets (Launch Dashboard, Action Picker, Results Display)
+- Async task management (`get_task_status`, `list_running_tasks`, `cancel_task`)
+- AI failure analysis (`analyze_launch_failures` via MCP sampling)
+- Interactive widgets (Launch Dashboard with live subscriptions, Action Picker, Results Display)
 - Full OpenAPI coverage via search + execute pattern
 
 See [README.md](README.md) for complete tool documentation.

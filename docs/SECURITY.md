@@ -439,6 +439,27 @@ We will:
 
 ---
 
+## Destructive Operation Protection (Elicitation)
+
+Permanently destructive operations (`delete_test_case`, `bulk_delete_test_cases`) use MCP **elicitation** to request explicit user confirmation before proceeding:
+
+1. When the tool is called, the server sends an `elicitation/create` notification via SSE.
+2. The client (Claude Desktop / claude.ai) displays a confirmation dialog to the user.
+3. If the user accepts, the deletion proceeds. If the user rejects or cancels, the tool returns `{"cancelled": true}` without touching any data.
+
+This prevents accidental mass deletion and provides an audit trail via the audit log.
+
+**Note:** Elicitation requires a client that supports it. If the client does not respond within 5 minutes, the server returns a timeout error and does not delete.
+
+## Server Stability (Panic Recovery)
+
+All JSON-RPC request handlers are wrapped in a panic recovery middleware. If a handler panics:
+- The panic is caught and logged with the full stack trace at `ERROR` level.
+- The client receives a JSON-RPC internal error (`-32603`) instead of a connection drop.
+- The server continues running and serving other requests.
+
+This prevents a single bad request from crashing a shared team server.
+
 ## Additional Resources
 
 - [OWASP Top 10](https://owasp.org/Top10/) — Common vulnerabilities

@@ -1,7 +1,7 @@
 # TestOps MCP — Full LLM Reference
 
-> MCP server that connects Claude to Allure TestOps. 102 curated tools + 600+ dynamic OpenAPI endpoints + 2 prompt templates + 4 resources.
-> Module: github.com/MimoJanra/TestOpsMCP | Go 1.26+ | Apache 2.0
+> MCP server that connects Claude to Allure TestOps. 104 curated tools + 600+ dynamic OpenAPI endpoints + 2 prompt templates + 4 resources.
+> Module: github.com/MimoJanra/TestOpsMCP | Go 1.26+ | Apache 2.0 | MCP protocol 2025-11-25
 
 ---
 
@@ -12,27 +12,33 @@ cmd/server/main.go          — entry point; --http flag picks transport
 internal/
   mcp/
     server.go               — JSON-RPC 2.0 dispatcher, SSE sessions, heartbeat (25s)
+    middleware.go           — requestHandler/middlewareFunc, panic recovery, audit chain
     stdio.go                — line-buffered stdin/stdout handler
-    protocol.go             — MCP protocol types (version 2024-11-05)
+    protocol.go             — MCP protocol types (version 2025-11-25)
   tools/
-    registry.go             — tool/prompt/resource registration, per-session token isolation
+    registry.go             — tool/prompt/resource registration, Typed[T] wrapper, per-session token isolation
     prompts.go              — 2 MCP prompt templates (analyze-test-failures, launch-report-summary)
-    tools_launches.go       — launch management (14 tools)
+    tools_launches.go       — launch management (14 tools; run/copy/merge are async)
     tools_results.go        — test result actions (6 tools)
-    tools_testcases.go      — test case CRUD + run (11 tools)
+    tools_testcases.go      — test case CRUD + run (14 tools)
     tools_testcases_extra.go— metadata, steps, versions, search (30+ tools)
-    tools_bulk.go           — bulk operations (22 tools)
-    tools_projects.go       — projects + analytics (6 tools)
-    tools_relations.go      — test case relations (additional)
+    tools_bulk.go           — bulk operations (22 tools; run/clone are async)
+    tools_projects.go       — project management (3 tools)
+    tools_analytics.go      — analytics (3 tools)
+    tools_relations.go      — test case relations (9 tools)
+    tools_tasks.go          — async task management (3 tools)
+    tools_analysis.go       — AI-powered analysis via sampling (1 tool)
     openapi_loader.go       — loads testops.json, builds searchable index
     search_execute.go       — search + execute for 600+ OpenAPI endpoints
+    widgets.go              — MCP widget resources; watchLaunch polling
   adapters/allure/
     client.go               — HTTP client, JWT caching, per-session token callback
     models.go               — request/response DTOs
   config/config.go          — env-var loading and validation (users, audit config)
-  core/logger.go            — structured JSON logging (stdout), 4 levels
-  session/session.go        — context-based session ID, user name, remote addr
+  core/logger.go            — structured logging via log/slog (JSON to stderr), 4 levels
+  session/session.go        — context keys: session ID, user, remote addr, ElicitFunc, SamplingFunc
   audit/audit.go            — daily JSONL audit log, configurable retention, auto-cleanup
+  tasks/tasks.go            — in-memory async task store (working/succeeded/failed/cancelled)
 ```
 
 ### Transport modes
@@ -43,13 +49,16 @@ internal/
 - Used for Claude Desktop local integration
 
 **HTTP + SSE** (multi-user team server):
-- `POST /mcp` — streamable HTTP transport (MCP spec 2025-03-26), recommended
+- `POST /mcp` — streamable HTTP transport (MCP spec 2025-11-25), recommended
 - `GET /sse` — legacy SSE stream, returns `session_id` as first event
 - `POST /messages?sessionId=<id>` — legacy JSON-RPC request for a session
 - Per-session `X-Allure-Token` header stored in Registry
 - Named user auth via `Authorization: Bearer <token>` (`MCP_AUTH_TOKENS=alice:tok,...`)
 - Heartbeat every 25 s, max 64 queued messages per session, 1 MiB max body
-- Every non-notification request is written to the audit log (user, tool, duration, status)
+- Every non-notification request goes through panic recovery + audit middleware
+- Elicitation: server sends `elicitation/create` notifications, routes `notifications/elicitation/complete`
+- Sampling: server sends `sampling/createMessage` requests, routes `sampling/createMessage/response`
+- Resource subscriptions: `resources/subscribe` / `resources/unsubscribe`; `PublishResource` pushes `notifications/resources/updated`
 
 **Claude Desktop client config (via mcp-remote — required for custom headers):**
 Windows:
@@ -86,6 +95,18 @@ Each HTTP session gets its own Allure API token. Priority:
 | `CORS_ALLOWED_ORIGIN` | No | `*` | CORS `Access-Control-Allow-Origin` value |
 | `AUDIT_LOG_PATH` | No | `audit` | Directory for daily audit JSONL files |
 | `AUDIT_RETENTION_DAYS` | No | `30` | Days to keep audit files before auto-deletion |
+
+---
+
+## MCP Protocol Features (2025-11-25)
+
+- **Version negotiation** — server accepts client's requested version if in `["2025-11-25","2025-06-18","2025-03-26","2024-11-05"]`; falls back to latest
+- **Pagination** — `tools/list`, `resources/list`, `prompts/list` return cursor-based pages (50 items). Response includes `nextCursor` when more pages exist. Pass `{"cursor":"50"}` in params to fetch page 2.
+- **Completion** — `completion/complete` returns argument suggestions. Supported args: `project_id` (lists real projects), `launch_id` (scans recent launches across first 5 projects)
+- **Resource subscriptions** — `resources/subscribe` / `resources/unsubscribe` per URI. Launch dashboard auto-starts a 10 s polling watcher on subscribe.
+- **Elicitation** — `elicitation/create` notification → user confirms in UI → `notifications/elicitation/complete`. Applied to `delete_test_case` and `bulk_delete_test_cases`.
+- **Sampling** — `sampling/createMessage` request → LLM via client → `sampling/createMessage/response`. Used by `analyze_launch_failures`.
+- **Capabilities advertised**: `tools`, `resources` (subscribe=true), `prompts`, `logging`, `elicitation`
 
 ---
 
@@ -131,12 +152,15 @@ Path and query params are matched by name from the spec. Use `"body"` key for ar
 
 ### Launch Management (14 tools)
 
+> **Async operations** — `run_allure_launch`, `copy_launch`, `merge_launches` return `{"task_id": "...", "message": "..."}` immediately and complete in the background. Use `get_task_status` to poll.
+
 #### run_allure_launch
-Start a new test launch.
+Start a new test launch (async).
 ```json
 { "project_id": "integer (required)", "launch_name": "string (required)" }
 ```
-Returns: `{"launch_id": 123, "status": "started"}`
+Returns: `{"task_id": "abc123", "message": "Launch creation started. Use get_task_status to track progress."}`
+Task result on success: `{"launch_id": 123, "status": "started"}`
 
 #### get_launch_status
 ```json
@@ -180,19 +204,19 @@ Returns: `{"status": "closed"}`
 Returns: `{"status": "reopened"}`
 
 #### copy_launch
+Async. Returns task_id. Task result: `{"launch_id": N, "name": "...", "status": "copied"}`
 ```json
 { "launch_id": "integer (required)" }
 ```
-Returns: `{"launch_id": N, "name": "...", "status": "copied"}`
 
 #### merge_launches
+Async. Returns task_id. Task result: `{"merged_launch_id": N, "status": "merged"}`
 ```json
 {
   "launch_ids": "[integer] (required)",
   "launch_name": "string (required)"
 }
 ```
-Returns: `{"merged_launch_id": N, "status": "merged"}`
 
 #### get_launch_environment
 ```json
@@ -911,6 +935,44 @@ create_test_case_step(test_case_id=200, name="Verify MFA prompt")
 
 create_test_case_version(test_case_id=200, title="v1.0 — initial")
 ```
+
+---
+
+### Async Task Management (3 tools)
+
+Long-running operations (run_allure_launch, copy_launch, merge_launches, bulk_run_*, bulk_clone_test_cases) return `{"task_id": "...", "message": "..."}` immediately and run in the background.
+
+#### get_task_status
+```json
+{ "task_id": "string (required)" }
+```
+Returns: `{"id": "...", "tool": "run_allure_launch", "status": "working|succeeded|failed|cancelled", "result": {...}, "error": "...", "created_at": "...", "updated_at": "..."}`
+
+#### list_running_tasks
+No parameters. Returns: `{"tasks": [...], "count": N}` — only tasks with status=working.
+
+#### cancel_task
+```json
+{ "task_id": "string (required)" }
+```
+Returns: `{"status": "cancelled", "task_id": "..."}` — signals the background goroutine via context cancellation.
+
+---
+
+### AI Analysis (1 tool)
+
+#### analyze_launch_failures
+Fetches failed test results from a launch and uses MCP sampling (asks Claude via the client) to identify root causes and suggest fixes. Returns a plain-text analysis.
+
+**Requires:** client that supports `sampling/createMessage`.
+```json
+{
+  "launch_id": "integer (required)",
+  "max_failures": "integer (optional, default 20, max 50)"
+}
+```
+Returns: `{"launch_id": N, "failures": N, "analysis": "...<Claude's analysis>..."}`
+If sampling unavailable: returns `summary` of raw failures with `error` field.
 
 ---
 

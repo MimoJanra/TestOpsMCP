@@ -14,7 +14,7 @@ Complete reference for Allure MCP Server tools and endpoints.
 
 ## Tools
 
-The server exposes **102 tools** across multiple categories covering launches, test results, test cases, bulk operations, analytics, and more. See [llms-full.txt](../llms-full.txt) for the complete reference.
+The server exposes **104 tools** across multiple categories covering launches, test results, test cases, bulk operations, analytics, async tasks, and AI analysis. See [llms-full.txt](../llms-full.txt) for the complete reference.
 
 ---
 
@@ -57,13 +57,29 @@ Resources are available via `resources/list` and `resources/read`.
 | `ui://widgets/action-picker` | `text/html;profile=mcp-app` | Filterable picker for 600+ OpenAPI operations. |
 | `ui://widgets/results-display` | `text/html;profile=mcp-app` | Formatted JSON viewer for `execute_testops_operation` results. |
 
+The `launch-dashboard` resource supports **subscriptions** (`resources/subscribe`). When subscribed, the server polls launch status every 10 s and sends `notifications/resources/updated` when it changes.
+
+---
+
+## MCP Protocol (2025-11-25)
+
+| Feature | Details |
+|---------|---------|
+| **Version** | `2025-11-25` (negotiated — accepts older client versions) |
+| **Pagination** | `tools/list`, `resources/list`, `prompts/list` paginate at 50 items. Response includes `nextCursor`. |
+| **Completion** | `completion/complete` — `project_id` and `launch_id` arguments return live suggestions from Allure API |
+| **Elicitation** | Server confirms destructive operations via `elicitation/create`. Applied to `delete_test_case`, `bulk_delete_test_cases`. |
+| **Sampling** | Server can ask Claude via client with `sampling/createMessage`. Used by `analyze_launch_failures`. |
+| **Subscriptions** | `resources/subscribe` / `resources/unsubscribe`. `notifications/resources/updated` on launch status change. |
+| **Capabilities** | `tools`, `resources.subscribe=true`, `prompts`, `logging`, `elicitation` |
+
 ---
 
 ## Launch Management Tools
 
 ### 1. `run_allure_launch`
 
-Start a new test launch in Allure TestOps.
+Start a new test launch in Allure TestOps. **Returns immediately** with a `task_id`; the launch is created asynchronously.
 
 #### Parameters
 
@@ -71,14 +87,24 @@ Start a new test launch in Allure TestOps.
 |-----------|------|----------|-------------|
 | `project_id` | integer | ✓ | Allure project ID |
 | `launch_name` | string | ✓ | Human-readable name for the launch |
-| `auto_submit` | boolean | | Auto-submit when test collection complete (default: false) |
 
 #### Response
 
 ```json
 {
-  "type": "text",
-  "text": "Launch started: ID=12345, Name='Smoke Tests'"
+  "task_id": "a1b2c3d4e5f6...",
+  "message": "Launch creation started. Use get_task_status to track progress."
+}
+```
+
+Use `get_task_status` with the returned `task_id`. On completion, task result contains `{"launch_id": 123, "status": "started"}`.
+
+#### Example
+
+```json
+{
+  "task_id": "a1b2c3...",
+  "message": "Launch creation started. Use get_task_status to track progress."
 }
 ```
 
@@ -784,3 +810,66 @@ asyncio.run(main())
 ```
 
 **Fix:** Use correct `launch_id` from `run_allure_launch` response
+
+---
+
+## Async Task Tools
+
+### `get_task_status`
+
+Get the current status of a background task.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_id` | string | ✓ | Task ID returned by an async tool |
+
+**Response:**
+```json
+{
+  "id": "a1b2c3...",
+  "tool": "run_allure_launch",
+  "status": "working",
+  "created_at": "2026-05-31T12:00:00Z",
+  "updated_at": "2026-05-31T12:00:01Z"
+}
+```
+
+`status` values: `working` / `succeeded` / `failed` / `cancelled`. On `succeeded`, includes `result` field with the tool's output. On `failed`, includes `error` string.
+
+### `list_running_tasks`
+
+No parameters. Returns `{"tasks": [...], "count": N}` — only tasks with `status=working`.
+
+### `cancel_task`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_id` | string | ✓ | Task ID to cancel |
+
+Returns `{"status": "cancelled", "task_id": "..."}`. Signals the background goroutine via context cancellation.
+
+---
+
+## AI Analysis Tools
+
+### `analyze_launch_failures`
+
+Fetches failed test results and uses MCP sampling to ask Claude for root-cause analysis.
+
+**Requires:** MCP client that supports `sampling/createMessage` (Claude Desktop, claude.ai).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `launch_id` | integer | ✓ | Allure launch ID to analyze |
+| `max_failures` | integer | | Max failures to analyze (default 20, max 50) |
+
+**Response:**
+```json
+{
+  "launch_id": 12345,
+  "failures": 8,
+  "analysis": "Root causes identified:\n1. Auth token expiry (4 tests)...\n\nSuggested fixes:\n..."
+}
+```
+
+If sampling is unavailable, returns `summary` of raw failures with an `error` field.

@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-Get Allure MCP Server running in 5 minutes.
+Get TestOps MCP Server running in 5 minutes. Protocol 2025-11-25 — 104 tools.
 
 ## Choose Your Path
 
@@ -218,7 +218,7 @@ kubectl get svc -n allure-mcp
 
 ---
 
-## Using Allure MCP in Claude
+## Using TestOps MCP in Claude
 
 Once configured, ask Claude:
 
@@ -226,9 +226,15 @@ Once configured, ask Claude:
 
 > "Run the smoke tests for project 1 in Allure"
 
-Claude automatically uses `run_allure_launch` and returns the launch ID.
+Claude uses `run_allure_launch` — returns a `task_id` immediately. The launch is created in the background.
 
-### Check Status
+### Track Async Operations
+
+> "What's the status of my task a1b2c3?"
+
+Claude uses `get_task_status` and reports `working` / `succeeded` / `failed`. Long-running operations (`run_allure_launch`, `copy_launch`, `merge_launches`, bulk runs) are all async.
+
+### Check Launch Status
 
 > "What's the status of launch 12345?"
 
@@ -239,6 +245,18 @@ Claude uses `get_launch_status` and reports progress.
 > "Show me the test report for launch 12345"
 
 Claude uses `get_launch_report` and displays pass/fail statistics.
+
+### AI Failure Analysis
+
+> "Analyze the failures in launch 12345"
+
+Claude calls `analyze_launch_failures` — fetches failed tests, asks Claude to identify root causes and suggest fixes. Requires a client that supports MCP sampling (Claude Desktop, claude.ai).
+
+### Destructive Operations
+
+> "Delete test case 456"
+
+Claude calls `delete_test_case` — a confirmation dialog (elicitation) appears asking the user to accept or reject before the deletion proceeds.
 
 ---
 

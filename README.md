@@ -7,8 +7,7 @@ Integrate **Allure TestOps** with Claude using the Model Context Protocol. Launc
 [![GitHub Release](https://img.shields.io/github/v/release/MimoJanra/TestOpsMCP?include_prereleases&label=Latest%20Release)](https://github.com/MimoJanra/TestOpsMCP/releases)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Go Version](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go)](https://golang.org)
-[![MCP Badge](https://lobehub.com/badge/mcp/mimojanra-testopsmcp?style=for-the-badge)](https://lobehub.com/mcp/mimojanra-testopsmcp)
-## Why TestOps MCP?
+[![MCP Badge](https://lobehub.com/badge/mcp/mimojanra-testopsmcp?style=plastic)](https://lobehub.com/mcp/mimojanra-testopsmcp)## Why TestOps MCP?
 
 ### ⚡ Speed
 - Start a test run in seconds — no dashboard navigation
@@ -26,11 +25,15 @@ Integrate **Allure TestOps** with Claude using the Model Context Protocol. Launc
 - Works with Claude Desktop, Claude Web, and custom MCP clients
 
 ### 🏭 Production-Grade
-- **102 tools** — complete Allure TestOps test case API coverage + full OpenAPI fallback (600+ endpoints)
+- **104 tools** — complete Allure TestOps test case API coverage + full OpenAPI fallback (600+ endpoints)
 - **MCP Prompts** — built-in templates (`analyze-test-failures`, `launch-report-summary`) for one-click workflows
 - **MCP Resources** — attach `allure://docs/quickstart` as context; widget resources for visual dashboards
+- **AI analysis** — `analyze_launch_failures` asks Claude to find root causes via MCP sampling
+- **Async tasks** — long-running operations return immediately with `task_id`; track with `get_task_status`
+- **Confirmation dialogs** — destructive operations (delete) ask for confirmation via MCP elicitation
 - Docker, Kubernetes, Systemd, ngrok support
 - Enterprise security: JWT auth, CORS, TLS
+- MCP protocol 2025-11-25 with version negotiation, pagination, subscriptions, completion
 
 ---
 
@@ -268,7 +271,7 @@ If you prefer running without Docker:
 
 ---
 
-## 🛠️ 102 Tools
+## 🛠️ 104 Tools
 
 ### Universal Tools
 - **`search_testops_operations`** — Search for any API operation by keyword
@@ -278,7 +281,9 @@ If you prefer running without Docker:
 - **`configure_allure_token`** — Set token in chat (if not in config)
 
 ### Launch Management
-`run_allure_launch` • `get_launch_status` • `get_launch_report` • `list_launches` • `get_launch_details` • `close_launch` • `reopen_launch` • `copy_launch` • `merge_launches` • `get_launch_environment` • `update_launch_environment`
+`run_allure_launch`\* • `get_launch_status` • `get_launch_report` • `list_launches` • `get_launch_details` • `close_launch` • `reopen_launch` • `copy_launch`\* • `merge_launches`\* • `get_launch_environment` • `update_launch_environment`
+
+> \* async — returns `task_id` immediately; track with `get_task_status`
 
 ### Test Results
 `list_test_results` • `get_test_result` • `assign_test_result` • `mute_test_result` • `resolve_test_result` • `unmute_test_result` • `bulk_assign_test_results` • `bulk_mute_test_results` • `bulk_unmute_test_results` • `bulk_resolve_test_results`
@@ -310,6 +315,12 @@ If you prefer running without Docker:
 ### Projects & Analytics
 `list_projects` • `get_project` • `get_project_stats` • `get_launch_trend_analytics` • `get_launch_duration_analytics` • `get_test_success_rate`
 
+### Async Task Management
+`get_task_status` • `list_running_tasks` • `cancel_task`
+
+### AI Analysis
+`analyze_launch_failures` — fetches failed tests, asks Claude to identify root causes and suggest fixes (requires client sampling support)
+
 **→ Full reference:** [API.md](./docs/API.md)
 
 ---
@@ -326,8 +337,9 @@ If you prefer running without Docker:
 ### Investigate Failures
 ```
 "Why did the auth tests fail?"
-→ Claude analyzes logs, identifies root cause
-→ Links to related GitHub/Jira issues
+→ Claude calls analyze_launch_failures
+→ Fetches failures, asks Claude to identify root causes
+→ Returns grouped analysis with suggested fixes
 ```
 
 ### Continuous Integration
@@ -377,8 +389,11 @@ Or deploy with:
 | `REQUEST_TIMEOUT` | No | 30s | HTTP timeout (1–600 seconds) |
 | `PORT` | No | 3000 | Server port (HTTP mode only) |
 | `LOG_LEVEL` | No | INFO | DEBUG/INFO/WARN/ERROR |
-| `MCP_AUTH_TOKEN` | No | — | Bearer auth token for HTTP mode (recommended for production) |
+| `MCP_AUTH_TOKENS` | No | — | Named user tokens: `alice:tok1,bob:tok2` (preferred for teams) |
+| `MCP_AUTH_TOKEN` | No | — | Single legacy bearer token; treated as user `"default"` |
 | `CORS_ALLOWED_ORIGIN` | No | * | CORS origin (set to `https://claude.ai` for Claude.ai) |
+| `AUDIT_LOG_PATH` | No | `audit` | Directory for daily audit JSONL files |
+| `AUDIT_RETENTION_DAYS` | No | `30` | Days to keep audit files |
 
 ---
 
