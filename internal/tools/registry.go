@@ -10,6 +10,7 @@ import (
 	"github.com/MimoJanra/TestOpsMCP/internal/adapters/allure"
 	"github.com/MimoJanra/TestOpsMCP/internal/core"
 	"github.com/MimoJanra/TestOpsMCP/internal/session"
+	"github.com/MimoJanra/TestOpsMCP/internal/tasks"
 )
 
 type HandlerFunc func(ctx context.Context, input json.RawMessage) (any, error)
@@ -74,6 +75,7 @@ type Registry struct {
 	mu          sync.RWMutex
 	opIndex     *OperationsIndex
 	openAPISpec *OpenAPISpec
+	taskStore   *tasks.Store
 
 	// sessionTokens maps MCP session ID → user-provided API token.
 	// Each SSE session (HTTP) or the fixed "stdio" session stores its own token
@@ -98,6 +100,7 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 		sessionTokens: make(map[string]string),
 		resources:     make(map[string]*Resource),
 		prompts:       make(map[string]*RegistryPrompt),
+		taskStore:     tasks.NewStore(),
 	}
 
 	// Load OpenAPI spec and build operations index
@@ -142,6 +145,7 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 	r.registerBulkTools()
 	r.registerRelationTools()
 	r.registerWidgets()
+	r.registerTaskTools()
 
 	// Configuration tool for per-session token override.
 	// Always registered so that:

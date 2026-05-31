@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/MimoJanra/TestOpsMCP/internal/adapters/allure"
+	"github.com/MimoJanra/TestOpsMCP/internal/tasks"
 )
 
 func (r *Registry) registerBulkTools() {
@@ -712,10 +713,15 @@ func (r *Registry) bulkRunTestCasesNewLaunch(ctx context.Context, args bulkRunTe
 	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
-	if err := r.allure.BulkRunTestCasesNewLaunch(ctx, args.ProjectID, args.TestCaseIDs, args.LaunchName, args.Assignees); err != nil {
-		return nil, fmt.Errorf("bulk run new launch: %w", err)
-	}
-	return map[string]any{"status": "started", "count": len(args.TestCaseIDs)}, nil
+	task, taskCtx := r.taskStore.Create("bulk_run_test_cases_new_launch")
+	go func() {
+		if err := r.allure.BulkRunTestCasesNewLaunch(taskCtx, args.ProjectID, args.TestCaseIDs, args.LaunchName, args.Assignees); err != nil {
+			r.taskStore.Update(task.ID, tasks.StatusFailed, "", nil, err)
+			return
+		}
+		r.taskStore.Update(task.ID, tasks.StatusSucceeded, "", map[string]any{"status": "started", "count": len(args.TestCaseIDs)}, nil)
+	}()
+	return map[string]any{"task_id": task.ID, "message": "Bulk run started. Use get_task_status to track progress."}, nil
 }
 
 type bulkRunTestCasesExistingLaunchArgs struct {
@@ -735,10 +741,15 @@ func (r *Registry) bulkRunTestCasesExistingLaunch(ctx context.Context, args bulk
 	if args.LaunchID <= 0 {
 		return nil, fmt.Errorf("launch_id must be positive")
 	}
-	if err := r.allure.BulkRunTestCasesExistingLaunch(ctx, args.ProjectID, args.TestCaseIDs, args.LaunchID, args.Assignees); err != nil {
-		return nil, fmt.Errorf("bulk run existing launch: %w", err)
-	}
-	return map[string]any{"status": "started", "count": len(args.TestCaseIDs)}, nil
+	task, taskCtx := r.taskStore.Create("bulk_run_test_cases_existing_launch")
+	go func() {
+		if err := r.allure.BulkRunTestCasesExistingLaunch(taskCtx, args.ProjectID, args.TestCaseIDs, args.LaunchID, args.Assignees); err != nil {
+			r.taskStore.Update(task.ID, tasks.StatusFailed, "", nil, err)
+			return
+		}
+		r.taskStore.Update(task.ID, tasks.StatusSucceeded, "", map[string]any{"status": "started", "count": len(args.TestCaseIDs)}, nil)
+	}()
+	return map[string]any{"task_id": task.ID, "message": "Bulk run started. Use get_task_status to track progress."}, nil
 }
 
 type bulkCreateTestPlanArgs struct {
@@ -879,17 +890,22 @@ func (r *Registry) bulkCloneTestCases(ctx context.Context, args bulkCloneTestCas
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
 
-	r.logger.Info("bulk cloning test cases", map[string]any{
+	r.logger.Info("bulk cloning test cases async", map[string]any{
 		"project_id": args.ProjectID,
 		"count":      len(args.TestCaseIDs),
 	})
 
-	if err := r.allure.BulkCloneTestCases(ctx, args.ProjectID, args.TestCaseIDs); err != nil {
-		r.logger.Error("bulk clone test cases", err, map[string]any{"project_id": args.ProjectID})
-		return nil, fmt.Errorf("bulk clone test cases: %w", err)
-	}
+	task, taskCtx := r.taskStore.Create("bulk_clone_test_cases")
+	go func() {
+		if err := r.allure.BulkCloneTestCases(taskCtx, args.ProjectID, args.TestCaseIDs); err != nil {
+			r.logger.Error("bulk clone test cases", err, map[string]any{"project_id": args.ProjectID})
+			r.taskStore.Update(task.ID, tasks.StatusFailed, "", nil, err)
+			return
+		}
+		r.taskStore.Update(task.ID, tasks.StatusSucceeded, "", map[string]any{"status": "cloning_started", "count": len(args.TestCaseIDs)}, nil)
+	}()
 
-	return map[string]any{"status": "cloning_started", "count": len(args.TestCaseIDs)}, nil
+	return map[string]any{"task_id": task.ID, "message": "Bulk clone started. Use get_task_status to track progress."}, nil
 }
 
 type bulkAssignTestResultsArgs struct {

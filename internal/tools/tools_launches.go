@@ -3,6 +3,8 @@ package tools
 import (
 	"context"
 	"fmt"
+
+	"github.com/MimoJanra/TestOpsMCP/internal/tasks"
 )
 
 func (r *Registry) registerLaunchTools() {
@@ -301,22 +303,29 @@ func (r *Registry) runAllureLaunch(ctx context.Context, args runAllureLaunchArgs
 		return nil, fmt.Errorf("launch_name is required")
 	}
 
-	r.logger.Info("starting Allure launch", map[string]any{
+	r.logger.Info("starting Allure launch async", map[string]any{
 		"project_id":  args.ProjectID,
 		"launch_name": args.LaunchName,
 	})
 
-	launch, err := r.allure.CreateLaunch(ctx, args.ProjectID, args.LaunchName)
-	if err != nil {
-		r.logger.Error("create launch", err, map[string]any{"project_id": args.ProjectID})
-		return nil, fmt.Errorf("create launch: %w", err)
-	}
-
-	r.logger.Info("launch created", map[string]any{"launch_id": launch.ID})
+	task, taskCtx := r.taskStore.Create("run_allure_launch")
+	go func() {
+		launch, err := r.allure.CreateLaunch(taskCtx, args.ProjectID, args.LaunchName)
+		if err != nil {
+			r.logger.Error("create launch", err, map[string]any{"project_id": args.ProjectID})
+			r.taskStore.Update(task.ID, tasks.StatusFailed, "", nil, err)
+			return
+		}
+		r.logger.Info("launch created", map[string]any{"launch_id": launch.ID})
+		r.taskStore.Update(task.ID, tasks.StatusSucceeded, "", map[string]any{
+			"launch_id": launch.ID,
+			"status":    "started",
+		}, nil)
+	}()
 
 	return map[string]any{
-		"launch_id": launch.ID,
-		"status":    "started",
+		"task_id": task.ID,
+		"message": "Launch creation started. Use get_task_status to track progress.",
 	}, nil
 }
 
@@ -555,18 +564,26 @@ func (r *Registry) copyLaunch(ctx context.Context, args copyLaunchArgs) (any, er
 		return nil, fmt.Errorf("launch_id must be positive")
 	}
 
-	r.logger.Info("copying launch", map[string]any{"launch_id": args.LaunchID})
+	r.logger.Info("copying launch async", map[string]any{"launch_id": args.LaunchID})
 
-	launch, err := r.allure.CopyLaunch(ctx, args.LaunchID)
-	if err != nil {
-		r.logger.Error("copy launch", err, map[string]any{"launch_id": args.LaunchID})
-		return nil, fmt.Errorf("copy launch: %w", err)
-	}
+	task, taskCtx := r.taskStore.Create("copy_launch")
+	go func() {
+		launch, err := r.allure.CopyLaunch(taskCtx, args.LaunchID)
+		if err != nil {
+			r.logger.Error("copy launch", err, map[string]any{"launch_id": args.LaunchID})
+			r.taskStore.Update(task.ID, tasks.StatusFailed, "", nil, err)
+			return
+		}
+		r.taskStore.Update(task.ID, tasks.StatusSucceeded, "", map[string]any{
+			"launch_id": launch.ID,
+			"name":      launch.Name,
+			"status":    "copied",
+		}, nil)
+	}()
 
 	return map[string]any{
-		"launch_id": launch.ID,
-		"name":      launch.Name,
-		"status":    "copied",
+		"task_id": task.ID,
+		"message": "Launch copy started. Use get_task_status to track progress.",
 	}, nil
 }
 
@@ -583,20 +600,28 @@ func (r *Registry) mergeLaunches(ctx context.Context, args mergeLaunchesArgs) (a
 		return nil, fmt.Errorf("launch_name is required")
 	}
 
-	r.logger.Info("merging launches", map[string]any{
+	r.logger.Info("merging launches async", map[string]any{
 		"count": len(args.LaunchIDs),
 		"name":  args.LaunchName,
 	})
 
-	launchID, err := r.allure.MergeLaunches(ctx, args.LaunchIDs, args.LaunchName)
-	if err != nil {
-		r.logger.Error("merge launches", err, map[string]any{"count": len(args.LaunchIDs)})
-		return nil, fmt.Errorf("merge launches: %w", err)
-	}
+	task, taskCtx := r.taskStore.Create("merge_launches")
+	go func() {
+		launchID, err := r.allure.MergeLaunches(taskCtx, args.LaunchIDs, args.LaunchName)
+		if err != nil {
+			r.logger.Error("merge launches", err, map[string]any{"count": len(args.LaunchIDs)})
+			r.taskStore.Update(task.ID, tasks.StatusFailed, "", nil, err)
+			return
+		}
+		r.taskStore.Update(task.ID, tasks.StatusSucceeded, "", map[string]any{
+			"merged_launch_id": launchID,
+			"status":           "merged",
+		}, nil)
+	}()
 
 	return map[string]any{
-		"merged_launch_id": launchID,
-		"status":           "merged",
+		"task_id": task.ID,
+		"message": "Launch merge started. Use get_task_status to track progress.",
 	}, nil
 }
 
