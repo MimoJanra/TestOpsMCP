@@ -44,6 +44,7 @@ type Server struct {
 	registry *tools.Registry
 	logger   *core.Logger
 	opts     Options
+	handler  requestHandler
 
 	mu       sync.RWMutex
 	sessions map[string]*session
@@ -57,12 +58,18 @@ type session struct {
 }
 
 func NewServer(registry *tools.Registry, logger *core.Logger, opts Options) *Server {
-	return &Server{
+	s := &Server{
 		registry: registry,
 		logger:   logger,
 		opts:     opts,
 		sessions: make(map[string]*session),
 	}
+	s.handler = buildChain(
+		s.route,
+		panicRecoveryMiddleware(logger),
+		auditMiddleware(opts.AuditLog),
+	)
+	return s
 }
 
 // HandleSSE serves the MCP SSE transport: streams the per-session endpoint URL
@@ -210,34 +217,7 @@ func (s *Server) HandleMessages(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) dispatch(ctx context.Context, req *JSONRPCRequest) *JSONRPCResponse {
-	start := time.Now()
-	resp := s.route(ctx, req)
-
-	if s.opts.AuditLog != nil && !req.IsNotification() {
-		status := "ok"
-		if resp != nil && resp.Error != nil {
-			status = "error"
-		}
-		entry := audit.Entry{
-			User:       sessctx.UserFromContext(ctx),
-			SessionID:  sessctx.IDFromContext(ctx),
-			RemoteAddr: sessctx.RemoteAddrFromContext(ctx),
-			Method:     req.Method,
-			Status:     status,
-			DurationMS: time.Since(start).Milliseconds(),
-		}
-		if req.Method == "tools/call" && len(req.Params) > 0 {
-			var p struct {
-				Name string `json:"name"`
-			}
-			if err := json.Unmarshal(req.Params, &p); err == nil {
-				entry.Tool = p.Name
-			}
-		}
-		s.opts.AuditLog.Write(entry)
-	}
-
-	return resp
+	return s.handler(ctx, req)
 }
 
 func (s *Server) route(ctx context.Context, req *JSONRPCRequest) *JSONRPCResponse {
