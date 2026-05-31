@@ -61,6 +61,9 @@ type InitializeResponse struct {
 			Subscribe   bool `json:"subscribe"`
 			ListChanged bool `json:"listChanged"`
 		} `json:"resources"`
+		Prompts struct {
+			ListChanged bool `json:"listChanged"`
+		} `json:"prompts"`
 	} `json:"capabilities"`
 	ServerInfo struct {
 		Name    string `json:"name"`
@@ -103,6 +106,37 @@ type ResourceContent struct {
 
 type ResourcesReadResponse struct {
 	Contents []ResourceContent `json:"contents"`
+}
+
+type Prompt struct {
+	Name        string           `json:"name"`
+	Description string           `json:"description,omitempty"`
+	Arguments   []PromptArgument `json:"arguments,omitempty"`
+}
+
+type PromptArgument struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+}
+
+type PromptsListResponse struct {
+	Prompts []Prompt `json:"prompts"`
+}
+
+type PromptGetRequest struct {
+	Name      string            `json:"name"`
+	Arguments map[string]string `json:"arguments,omitempty"`
+}
+
+type PromptMessage struct {
+	Role    string      `json:"role"`
+	Content TextContent `json:"content"`
+}
+
+type PromptGetResponse struct {
+	Description string          `json:"description,omitempty"`
+	Messages    []PromptMessage `json:"messages"`
 }
 
 type ToolCallRequest struct {

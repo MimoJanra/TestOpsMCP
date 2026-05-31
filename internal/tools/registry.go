@@ -14,6 +14,24 @@ import (
 
 type HandlerFunc func(ctx context.Context, input json.RawMessage) (any, error)
 
+type PromptArg struct {
+	Name        string
+	Description string
+	Required    bool
+}
+
+type RegistryPromptMessage struct {
+	Role string
+	Text string
+}
+
+type RegistryPrompt struct {
+	Name        string
+	Description string
+	Arguments   []PromptArg
+	GetMessages func(args map[string]string) []RegistryPromptMessage
+}
+
 type Tool struct {
 	Name        string
 	Description string
@@ -55,6 +73,10 @@ type Registry struct {
 	// resources holds MCP resources (e.g. widget HTML pages).
 	resources   map[string]*Resource
 	resourcesMu sync.RWMutex
+
+	// prompts holds registered MCP prompt templates.
+	prompts   map[string]*RegistryPrompt
+	promptsMu sync.RWMutex
 }
 
 func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
@@ -64,6 +86,7 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 		logger:        logger,
 		sessionTokens: make(map[string]string),
 		resources:     make(map[string]*Resource),
+		prompts:       make(map[string]*RegistryPrompt),
 	}
 
 	// Load OpenAPI spec and build operations index
@@ -98,6 +121,7 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 		})
 	}
 
+	r.registerPrompts()
 	r.registerLaunchTools()
 	r.registerResultTools()
 	r.registerTestCaseTools()
@@ -369,6 +393,38 @@ func autoAnnotate(name string) map[string]any {
 		"readOnlyHint":    false,
 		"destructiveHint": false,
 	}
+}
+
+// RegisterPrompt adds a prompt template to the registry.
+func (r *Registry) RegisterPrompt(p *RegistryPrompt) {
+	r.promptsMu.Lock()
+	defer r.promptsMu.Unlock()
+	r.prompts[p.Name] = p
+}
+
+// ListPrompts returns all registered prompt templates.
+func (r *Registry) ListPrompts() []*RegistryPrompt {
+	r.promptsMu.RLock()
+	defer r.promptsMu.RUnlock()
+	list := make([]*RegistryPrompt, 0, len(r.prompts))
+	for _, p := range r.prompts {
+		list = append(list, p)
+	}
+	return list
+}
+
+// GetPrompt returns the messages and description for the named prompt, with arguments applied.
+func (r *Registry) GetPrompt(name string, args map[string]string) ([]RegistryPromptMessage, string, error) {
+	r.promptsMu.RLock()
+	p := r.prompts[name]
+	r.promptsMu.RUnlock()
+	if p == nil {
+		return nil, "", fmt.Errorf("prompt not found: %s", name)
+	}
+	if args == nil {
+		args = map[string]string{}
+	}
+	return p.GetMessages(args), p.Description, nil
 }
 
 // Search + Execute handlers

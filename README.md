@@ -7,8 +7,7 @@ Integrate **Allure TestOps** with Claude using the Model Context Protocol. Launc
 [![GitHub Release](https://img.shields.io/github/v/release/MimoJanra/TestOpsMCP?include_prereleases&label=Latest%20Release)](https://github.com/MimoJanra/TestOpsMCP/releases)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Go Version](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go)](https://golang.org)
-[![MCP Badge](https://lobehub.com/badge/mcp-full/mimojanra-testopsmcp?theme=light)](https://lobehub.com/mcp/mimojanra-testopsmcp)
-
+[![MCP Badge](https://lobehub.com/badge/mcp/mimojanra-testopsmcp?style=for-the-badge)](https://lobehub.com/mcp/mimojanra-testopsmcp)
 ## Why TestOps MCP?
 
 ### ⚡ Speed
@@ -28,6 +27,8 @@ Integrate **Allure TestOps** with Claude using the Model Context Protocol. Launc
 
 ### 🏭 Production-Grade
 - **102 tools** — complete Allure TestOps test case API coverage + full OpenAPI fallback (600+ endpoints)
+- **MCP Prompts** — built-in templates (`analyze-test-failures`, `launch-report-summary`) for one-click workflows
+- **MCP Resources** — attach `allure://docs/quickstart` as context; widget resources for visual dashboards
 - Docker, Kubernetes, Systemd, ngrok support
 - Enterprise security: JWT auth, CORS, TLS
 

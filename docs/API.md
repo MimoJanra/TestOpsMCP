@@ -5,6 +5,8 @@ Complete reference for Allure MCP Server tools and endpoints.
 ## Table of Contents
 
 - [Tools](#tools)
+- [Prompts](#prompts)
+- [Resources](#resources)
 - [HTTP Endpoints](#http-endpoints)
 - [Protocol](#protocol)
 - [Examples](#examples)
@@ -12,12 +14,48 @@ Complete reference for Allure MCP Server tools and endpoints.
 
 ## Tools
 
-The server exposes **32+ tools** across 4 categories:
+The server exposes **102 tools** across multiple categories covering launches, test results, test cases, bulk operations, analytics, and more. See [llms-full.txt](../llms-full.txt) for the complete reference.
 
-- **Launch Management** (9 tools) — Create, monitor, close launches
-- **Test Results** (8 tools) — Manage test execution results
-- **Test Cases** (9 tools) — CRUD operations on test cases
-- **Analytics** (6 tools) — Projects, statistics, trends
+---
+
+## Prompts
+
+Built-in prompt templates are available via `prompts/list` and `prompts/get`. Clients can invoke them as slash commands or workflow shortcuts.
+
+### `analyze-test-failures`
+
+Instructs Claude to retrieve launch details, list all failed and broken results, group failures by error message or test suite, and surface the most critical issues.
+
+**Arguments:**
+
+| Name | Required | Description |
+|------|----------|-------------|
+| `launch_id` | ✓ | Allure launch ID to analyze |
+| `project_id` | | Allure project ID for additional context |
+
+### `launch-report-summary`
+
+Instructs Claude to generate a concise executive summary including pass rate, total counts, duration, environment, and the top 3 failures.
+
+**Arguments:**
+
+| Name | Required | Description |
+|------|----------|-------------|
+| `launch_id` | ✓ | Allure launch ID |
+| `project_id` | | Allure project ID |
+
+---
+
+## Resources
+
+Resources are available via `resources/list` and `resources/read`.
+
+| URI | MIME type | Description |
+|-----|-----------|-------------|
+| `allure://docs/quickstart` | `text/markdown` | Quickstart guide — tool groups, prompts, setup steps. Always available. |
+| `ui://widgets/launch-dashboard` | `text/html;profile=mcp-app` | Interactive dashboard with pass/fail bar and stats (requires Allure token). |
+| `ui://widgets/action-picker` | `text/html;profile=mcp-app` | Filterable picker for 600+ OpenAPI operations. |
+| `ui://widgets/results-display` | `text/html;profile=mcp-app` | Formatted JSON viewer for `execute_testops_operation` results. |
 
 ---
 

@@ -4,7 +4,7 @@
 
 ## Overview
 
-TestOps MCP is a production-grade Go server implementing the Model Context Protocol (MCP, protocol version 2024-11-05). It exposes **102 curated tools** plus a dynamic fallback covering **600+ Allure TestOps API endpoints** via an OpenAPI spec index. Supports two transports: **stdio** (Claude Desktop, single-user) and **HTTP + SSE** (shared team server, multi-user with per-session token isolation).
+TestOps MCP is a production-grade Go server implementing the Model Context Protocol (MCP, protocol version 2024-11-05). It exposes **102 curated tools** plus a dynamic fallback covering **600+ Allure TestOps API endpoints** via an OpenAPI spec index, **2 prompt templates**, and **4 resources** (including 3 interactive widget resources). Supports two transports: **stdio** (Claude Desktop, single-user) and **HTTP + SSE** (shared team server, multi-user with per-session token isolation).
 
 - Module: `github.com/MimoJanra/TestOpsMCP`
 - Language: Go 1.26+
@@ -39,6 +39,24 @@ TestOps MCP is a production-grade Go server implementing the Model Context Proto
 - **Projects** (3): `list_projects`, `get_project`, `get_project_stats`
 - **Analytics** (3): `get_launch_trend_analytics`, `get_launch_duration_analytics`, `get_test_success_rate`
 - **Relations** (6): `get_test_case_relations`, `add_test_case_relation`, `remove_test_case_relation`, `get_relation_types`, `bulk_assign_test_results`, `bulk_mute_test_results`, `bulk_unmute_test_results`, `bulk_resolve_test_results`
+
+## MCP Prompts (2 templates)
+
+| Name | Description | Arguments |
+|------|-------------|-----------|
+| `analyze-test-failures` | Analyze failed/broken tests in a launch: group by error, surface patterns, suggest next steps | `launch_id` (required), `project_id` (optional) |
+| `launch-report-summary` | Generate an executive summary: pass rate, counts, duration, environment, top 3 failures | `launch_id` (required), `project_id` (optional) |
+
+Prompts are returned via `prompts/list` and `prompts/get` JSON-RPC methods.
+
+## MCP Resources
+
+| URI | Name | MIME type | Notes |
+|-----|------|-----------|-------|
+| `allure://docs/quickstart` | TestOps MCP Quickstart | `text/markdown` | Always available; lists tools, prompts, setup steps |
+| `ui://widgets/launch-dashboard` | Launch Dashboard | `text/html;profile=mcp-app` | Interactive widget (requires Allure token) |
+| `ui://widgets/action-picker` | Action Picker | `text/html;profile=mcp-app` | Search/select from 600+ API ops |
+| `ui://widgets/results-display` | Results Display | `text/html;profile=mcp-app` | JSON result viewer |
 
 ## Configuration (Environment Variables)
 

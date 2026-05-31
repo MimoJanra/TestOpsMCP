@@ -1,6 +1,6 @@
 # TestOps MCP — Full LLM Reference
 
-> MCP server that connects Claude to Allure TestOps. 102 curated tools + 600+ dynamic OpenAPI endpoints.
+> MCP server that connects Claude to Allure TestOps. 102 curated tools + 600+ dynamic OpenAPI endpoints + 2 prompt templates + 4 resources.
 > Module: github.com/MimoJanra/TestOpsMCP | Go 1.26+ | Apache 2.0
 
 ---
@@ -15,7 +15,8 @@ internal/
     stdio.go                — line-buffered stdin/stdout handler
     protocol.go             — MCP protocol types (version 2024-11-05)
   tools/
-    registry.go             — tool registration, per-session token isolation
+    registry.go             — tool/prompt/resource registration, per-session token isolation
+    prompts.go              — 2 MCP prompt templates (analyze-test-failures, launch-report-summary)
     tools_launches.go       — launch management (14 tools)
     tools_results.go        — test result actions (6 tools)
     tools_testcases.go      — test case CRUD + run (11 tools)
@@ -966,6 +967,45 @@ docker run -e ALLURE_BASE_URL=https://testops.company.com \
            -p 3000:3000 \
            ghcr.io/MimoJanra/TestOpsMCP:latest --http
 ```
+
+---
+
+## MCP Prompts
+
+Server advertises `prompts` capability. Clients call `prompts/list` then `prompts/get` with argument values.
+
+### analyze-test-failures
+Analyze failed, broken, and skipped tests in an Allure launch to identify patterns and root causes.
+
+Arguments:
+- `launch_id` (required) — Allure launch ID
+- `project_id` (optional) — Allure project ID for additional context
+
+Generated user message: instructs Claude to get launch details, list failures, group by error pattern, surface critical issues.
+
+### launch-report-summary
+Generate a concise executive summary for an Allure TestOps launch.
+
+Arguments:
+- `launch_id` (required) — Allure launch ID
+- `project_id` (optional) — Allure project ID
+
+Generated user message: instructs Claude to retrieve stats and report pass rate, counts, duration, environment, and top 3 failures.
+
+---
+
+## MCP Resources
+
+Server advertises `resources` capability. Clients call `resources/list` then `resources/read` with the URI.
+
+| URI | MIME type | Description |
+|-----|-----------|-------------|
+| `allure://docs/quickstart` | `text/markdown` | Static quickstart listing tool groups, prompts, and setup instructions. Always available. |
+| `ui://widgets/launch-dashboard` | `text/html;profile=mcp-app` | Interactive launch dashboard with progress bar and stats (requires Allure token). |
+| `ui://widgets/action-picker` | `text/html;profile=mcp-app` | Search/filter picker for 600+ OpenAPI operations. |
+| `ui://widgets/results-display` | `text/html;profile=mcp-app` | JSON result viewer for `execute_testops_operation` output. |
+
+Widget resources embed the `@modelcontextprotocol/ext-apps` browser bundle (fetched from CDN on first use; falls back to a minimal stub if unavailable).
 
 ---
 

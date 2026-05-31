@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-05-31 - MCP Prompts & Resources
+
+### Added
+
+#### MCP Prompts
+- **`analyze-test-failures`** — prompt template that instructs Claude to retrieve launch details, list failed/broken results, group by error pattern, and surface critical issues. Argument: `launch_id` (required), `project_id` (optional).
+- **`launch-report-summary`** — prompt template that instructs Claude to generate a concise executive summary (pass rate, counts, duration, environment, top failures). Argument: `launch_id` (required), `project_id` (optional).
+- Server now advertises `prompts` capability in the MCP `initialize` response.
+- `prompts/list` and `prompts/get` JSON-RPC methods are fully handled.
+
+#### MCP Resources
+- **`allure://docs/quickstart`** — static Markdown resource listing tool groups, prompt templates, and quick-start steps. Available even when no Allure token is configured; clients can attach it as context.
+
 ## [1.8.1] - 2026-05-30 - Doc Fixes
 
 ### Fixed

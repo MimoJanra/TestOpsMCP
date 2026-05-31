@@ -264,6 +264,10 @@ func (s *Server) route(ctx context.Context, req *JSONRPCRequest) *JSONRPCRespons
 		return s.handleResourcesList(req)
 	case "resources/read":
 		return s.handleResourcesRead(req)
+	case "prompts/list":
+		return s.handlePromptsList(req)
+	case "prompts/get":
+		return s.handlePromptsGet(req)
 	default:
 		s.logger.Warn("unknown method", map[string]any{"method": req.Method})
 		if notification {
@@ -347,6 +351,49 @@ func (s *Server) handleResourcesRead(req *JSONRPCRequest) *JSONRPCResponse {
 			Text:     res.GetHTML(),
 		}},
 	})
+}
+
+func (s *Server) handlePromptsList(req *JSONRPCRequest) *JSONRPCResponse {
+	prompts := s.registry.ListPrompts()
+	result := PromptsListResponse{Prompts: make([]Prompt, 0, len(prompts))}
+	for _, p := range prompts {
+		args := make([]PromptArgument, len(p.Arguments))
+		for i, a := range p.Arguments {
+			args[i] = PromptArgument{Name: a.Name, Description: a.Description, Required: a.Required}
+		}
+		result.Prompts = append(result.Prompts, Prompt{
+			Name:        p.Name,
+			Description: p.Description,
+			Arguments:   args,
+		})
+	}
+	s.logger.Debug("prompts/list response", map[string]any{"count": len(result.Prompts)})
+	return s.okResponse(req.ID, result)
+}
+
+func (s *Server) handlePromptsGet(req *JSONRPCRequest) *JSONRPCResponse {
+	if len(req.Params) == 0 {
+		return s.errorResponse(req.ID, ErrCodeInvalidParams, "Missing params")
+	}
+	var getReq PromptGetRequest
+	if err := json.Unmarshal(req.Params, &getReq); err != nil {
+		s.logger.Error("parse prompts/get params", err, nil)
+		return s.errorResponse(req.ID, ErrCodeInvalidParams, "Invalid params")
+	}
+	msgs, desc, err := s.registry.GetPrompt(getReq.Name, getReq.Arguments)
+	if err != nil {
+		s.logger.Warn("prompt not found", map[string]any{"name": getReq.Name})
+		return s.errorResponse(req.ID, ErrCodeInvalidParams, err.Error())
+	}
+	result := PromptGetResponse{Description: desc, Messages: make([]PromptMessage, 0, len(msgs))}
+	for _, m := range msgs {
+		result.Messages = append(result.Messages, PromptMessage{
+			Role:    m.Role,
+			Content: TextContent{Type: "text", Text: m.Text},
+		})
+	}
+	s.logger.Debug("prompts/get", map[string]any{"name": getReq.Name})
+	return s.okResponse(req.ID, result)
 }
 
 func (s *Server) handleToolsCall(ctx context.Context, req *JSONRPCRequest) *JSONRPCResponse {

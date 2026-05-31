@@ -378,9 +378,43 @@ await app.connect();})();
 // Widget registration
 // ---------------------------------------------------------------------------
 
+const quickstartContent = `# TestOps MCP Server
+
+Connect to Allure TestOps to manage test launches, results, and test cases directly from your AI assistant.
+
+## Quick Start
+
+1. Configure your Allure token via ` + "`configure_allure_token`" + ` or the ` + "`ALLURE_TOKEN`" + ` environment variable
+2. Use ` + "`list_projects`" + ` to see available projects
+3. Use ` + "`list_launches`" + ` to browse test runs
+4. Use ` + "`get_launch_dashboard`" + ` for a visual launch overview with live stats
+
+## Tool Groups
+
+- **Launches** — list, get, create, close, reopen test launches
+- **Results** — list test results, get details, update statuses
+- **Test Cases** — search, create, update test cases and steps
+- **Analytics** — trends, flaky tests, defect distribution
+- **Bulk** — bulk status updates across test results and test cases
+- **Search** — ` + "`search_testops_operations`" + ` discovers all 300+ API operations
+
+## Prompts
+
+Use the built-in prompts for common workflows:
+- ` + "`analyze-test-failures`" + ` — deep-dive into failures in a specific launch
+- ` + "`launch-report-summary`" + ` — generate an executive summary for a launch
+`
+
 // registerWidgets registers all MCP app tools and their associated resources.
 // Called once from NewRegistry after all other tools are registered.
 func (r *Registry) registerWidgets() {
+	r.RegisterResource(&Resource{
+		URI:      "allure://docs/quickstart",
+		Name:     "TestOps MCP Quickstart",
+		MimeType: "text/markdown",
+		GetHTML:  func() string { return quickstartContent },
+	})
+
 	if r.allure == nil {
 		return
 	}
