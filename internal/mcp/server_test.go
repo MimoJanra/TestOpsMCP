@@ -128,8 +128,13 @@ func TestServer_ToolsListOverSSE(t *testing.T) {
 	post.Body.Close()
 
 	msg := readSSEEvent(t, resp.Body, "message", 2*time.Second)
-	if !strings.Contains(msg, "run_allure_launch") {
-		t.Errorf("tools/list response missing tools: %s", msg)
+	// With pagination (pageSize=50), the first page contains tools alphabetically.
+	// "add_test_case_defect" is on page 1; "nextCursor" indicates more pages exist.
+	if !strings.Contains(msg, `"add_test_case_defect"`) {
+		t.Errorf("tools/list page 1 missing expected tool: %s", msg)
+	}
+	if !strings.Contains(msg, `"nextCursor"`) {
+		t.Errorf("tools/list response missing pagination cursor: %s", msg)
 	}
 }
 

@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -266,7 +268,18 @@ func (s *Server) handleInitialize(req *JSONRPCRequest) *JSONRPCResponse {
 		}
 	}
 
-	resp := InitializeResponse{ProtocolVersion: ProtocolVersion}
+	// Negotiate protocol version: use client's requested version if we support it,
+	// otherwise fall back to our latest supported version.
+	negotiated := ProtocolVersion
+	for _, v := range supportedVersions {
+		if v == initReq.ProtocolVersion {
+			negotiated = v
+			break
+		}
+	}
+
+	resp := InitializeResponse{ProtocolVersion: negotiated}
+	resp.Capabilities.Logging = &struct{}{}
 	resp.ServerInfo.Name = "allure-mcp-server"
 	resp.ServerInfo.Version = Version
 
@@ -279,9 +292,28 @@ func (s *Server) handleInitialize(req *JSONRPCRequest) *JSONRPCResponse {
 }
 
 func (s *Server) handleToolsList(req *JSONRPCRequest) *JSONRPCResponse {
-	toolsList := s.registry.ListTools()
-	result := ToolsListResponse{Tools: make([]Tool, 0, len(toolsList))}
-	for _, t := range toolsList {
+	var listReq ToolsListRequest
+	if len(req.Params) > 0 {
+		_ = json.Unmarshal(req.Params, &listReq)
+	}
+
+	const pageSize = 50
+	all := s.registry.ListTools()
+	// Sort by name for stable pagination
+	sortToolsByName(all)
+
+	offset := cursorToOffset(listReq.Cursor)
+	if offset > len(all) {
+		offset = len(all)
+	}
+	end := offset + pageSize
+	if end > len(all) {
+		end = len(all)
+	}
+	page := all[offset:end]
+
+	result := ToolsListResponse{Tools: make([]Tool, 0, len(page))}
+	for _, t := range page {
 		result.Tools = append(result.Tools, Tool{
 			Name:        t.Name,
 			Description: t.Description,
@@ -290,21 +322,44 @@ func (s *Server) handleToolsList(req *JSONRPCRequest) *JSONRPCResponse {
 			Meta:        t.Meta,
 		})
 	}
+	if end < len(all) {
+		result.NextCursor = offsetToCursor(end)
+	}
 
-	s.logger.Debug("tools/list response", map[string]any{"count": len(result.Tools)})
+	s.logger.Debug("tools/list response", map[string]any{"count": len(result.Tools), "total": len(all)})
 	return s.okResponse(req.ID, result)
 }
 
 func (s *Server) handleResourcesList(req *JSONRPCRequest) *JSONRPCResponse {
-	resources := s.registry.ListResources()
-	result := ResourcesListResponse{Resources: make([]MCPResource, 0, len(resources))}
-	for _, r := range resources {
+	var listReq ResourcesListRequest
+	if len(req.Params) > 0 {
+		_ = json.Unmarshal(req.Params, &listReq)
+	}
+
+	const pageSize = 50
+	all := s.registry.ListResources()
+	offset := cursorToOffset(listReq.Cursor)
+	if offset > len(all) {
+		offset = len(all)
+	}
+	end := offset + pageSize
+	if end > len(all) {
+		end = len(all)
+	}
+	page := all[offset:end]
+
+	result := ResourcesListResponse{Resources: make([]MCPResource, 0, len(page))}
+	for _, r := range page {
 		result.Resources = append(result.Resources, MCPResource{
 			URI:      r.URI,
 			Name:     r.Name,
 			MimeType: r.MimeType,
 		})
 	}
+	if end < len(all) {
+		result.NextCursor = offsetToCursor(end)
+	}
+
 	s.logger.Debug("resources/list response", map[string]any{"count": len(result.Resources)})
 	return s.okResponse(req.ID, result)
 }
@@ -334,9 +389,25 @@ func (s *Server) handleResourcesRead(req *JSONRPCRequest) *JSONRPCResponse {
 }
 
 func (s *Server) handlePromptsList(req *JSONRPCRequest) *JSONRPCResponse {
-	prompts := s.registry.ListPrompts()
-	result := PromptsListResponse{Prompts: make([]Prompt, 0, len(prompts))}
-	for _, p := range prompts {
+	var listReq PromptsListRequest
+	if len(req.Params) > 0 {
+		_ = json.Unmarshal(req.Params, &listReq)
+	}
+
+	const pageSize = 50
+	all := s.registry.ListPrompts()
+	offset := cursorToOffset(listReq.Cursor)
+	if offset > len(all) {
+		offset = len(all)
+	}
+	end := offset + pageSize
+	if end > len(all) {
+		end = len(all)
+	}
+	page := all[offset:end]
+
+	result := PromptsListResponse{Prompts: make([]Prompt, 0, len(page))}
+	for _, p := range page {
 		args := make([]PromptArgument, len(p.Arguments))
 		for i, a := range p.Arguments {
 			args[i] = PromptArgument{Name: a.Name, Description: a.Description, Required: a.Required}
@@ -347,6 +418,10 @@ func (s *Server) handlePromptsList(req *JSONRPCRequest) *JSONRPCResponse {
 			Arguments:   args,
 		})
 	}
+	if end < len(all) {
+		result.NextCursor = offsetToCursor(end)
+	}
+
 	s.logger.Debug("prompts/list response", map[string]any{"count": len(result.Prompts)})
 	return s.okResponse(req.ID, result)
 }
@@ -666,6 +741,29 @@ func (s *Server) checkAuth(r *http.Request) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// --- pagination helpers ---
+
+func cursorToOffset(cursor string) int {
+	if cursor == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(cursor)
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
+}
+
+func offsetToCursor(offset int) string {
+	return strconv.Itoa(offset)
+}
+
+func sortToolsByName(ts []*tools.Tool) {
+	sort.Slice(ts, func(i, j int) bool {
+		return ts[i].Name < ts[j].Name
+	})
 }
 
 func (s *Server) setCORSHeaders(w http.ResponseWriter) {

@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 )
 
-const ProtocolVersion = "2025-03-26"
+const ProtocolVersion = "2025-11-25"
+
+var supportedVersions = []string{"2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"}
 
 type JSONRPCRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -51,24 +53,55 @@ type InitializeRequest struct {
 	} `json:"clientInfo"`
 }
 
+type ServerCapabilities struct {
+	Tools struct {
+		ListChanged bool `json:"listChanged"`
+	} `json:"tools"`
+	Resources struct {
+		Subscribe   bool `json:"subscribe"`
+		ListChanged bool `json:"listChanged"`
+	} `json:"resources"`
+	Prompts struct {
+		ListChanged bool `json:"listChanged"`
+	} `json:"prompts"`
+	Logging     *struct{} `json:"logging,omitempty"`
+	Elicitation *struct{} `json:"elicitation,omitempty"`
+}
+
 type InitializeResponse struct {
-	ProtocolVersion string `json:"protocolVersion"`
-	Capabilities    struct {
-		Tools struct {
-			ListChanged bool `json:"listChanged"`
-		} `json:"tools"`
-		Resources struct {
-			Subscribe   bool `json:"subscribe"`
-			ListChanged bool `json:"listChanged"`
-		} `json:"resources"`
-		Prompts struct {
-			ListChanged bool `json:"listChanged"`
-		} `json:"prompts"`
-	} `json:"capabilities"`
-	ServerInfo struct {
+	ProtocolVersion string             `json:"protocolVersion"`
+	Capabilities    ServerCapabilities `json:"capabilities"`
+	ServerInfo      struct {
 		Name    string `json:"name"`
 		Version string `json:"version"`
 	} `json:"serverInfo"`
+}
+
+// PaginatedRequest and PaginatedResponse support cursor-based pagination
+// in tools/list, resources/list, and prompts/list.
+type PaginatedRequest struct {
+	Cursor string `json:"cursor,omitempty"`
+}
+
+type PaginatedResponse struct {
+	NextCursor string `json:"nextCursor,omitempty"`
+}
+
+type ToolsListRequest struct {
+	PaginatedRequest
+}
+
+type ToolsListResponse struct {
+	Tools []Tool `json:"tools"`
+	PaginatedResponse
+}
+
+type ResourcesListRequest struct {
+	PaginatedRequest
+}
+
+type PromptsListRequest struct {
+	PaginatedRequest
 }
 
 type Tool struct {
@@ -77,10 +110,6 @@ type Tool struct {
 	InputSchema any            `json:"inputSchema"`
 	Annotations map[string]any `json:"annotations,omitempty"`
 	Meta        map[string]any `json:"_meta,omitempty"`
-}
-
-type ToolsListResponse struct {
-	Tools []Tool `json:"tools"`
 }
 
 // Resource represents an MCP resource entry (e.g. a widget HTML page).
@@ -92,6 +121,7 @@ type MCPResource struct {
 
 type ResourcesListResponse struct {
 	Resources []MCPResource `json:"resources"`
+	PaginatedResponse
 }
 
 type ResourcesReadRequest struct {
@@ -122,6 +152,7 @@ type PromptArgument struct {
 
 type PromptsListResponse struct {
 	Prompts []Prompt `json:"prompts"`
+	PaginatedResponse
 }
 
 type PromptGetRequest struct {
