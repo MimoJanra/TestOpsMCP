@@ -469,6 +469,8 @@ func (r *Registry) Complete(promptName, argName, partial string) []string {
 	switch argName {
 	case "project_id":
 		return r.completeProjectIDs(partial)
+	case "launch_id":
+		return r.completeLaunchIDs(partial)
 	}
 	return nil
 }
@@ -488,6 +490,42 @@ func (r *Registry) completeProjectIDs(partial string) []string {
 		id := fmt.Sprintf("%d", p.ID)
 		if partial == "" || strings.HasPrefix(id, partial) {
 			results = append(results, id)
+		}
+	}
+	return results
+}
+
+// completeLaunchIDs returns recent launch ID suggestions matching partial.
+// Since completion requests carry no project context, we scan the first few
+// projects and collect up to 20 recent launches total.
+func (r *Registry) completeLaunchIDs(partial string) []string {
+	if r.allure == nil {
+		return nil
+	}
+	ctx := context.Background()
+	projects, err := r.allure.ListProjects(ctx, 0, 5)
+	if err != nil || projects == nil {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	var results []string
+	for _, proj := range projects.Content {
+		if len(results) >= 20 {
+			break
+		}
+		launches, err := r.allure.ListLaunches(ctx, proj.ID, 0, 10)
+		if err != nil || launches == nil {
+			continue
+		}
+		for _, l := range launches.Content {
+			id := fmt.Sprintf("%d", l.ID)
+			if _, dup := seen[id]; dup {
+				continue
+			}
+			seen[id] = struct{}{}
+			if partial == "" || strings.HasPrefix(id, partial) {
+				results = append(results, id)
+			}
 		}
 	}
 	return results
