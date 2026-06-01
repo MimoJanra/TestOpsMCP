@@ -102,8 +102,13 @@ func (r *Registry) registerResultTools() {
 					"type":        "integer",
 					"description": "Allure test result ID",
 				},
+				"status": map[string]any{
+					"type":        "string",
+					"enum":        []string{"failed", "broken", "passed", "skipped", "unknown"},
+					"description": "Resolution status to set",
+				},
 			},
-			"required": []string{"test_result_id"},
+			"required": []string{"test_result_id", "status"},
 		},
 		Handler: Typed(r.resolveTestResult),
 	})
@@ -287,17 +292,21 @@ func (r *Registry) muteTestResult(ctx context.Context, args muteTestResultArgs) 
 }
 
 type resolveTestResultArgs struct {
-	TestResultID int64 `json:"test_result_id"`
+	TestResultID int64  `json:"test_result_id"`
+	Status       string `json:"status"`
 }
 
 func (r *Registry) resolveTestResult(ctx context.Context, args resolveTestResultArgs) (any, error) {
 	if args.TestResultID <= 0 {
 		return nil, fmt.Errorf("test_result_id must be positive")
 	}
+	if args.Status == "" {
+		return nil, fmt.Errorf("status is required")
+	}
 
 	r.logger.Info("resolving test result", map[string]any{"test_result_id": args.TestResultID})
 
-	if err := r.allure.ResolveTestResult(ctx, args.TestResultID); err != nil {
+	if err := r.allure.ResolveTestResult(ctx, args.TestResultID, args.Status); err != nil {
 		r.logger.Error("resolve test result", err, map[string]any{"test_result_id": args.TestResultID})
 		return nil, fmt.Errorf("resolve test result: %w", err)
 	}

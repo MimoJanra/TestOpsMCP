@@ -151,26 +151,6 @@ func (r *Registry) registerLaunchTools() {
 	})
 
 	r.register(&Tool{
-		Name:        "update_launch_environment",
-		Description: "Update launch environment variables",
-		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"launch_id": map[string]any{
-					"type":        "integer",
-					"description": "Allure launch ID",
-				},
-				"environment": map[string]any{
-					"type":        "object",
-					"description": "Environment variables as key-value pairs",
-				},
-			},
-			"required": []string{"launch_id", "environment"},
-		},
-		Handler: Typed(r.updateLaunchEnvironment),
-	})
-
-	r.register(&Tool{
 		Name:        "copy_launch",
 		Description: "Copy/duplicate a launch",
 		InputSchema: map[string]any{
@@ -530,29 +510,6 @@ func (r *Registry) getLaunchEnvironment(ctx context.Context, args getLaunchEnvir
 	}
 
 	return map[string]any{"environment": env}, nil
-}
-
-type updateLaunchEnvironmentArgs struct {
-	LaunchID    int64          `json:"launch_id"`
-	Environment map[string]any `json:"environment"`
-}
-
-func (r *Registry) updateLaunchEnvironment(ctx context.Context, args updateLaunchEnvironmentArgs) (any, error) {
-	if args.LaunchID <= 0 {
-		return nil, fmt.Errorf("launch_id must be positive")
-	}
-	if len(args.Environment) == 0 {
-		return nil, fmt.Errorf("environment must not be empty")
-	}
-
-	r.logger.Info("updating launch environment", map[string]any{"launch_id": args.LaunchID})
-
-	if err := r.allure.UpdateLaunchEnvironment(ctx, args.LaunchID, args.Environment); err != nil {
-		r.logger.Error("update launch environment", err, map[string]any{"launch_id": args.LaunchID})
-		return nil, fmt.Errorf("update launch environment: %w", err)
-	}
-
-	return map[string]any{"status": "updated"}, nil
 }
 
 type copyLaunchArgs struct {

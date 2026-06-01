@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.3] - 2026-06-01 - API Compliance Fixes
+
+### Fixed
+
+- **`update_test_case` — `id` missing from request body** — `PATCH /api/testcase/{id}` requires the test case ID both in the URL path and in the JSON body. The body field was absent, causing the API to reject or misroute update requests.
+
+- **`update_test_case` — scenario steps lacked required `type` discriminator** — The Allure API uses a polymorphic step schema (`ScenarioStepDto`) with a required `type` field (`"body"` or `"expected"`). Steps were sent without this field, so the API could not determine the step variant. The `manual_scenario` field is now typed as `ScenarioDto{Steps []ScenarioStepDto}` with `type` enforced. Tool description and schema updated to make the step format explicit.
+
+- **`add_test_case_defect` — wrong endpoint** — was calling `POST /api/testcase/{id}/defect` (GET-only in spec). Corrected to `POST /api/testcase/{testCaseId}/defect/{defectId}` with no request body.
+
+- **`remove_test_case_members` — wrong endpoint and method** — was calling `DELETE /api/testcase/{id}/members` (not in spec). Replaced with `POST /api/testcase/bulk/member/remove` using the correct `{ids, selection}` body. Tool schema updated to require `project_id` (needed for the `selection` object).
+
+- **`resolve_test_result` — missing required `status` field** — `POST /api/testresult/{id}/resolve` requires a `status` body (`failed`, `broken`, `passed`, `skipped`, `unknown`). Was sending no body. Both the client method and tool schema now require `status`.
+
+- **`bulk_resolve_test_results` — missing required `status` field** — `POST /api/testresult/bulk/resolve` requires `status` alongside `selection`. The `TestResultBulkResolveDto` struct and tool schema updated accordingly.
+
+### Removed
+
+- **`update_launch_environment`** — `PUT /api/launch/{id}/env` does not exist in the Allure TestOps API (spec defines only `GET` on this path). Tool and client method removed to prevent silent failures.
+
 ## [2.0.2] - 2026-06-01 - Tool Discovery & Test Case Management
 
 ### Fixed

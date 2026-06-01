@@ -418,6 +418,7 @@ type CreateTestCaseRequest struct {
 
 // UpdateTestCaseRequest maps TestCasePatchV2Dto.
 type UpdateTestCaseRequest struct {
+	ID             int64                       `json:"id,omitempty"`
 	Name           string                      `json:"name,omitempty"`
 	Description    string                      `json:"description,omitempty"`
 	FullName       string                      `json:"fullName,omitempty"`
@@ -432,8 +433,21 @@ type UpdateTestCaseRequest struct {
 	Tags           []TestTagDto                `json:"tags,omitempty"`
 	Members        []MemberDto                 `json:"members,omitempty"`
 	Links          []ExternalLinkDto           `json:"links,omitempty"`
-	Scenario       map[string]any              `json:"scenario,omitempty"`
+	Scenario       *ScenarioDto                `json:"scenario,omitempty"`
 	CustomFields   []CustomFieldValueWithCfDto `json:"customFields,omitempty"`
+}
+
+// ScenarioDto is the top-level scenario object used in PATCH /api/testcase/{id}.
+type ScenarioDto struct {
+	Steps []ScenarioStepDto `json:"steps"`
+}
+
+// ScenarioStepDto represents a single manual step inside a scenario.
+// Type is required by the API discriminator: use "body" for a regular step,
+// "expected" for an expected-result entry.
+type ScenarioStepDto struct {
+	Type string `json:"type"`
+	Body string `json:"body,omitempty"`
 }
 
 // ── Shared DTOs ───────────────────────────────────────────────────────────────
@@ -667,6 +681,7 @@ type TestResultBulkMuteDto struct {
 
 type TestResultBulkResolveDto struct {
 	Selection TestResultTreeSelectionDto `json:"selection"`
+	Status    string                     `json:"status"`
 	Issues    []interface{}              `json:"issues,omitempty"`
 }
 

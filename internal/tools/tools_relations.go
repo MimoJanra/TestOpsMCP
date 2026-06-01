@@ -123,6 +123,10 @@ func (r *Registry) registerRelationTools() {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
+				"project_id": map[string]any{
+					"type":        "integer",
+					"description": "Allure project ID (required by the API)",
+				},
 				"test_case_id": map[string]any{
 					"type":        "integer",
 					"description": "Allure test case ID",
@@ -135,7 +139,7 @@ func (r *Registry) registerRelationTools() {
 					"description": "Member IDs to remove",
 				},
 			},
-			"required": []string{"test_case_id", "member_ids"},
+			"required": []string{"project_id", "test_case_id", "member_ids"},
 		},
 		Handler: Typed(r.removeTestCaseMembers),
 	})
@@ -345,11 +349,15 @@ func (r *Registry) addTestCaseMembers(ctx context.Context, args addTestCaseMembe
 }
 
 type removeTestCaseMembersArgs struct {
+	ProjectID  int64   `json:"project_id"`
 	TestCaseID int64   `json:"test_case_id"`
 	MemberIDs  []int64 `json:"member_ids"`
 }
 
 func (r *Registry) removeTestCaseMembers(ctx context.Context, args removeTestCaseMembersArgs) (any, error) {
+	if args.ProjectID <= 0 {
+		return nil, fmt.Errorf("project_id must be positive")
+	}
 	if args.TestCaseID <= 0 {
 		return nil, fmt.Errorf("test_case_id must be positive")
 	}
@@ -362,7 +370,7 @@ func (r *Registry) removeTestCaseMembers(ctx context.Context, args removeTestCas
 		"count":        len(args.MemberIDs),
 	})
 
-	if err := r.allure.RemoveTestCaseMembers(ctx, args.TestCaseID, args.MemberIDs); err != nil {
+	if err := r.allure.RemoveTestCaseMembers(ctx, args.ProjectID, args.TestCaseID, args.MemberIDs); err != nil {
 		r.logger.Error("remove test case members", err, map[string]any{"test_case_id": args.TestCaseID})
 		return nil, fmt.Errorf("remove test case members: %w", err)
 	}

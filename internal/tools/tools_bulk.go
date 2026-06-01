@@ -238,8 +238,13 @@ func (r *Registry) registerBulkTools() {
 					},
 					"description": "Test result IDs",
 				},
+				"status": map[string]any{
+					"type":        "string",
+					"enum":        []string{"failed", "broken", "passed", "skipped", "unknown"},
+					"description": "Resolution status to set on all results",
+				},
 			},
-			"required": []string{"launch_id", "test_result_ids"},
+			"required": []string{"launch_id", "test_result_ids", "status"},
 		},
 		Handler: Typed(r.bulkResolveTestResults),
 	})
@@ -1003,6 +1008,7 @@ func (r *Registry) bulkUnmuteTestResults(ctx context.Context, args bulkUnmuteTes
 type bulkResolveTestResultsArgs struct {
 	LaunchID      int64   `json:"launch_id"`
 	TestResultIDs []int64 `json:"test_result_ids"`
+	Status        string  `json:"status"`
 }
 
 func (r *Registry) bulkResolveTestResults(ctx context.Context, args bulkResolveTestResultsArgs) (any, error) {
@@ -1012,10 +1018,13 @@ func (r *Registry) bulkResolveTestResults(ctx context.Context, args bulkResolveT
 	if len(args.TestResultIDs) == 0 {
 		return nil, fmt.Errorf("test_result_ids must not be empty")
 	}
+	if args.Status == "" {
+		return nil, fmt.Errorf("status is required")
+	}
 
 	r.logger.Info("bulk resolving test results", map[string]any{"launch_id": args.LaunchID, "count": len(args.TestResultIDs)})
 
-	if err := r.allure.BulkResolveTestResults(ctx, args.LaunchID, args.TestResultIDs); err != nil {
+	if err := r.allure.BulkResolveTestResults(ctx, args.LaunchID, args.TestResultIDs, args.Status); err != nil {
 		r.logger.Error("bulk resolve test results", err, map[string]any{"launch_id": args.LaunchID})
 		return nil, fmt.Errorf("bulk resolve: %w", err)
 	}

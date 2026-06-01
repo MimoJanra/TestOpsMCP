@@ -823,6 +823,7 @@ func (c *Client) CreateTestCase(ctx context.Context, projectID int64, name, desc
 }
 
 func (c *Client) UpdateTestCase(ctx context.Context, testCaseID int64, req UpdateTestCaseRequest) error {
+	req.ID = testCaseID
 	body, err := json.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
@@ -2174,13 +2175,14 @@ func (c *Client) BulkUnmuteTestResults(ctx context.Context, launchID int64, test
 	return nil
 }
 
-func (c *Client) BulkResolveTestResults(ctx context.Context, launchID int64, testResultIDs []int64) error {
+func (c *Client) BulkResolveTestResults(ctx context.Context, launchID int64, testResultIDs []int64, status string) error {
 	selection := TestResultTreeSelectionDto{
 		LaunchID:     launchID,
 		LeafsInclude: testResultIDs,
 	}
 	body, err := json.Marshal(TestResultBulkResolveDto{
 		Selection: selection,
+		Status:    status,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
@@ -2354,8 +2356,12 @@ func (c *Client) CopyLaunch(ctx context.Context, launchID int64) (*LaunchRespons
 	return &result, nil
 }
 
-func (c *Client) ResolveTestResult(ctx context.Context, testResultID int64) error {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testresult/%d/resolve", testResultID)), nil)
+func (c *Client) ResolveTestResult(ctx context.Context, testResultID int64, status string) error {
+	body, err := json.Marshal(map[string]any{"status": status})
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testresult/%d/resolve", testResultID)), bytes.NewBuffer(body))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
@@ -2426,34 +2432,6 @@ func (c *Client) GetLaunchEnvironment(ctx context.Context, launchID int64) (map[
 	}
 
 	return result, nil
-}
-
-func (c *Client) UpdateLaunchEnvironment(ctx context.Context, launchID int64, env map[string]any) error {
-	body, err := json.Marshal(env)
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPut, c.url(fmt.Sprintf("/api/launch/%d/env", launchID)), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-
-	return nil
 }
 
 func (c *Client) GetTestCaseHistory(ctx context.Context, testCaseID int64, page, size int) (map[string]any, error) {
@@ -2582,21 +2560,13 @@ func (c *Client) MergeLaunches(ctx context.Context, launchIDs []int64, launchNam
 }
 
 func (c *Client) AddTestCaseDefect(ctx context.Context, testCaseID, defectID int64) error {
-	body, err := json.Marshal(map[string]any{
-		"defectId": defectID,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/%d/defect", testCaseID)), bytes.NewBuffer(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/%d/defect/%d", testCaseID, defectID)), nil)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
 	if err := c.setAuthHeader(ctx, httpReq); err != nil {
 		return fmt.Errorf("set auth: %w", err)
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -2689,34 +2659,14 @@ func (c *Client) AddTestCaseMembers(ctx context.Context, testCaseID int64, membe
 	return nil
 }
 
-func (c *Client) RemoveTestCaseMembers(ctx context.Context, testCaseID int64, memberIDs []int64) error {
-	body, err := json.Marshal(map[string]any{
-		"memberIds": memberIDs,
+func (c *Client) RemoveTestCaseMembers(ctx context.Context, projectID, testCaseID int64, memberIDs []int64) error {
+	return c.bulkPost(ctx, "/api/testcase/bulk/member/remove", map[string]any{
+		"ids": memberIDs,
+		"selection": TestCaseTreeSelectionDto{
+			ProjectID:    projectID,
+			LeafsInclude: []int64{testCaseID},
+		},
 	})
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.url(fmt.Sprintf("/api/testcase/%d/members", testCaseID)), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-
-	return nil
 }
 
 // GetTestCaseExternalLinks returns the external URL links attached to a test case.

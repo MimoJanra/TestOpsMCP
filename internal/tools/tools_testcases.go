@@ -101,7 +101,9 @@ func (r *Registry) registerTestCaseTools() {
 		Description: "Update any fields of an existing test case: name, description, precondition, " +
 			"expected_result, status, tags, members, links, or test layer. " +
 			"All fields are optional — only the ones you pass are changed. " +
-			"This is the tool for editing a test case description, precondition, or expected result.",
+			"To set the manual test steps (scenario), pass manual_scenario with a steps array — " +
+			"each step must have a 'body' field (the step text) and optionally 'expectedResult'. " +
+			"manual_scenario REPLACES all existing steps; use create_test_case_step to append a single step.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -189,7 +191,29 @@ func (r *Registry) registerTestCaseTools() {
 				},
 				"manual_scenario": map[string]any{
 					"type":        "object",
-					"description": "Manual scenario with test execution steps (optional). Contains steps array with step definitions.",
+					"description": "The manual test scenario = the list of test steps. Pass {\"steps\": [{\"body\": \"...\"}]} to set all steps at once. This REPLACES the current steps. To add a single step use create_test_case_step.",
+					"properties": map[string]any{
+						"steps": map[string]any{
+							"type":        "array",
+							"description": "List of manual steps. Each step needs 'type' (required by API) and 'body'. Use type='body' for a regular step action, type='expected' for an expected-result entry.",
+							"items": map[string]any{
+								"type": "object",
+								"properties": map[string]any{
+									"type": map[string]any{
+										"type":        "string",
+										"enum":        []string{"body", "expected"},
+										"description": "Step type: 'body' for action step, 'expected' for expected result",
+									},
+									"body": map[string]any{
+										"type":        "string",
+										"description": "Step text",
+									},
+								},
+								"required": []string{"type", "body"},
+							},
+						},
+					},
+					"required": []string{"steps"},
 				},
 			},
 			"required": []string{"test_case_id"},
@@ -552,7 +576,7 @@ type updateTestCaseArgs struct {
 	Tags           []allure.TestTagDto      `json:"tags"`
 	Members        []allure.MemberDto       `json:"members"`
 	Links          []allure.ExternalLinkDto `json:"links"`
-	ManualScenario map[string]any           `json:"manual_scenario"`
+	ManualScenario *allure.ScenarioDto      `json:"manual_scenario"`
 }
 
 func (r *Registry) updateTestCase(ctx context.Context, args updateTestCaseArgs) (any, error) {
@@ -565,7 +589,7 @@ func (r *Registry) updateTestCase(ctx context.Context, args updateTestCaseArgs) 
 		args.Automated != nil || args.External != nil || args.Deleted != nil ||
 		args.StatusID != nil || args.TestLayerID != nil || args.WorkflowID != nil ||
 		len(args.Tags) > 0 || len(args.Members) > 0 || len(args.Links) > 0 ||
-		len(args.ManualScenario) > 0
+		args.ManualScenario != nil
 
 	if !hasFields {
 		return nil, fmt.Errorf("at least one field must be provided")

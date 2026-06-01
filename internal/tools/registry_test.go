@@ -72,7 +72,6 @@ func TestRegistry_HasExpectedTools(t *testing.T) {
 		"resolve_test_result",
 		"unmute_test_result",
 		"get_launch_environment",
-		"update_launch_environment",
 		"get_test_case_history",
 		"get_launch_defects",
 		"get_test_case_defects",
@@ -150,8 +149,8 @@ func TestRegistry_HasExpectedTools(t *testing.T) {
 	has_search := r.GetTool("search_testops_operations") != nil
 	has_execute := r.GetTool("execute_testops_operation") != nil
 
-	// Expected count: 110 base tools + 2 OpenAPI tools (if spec found)
-	expected_count := 110
+	// Expected count: 109 base tools + 2 OpenAPI tools (if spec found)
+	expected_count := 109
 	if has_search && has_execute {
 		expected_count = 112
 	}
