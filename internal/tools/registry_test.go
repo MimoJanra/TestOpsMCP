@@ -150,10 +150,10 @@ func TestRegistry_HasExpectedTools(t *testing.T) {
 	has_search := r.GetTool("search_testops_operations") != nil
 	has_execute := r.GetTool("execute_testops_operation") != nil
 
-	// Expected count: 104 base tools (incl. 3 task tools + 1 analysis) + 2 OpenAPI tools (if spec found)
-	expected_count := 104
+	// Expected count: 110 base tools + 2 OpenAPI tools (if spec found)
+	expected_count := 110
 	if has_search && has_execute {
-		expected_count = 106
+		expected_count = 112
 	}
 
 	if got := len(r.ListTools()); got != expected_count {

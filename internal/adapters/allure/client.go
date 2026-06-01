@@ -1257,6 +1257,30 @@ func (c *Client) DeleteTestCaseScenario(ctx context.Context, testCaseID int64) e
 	return nil
 }
 
+// GetTestCaseSteps returns the normalized step list for a test case.
+func (c *Client) GetTestCaseSteps(ctx context.Context, testCaseID int64) (map[string]any, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/step", testCaseID)), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errFromResponse(resp)
+	}
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return result, nil
+}
+
 // MoveTestCaseStep moves a scenario step to a new position.
 func (c *Client) MoveTestCaseStep(ctx context.Context, stepID int64, pos StepPositionDto) error {
 	body, err := json.Marshal(pos)
@@ -2843,6 +2867,132 @@ func (c *Client) GetHTTPClient() *http.Client {
 // HasToken checks if the client has a configured token
 func (c *Client) HasToken() bool {
 	return c.userToken != ""
+}
+
+// ---------------------------------------------------------------------------
+// Test Case Tree
+// ---------------------------------------------------------------------------
+
+// BrowseTestCaseTree returns folders (groups) and test cases (leaves) at the
+// given tree path within a project. Pass an empty path to start at the root.
+func (c *Client) BrowseTestCaseTree(ctx context.Context, projectID int64, path []int64, page, size int) (map[string]any, error) {
+	q := fmt.Sprintf("/api/testcasetree/leaf?projectId=%d&page=%d&size=%d", projectID, page, size)
+	for _, p := range path {
+		q += fmt.Sprintf("&path=%d", p)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(q), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, req); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errFromResponse(resp)
+	}
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return result, nil
+}
+
+// GetTestCaseTreeGroups returns the sub-folders (groups) at the given tree path.
+func (c *Client) GetTestCaseTreeGroups(ctx context.Context, projectID int64, path []int64, page, size int) (map[string]any, error) {
+	q := fmt.Sprintf("/api/testcasetree/group?projectId=%d&page=%d&size=%d", projectID, page, size)
+	for _, p := range path {
+		q += fmt.Sprintf("&path=%d", p)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(q), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, req); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errFromResponse(resp)
+	}
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return result, nil
+}
+
+// MoveTestCasesToFolder moves the given test cases to the destination tree path
+// (drag-and-drop reordering / folder assignment in the tree).
+func (c *Client) MoveTestCasesToFolder(ctx context.Context, projectID int64, testCaseIDs []int64, destPath []int64) error {
+	body, err := json.Marshal(map[string]any{
+		"path": destPath,
+		"selection": map[string]any{
+			"projectId":    projectID,
+			"leafsInclude": testCaseIDs,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/testcase/bulk/draganddrop"), bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, req); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
+// CreateTestCaseFolder creates a new folder (group) at the given tree path.
+func (c *Client) CreateTestCaseFolder(ctx context.Context, projectID int64, parentPath []int64, name string) (map[string]any, error) {
+	q := fmt.Sprintf("/api/testcasetree/group?projectId=%d", projectID)
+	for _, p := range parentPath {
+		q += fmt.Sprintf("&path=%d", p)
+	}
+	body, err := json.Marshal(map[string]any{"name": name})
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(q), bytes.NewBuffer(body))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, req); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, errFromResponse(resp)
+	}
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return result, nil
 }
 
 func errFromResponse(resp *http.Response) error {

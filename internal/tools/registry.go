@@ -159,6 +159,7 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 	r.registerWidgets()
 	r.registerTaskTools()
 	r.registerAnalysisTools()
+	r.registerTreeTools()
 
 	// Configuration tool for per-session token override.
 	// Always registered so that:

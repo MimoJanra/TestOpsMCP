@@ -10,7 +10,7 @@ import (
 func (r *Registry) registerLaunchTools() {
 	r.register(&Tool{
 		Name:        "run_allure_launch",
-		Description: "Start a test launch in Allure TestOps",
+		Description: "Create and start a new test launch in a project. Long-running — returns a task_id, use get_task_status to track progress. Check the result with get_launch_status once done.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -30,7 +30,7 @@ func (r *Registry) registerLaunchTools() {
 
 	r.register(&Tool{
 		Name:        "get_launch_status",
-		Description: "Get the status of a test launch",
+		Description: "Get the current status of a launch (running, done, closed, etc.). Use to poll after run_allure_launch or to check whether a launch is still active.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -46,7 +46,7 @@ func (r *Registry) registerLaunchTools() {
 
 	r.register(&Tool{
 		Name:        "get_launch_report",
-		Description: "Get the test report for a launch",
+		Description: "Get a summary report for a launch: total tests run, passed/failed/broken/skipped counts, and duration.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -62,7 +62,7 @@ func (r *Registry) registerLaunchTools() {
 
 	r.register(&Tool{
 		Name:        "close_launch",
-		Description: "Close/finish an active launch",
+		Description: "Close an active launch to finalize its results. Closed launches are locked and their metrics count toward project statistics.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -78,7 +78,7 @@ func (r *Registry) registerLaunchTools() {
 
 	r.register(&Tool{
 		Name:        "reopen_launch",
-		Description: "Reopen a closed launch for additional test results",
+		Description: "Reopen a closed launch to allow adding more test results. Use when a CI run was closed before all results were submitted.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -94,7 +94,7 @@ func (r *Registry) registerLaunchTools() {
 
 	r.register(&Tool{
 		Name:        "list_launches",
-		Description: "List launches in a project with pagination",
+		Description: "List test launches in a project, most recent first. Returns launch ID, name, status, and result counts. Use get_launch_details for full info on a single launch.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -120,7 +120,7 @@ func (r *Registry) registerLaunchTools() {
 
 	r.register(&Tool{
 		Name:        "get_launch_details",
-		Description: "Get comprehensive launch information",
+		Description: "Get full details of a launch: status, pass/fail/broken/skipped breakdown, environment, timing, and linked test plan.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -211,7 +211,7 @@ func (r *Registry) registerLaunchTools() {
 
 	r.register(&Tool{
 		Name:        "add_test_cases_to_launch",
-		Description: "Add test cases to a launch",
+		Description: "Add test cases to an existing launch so they appear in its scope and can receive results.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -245,7 +245,7 @@ func (r *Registry) registerLaunchTools() {
 
 	r.register(&Tool{
 		Name:        "add_test_plan_to_launch",
-		Description: "Add a test plan to a launch",
+		Description: "Attach a test plan to a launch, adding all of the plan's test cases into the launch scope.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -265,7 +265,7 @@ func (r *Registry) registerLaunchTools() {
 
 	r.register(&Tool{
 		Name:        "get_launch_defects",
-		Description: "Get defects linked to a launch",
+		Description: "Get defects (bugs/issues) linked to test results within a launch — useful for a post-run defect summary.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

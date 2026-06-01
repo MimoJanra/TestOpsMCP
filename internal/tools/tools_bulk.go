@@ -13,7 +13,7 @@ import (
 func (r *Registry) registerBulkTools() {
 	r.register(&Tool{
 		Name:        "bulk_set_test_case_status",
-		Description: "Bulk update status for multiple test cases",
+		Description: "Set the same status on multiple test cases at once. Common statuses: active, draft, review.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -120,7 +120,7 @@ func (r *Registry) registerBulkTools() {
 
 	r.register(&Tool{
 		Name:        "bulk_clone_test_cases",
-		Description: "Bulk clone multiple test cases",
+		Description: "Duplicate multiple test cases within the same project, copying all steps and metadata. Returns the new test case IDs.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -143,7 +143,7 @@ func (r *Registry) registerBulkTools() {
 
 	r.register(&Tool{
 		Name:        "bulk_assign_test_results",
-		Description: "Bulk assign test results to users",
+		Description: "Assign multiple test results to one or more team members for investigation or fixing.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -173,7 +173,7 @@ func (r *Registry) registerBulkTools() {
 
 	r.register(&Tool{
 		Name:        "bulk_mute_test_results",
-		Description: "Bulk mute test results",
+		Description: "Mute multiple test results in a launch — muted results are excluded from pass rate and don't trigger alerts. Use for known-flaky or irrelevant failures.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -200,7 +200,7 @@ func (r *Registry) registerBulkTools() {
 
 	r.register(&Tool{
 		Name:        "bulk_unmute_test_results",
-		Description: "Bulk unmute test results",
+		Description: "Re-enable previously muted test results so they count toward pass rate and trigger alerts again.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -223,7 +223,7 @@ func (r *Registry) registerBulkTools() {
 
 	r.register(&Tool{
 		Name:        "bulk_resolve_test_results",
-		Description: "Bulk resolve test results",
+		Description: "Mark multiple test results as resolved — closes their associated defects and signals the failures have been addressed.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -429,7 +429,7 @@ func (r *Registry) registerBulkTools() {
 
 	r.register(&Tool{
 		Name:        "bulk_mute_test_cases",
-		Description: "Bulk mute multiple test cases",
+		Description: "Mute multiple test cases project-wide — their failures won't affect metrics or trigger alerts across any launch.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

@@ -128,13 +128,13 @@ func TestServer_ToolsListOverSSE(t *testing.T) {
 	post.Body.Close()
 
 	msg := readSSEEvent(t, resp.Body, "message", 2*time.Second)
-	// With pagination (pageSize=50), the first page contains tools alphabetically.
-	// "add_test_case_defect" is on page 1; "nextCursor" indicates more pages exist.
+	// All tools are returned in a single response (pageSize=1000) so clients
+	// that don't follow nextCursor still see the full tool list.
 	if !strings.Contains(msg, `"add_test_case_defect"`) {
-		t.Errorf("tools/list page 1 missing expected tool: %s", msg)
+		t.Errorf("tools/list missing expected tool: %s", msg)
 	}
-	if !strings.Contains(msg, `"nextCursor"`) {
-		t.Errorf("tools/list response missing pagination cursor: %s", msg)
+	if !strings.Contains(msg, `"update_test_case"`) {
+		t.Errorf("tools/list missing late-alphabet tool update_test_case: %s", msg)
 	}
 }
 

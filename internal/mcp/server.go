@@ -398,11 +398,14 @@ func (s *Server) handleToolsList(req *JSONRPCRequest) *JSONRPCResponse {
 		_ = json.Unmarshal(req.Params, &listReq)
 	}
 
-	const pageSize = 50
 	all := s.registry.ListTools()
-	// Sort by name for stable pagination
 	sortToolsByName(all)
 
+	// Pagination is supported but not required by clients — many clients (including
+	// Claude Desktop and Claude Code) fetch tools/list once and do not follow
+	// nextCursor, so they would silently miss any tools beyond the first page.
+	// Return all tools in a single response unless a cursor is explicitly provided.
+	const pageSize = 1000
 	offset := cursorToOffset(listReq.Cursor)
 	if offset > len(all) {
 		offset = len(all)

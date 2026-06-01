@@ -12,7 +12,7 @@ import (
 func (r *Registry) registerTestCaseTools() {
 	r.register(&Tool{
 		Name:        "list_test_cases",
-		Description: "List test cases in a project",
+		Description: "List test cases in a project (returns id, name, status). Paginated — default 10 per page. For filtering by status, tags, or text use search_test_cases instead.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -38,7 +38,7 @@ func (r *Registry) registerTestCaseTools() {
 
 	r.register(&Tool{
 		Name:        "get_test_case",
-		Description: "Get full test case details: metadata, manual_scenario (test execution steps), tags, members, custom fields, examples, and more",
+		Description: "Get full details of a test case: name, description, precondition, expected_result, status, tags, members, custom fields, and the manual scenario with its steps.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -54,7 +54,7 @@ func (r *Registry) registerTestCaseTools() {
 
 	r.register(&Tool{
 		Name:        "run_test_case",
-		Description: "Start a test run for a specific test case",
+		Description: "Run a single test case within an existing launch. Both test_case_id and launch_id are required.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -74,7 +74,7 @@ func (r *Registry) registerTestCaseTools() {
 
 	r.register(&Tool{
 		Name:        "create_test_case",
-		Description: "Create a new test case in a project",
+		Description: "Create a new test case. Only name and project_id are required. Add description, precondition, and steps after creation with update_test_case and create_test_case_step.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -97,8 +97,11 @@ func (r *Registry) registerTestCaseTools() {
 	})
 
 	r.register(&Tool{
-		Name:        "update_test_case",
-		Description: "Update an existing test case",
+		Name: "update_test_case",
+		Description: "Update any fields of an existing test case: name, description, precondition, " +
+			"expected_result, status, tags, members, links, or test layer. " +
+			"All fields are optional — only the ones you pass are changed. " +
+			"This is the tool for editing a test case description, precondition, or expected result.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -196,7 +199,7 @@ func (r *Registry) registerTestCaseTools() {
 
 	r.register(&Tool{
 		Name:        "delete_test_case",
-		Description: "Delete a test case",
+		Description: "Soft-delete a test case (moves to trash, not permanently removed). Recover with restore_test_case. Use list_deleted_test_cases to browse the trash.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -212,7 +215,7 @@ func (r *Registry) registerTestCaseTools() {
 
 	r.register(&Tool{
 		Name:        "clone_test_case",
-		Description: "Clone an existing test case",
+		Description: "Duplicate a test case within the same project, copying all steps, tags, and custom fields. Returns the new test case ID.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -228,7 +231,7 @@ func (r *Registry) registerTestCaseTools() {
 
 	r.register(&Tool{
 		Name:        "restore_test_case",
-		Description: "Restore a deleted test case",
+		Description: "Recover a soft-deleted test case from trash. Use list_deleted_test_cases first to find the ID of the test case you want to restore.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -244,7 +247,7 @@ func (r *Registry) registerTestCaseTools() {
 
 	r.register(&Tool{
 		Name:        "create_test_case_step",
-		Description: "Create a new step in a test case",
+		Description: "Add a step to a test case scenario. Appended to the end by default; use after_id to insert after a specific step, or parent_id to nest it inside another step. Get existing step IDs with get_test_case_steps.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -272,7 +275,7 @@ func (r *Registry) registerTestCaseTools() {
 
 	r.register(&Tool{
 		Name:        "update_test_case_step",
-		Description: "Update an existing test case step",
+		Description: "Edit a step's text (body) or expected result. Requires the step ID — get it from get_test_case_steps.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -296,7 +299,7 @@ func (r *Registry) registerTestCaseTools() {
 
 	r.register(&Tool{
 		Name:        "delete_test_case_step",
-		Description: "Delete a test case step",
+		Description: "Delete a single step from a test case scenario. Requires the step ID — use get_test_case_steps to find it.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -367,7 +370,7 @@ func (r *Registry) registerTestCaseTools() {
 
 	r.register(&Tool{
 		Name:        "get_test_case_history",
-		Description: "Get test case change history and versions",
+		Description: "Get the change log for a test case: who changed which field and when. Useful for auditing unexpected modifications.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

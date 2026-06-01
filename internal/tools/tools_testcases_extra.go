@@ -96,7 +96,7 @@ func (r *Registry) registerTestCaseExtraTools() {
 
 	r.register(&Tool{
 		Name:        "get_test_case_examples",
-		Description: "Get parametrized test examples (data table rows) for a test case",
+		Description: "Get the parametrized data table for a test case — each row is one set of input/output values used for data-driven test runs.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -153,7 +153,7 @@ func (r *Registry) registerTestCaseExtraTools() {
 
 	r.register(&Tool{
 		Name:        "create_test_case_version",
-		Description: "Create a named version snapshot of a test case",
+		Description: "Save a named snapshot of the current test case state. Create a version before making bulk edits so you can restore with restore_test_case_version if needed.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -246,8 +246,38 @@ func (r *Registry) registerTestCaseExtraTools() {
 	// ── Scenario / step position ──────────────────────────────────────────────
 
 	r.register(&Tool{
+		Name: "get_test_case_scenario",
+		Description: "Read the scenario of a test case: ordered steps with names, keywords, expected results, and nesting. " +
+			"Use when the user wants to view or discuss test steps. " +
+			"Does not include step IDs — if you need to move, copy, or delete a specific step, call get_test_case_steps instead.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"test_case_id": map[string]any{"type": "integer", "description": "Allure test case ID"},
+			},
+			"required": []string{"test_case_id"},
+		},
+		Handler: Typed(r.getTestCaseScenario),
+	})
+
+	r.register(&Tool{
+		Name: "get_test_case_steps",
+		Description: "Read the normalized step list for a test case, including the ID of every step. " +
+			"Use this when you need a step ID to call move_test_case_step, copy_test_case_step, or delete_test_case_step. " +
+			"For a readable view of the scenario without IDs, use get_test_case_scenario.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"test_case_id": map[string]any{"type": "integer", "description": "Allure test case ID"},
+			},
+			"required": []string{"test_case_id"},
+		},
+		Handler: Typed(r.getTestCaseSteps),
+	})
+
+	r.register(&Tool{
 		Name:        "delete_test_case_scenario",
-		Description: "Delete the entire scenario (all steps) from a test case",
+		Description: "Remove all steps from a test case, leaving the scenario empty. Cannot be undone — save a version with create_test_case_version first if you may need to restore.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -260,7 +290,7 @@ func (r *Registry) registerTestCaseExtraTools() {
 
 	r.register(&Tool{
 		Name:        "move_test_case_step",
-		Description: "Move a scenario step to a different position within the scenario",
+		Description: "Reorder, nest, or relocate a step within a scenario: place it before/after a sibling or under a parent. Get step IDs with get_test_case_steps.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -276,7 +306,7 @@ func (r *Registry) registerTestCaseExtraTools() {
 
 	r.register(&Tool{
 		Name:        "copy_test_case_step",
-		Description: "Copy a scenario step to a different position within the scenario",
+		Description: "Duplicate a step at a new position in the scenario. Get step IDs with get_test_case_steps.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -307,7 +337,7 @@ func (r *Registry) registerTestCaseExtraTools() {
 
 	r.register(&Tool{
 		Name:        "set_test_case_relations",
-		Description: "Replace all test-case-to-test-case relations (full replace)",
+		Description: "Set test-case-to-test-case relations (e.g. 'blocks', 'is blocked by'). Full replace — pass the complete list you want to keep.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -334,7 +364,7 @@ func (r *Registry) registerTestCaseExtraTools() {
 
 	r.register(&Tool{
 		Name:        "list_muted_test_cases",
-		Description: "List all muted test cases in a project",
+		Description: "List test cases that are currently muted in a project. Muted test cases are excluded from pass rate calculations and don't trigger failure alerts.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -368,7 +398,7 @@ func (r *Registry) registerTestCaseExtraTools() {
 
 	r.register(&Tool{
 		Name:        "validate_test_case_query",
-		Description: "Validate an AQL/RQL query for test cases without running it",
+		Description: "Check whether an AQL/RQL filter query is syntactically valid without executing it. Use before search_test_cases when building dynamic queries programmatically.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -382,7 +412,7 @@ func (r *Registry) registerTestCaseExtraTools() {
 
 	r.register(&Tool{
 		Name:        "suggest_test_cases",
-		Description: "Get test case name suggestions for a search string (useful for autocomplete)",
+		Description: "Get name-based autocomplete suggestions for a partial test case name. Use to help the user find the right test case before fetching its full details.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -400,7 +430,7 @@ func (r *Registry) registerTestCaseExtraTools() {
 
 	r.register(&Tool{
 		Name:        "get_test_case_workflow",
-		Description: "Get the workflow definition assigned to a test case",
+		Description: "Get the workflow assigned to a test case: its states, transitions, and the current position. Useful for knowing which status changes are allowed next.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -456,7 +486,7 @@ func (r *Registry) registerTestCaseExtraTools() {
 
 	r.register(&Tool{
 		Name:        "get_test_case_scenario_from_run",
-		Description: "Get the scenario (steps) captured from the last test run for a test case",
+		Description: "Get the steps actually executed during the last automated test run for this test case. Useful for comparing the designed scenario against what automation actually ran.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -471,7 +501,7 @@ func (r *Registry) registerTestCaseExtraTools() {
 
 	r.register(&Tool{
 		Name:        "detach_test_case_automation",
-		Description: "Detach automation from a test case, converting it back to manual",
+		Description: "Unlink a test case from its automation class, converting it back to a manual test. Optionally set a new status after detaching.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -831,6 +861,36 @@ func (r *Registry) listDeletedTestCases(ctx context.Context, args listDeletedTes
 		"total":      cases.Total,
 		"is_last":    cases.Last,
 	}, nil
+}
+
+type getTestCaseScenarioArgs struct {
+	TestCaseID int64 `json:"test_case_id"`
+}
+
+func (r *Registry) getTestCaseScenario(ctx context.Context, args getTestCaseScenarioArgs) (any, error) {
+	if args.TestCaseID <= 0 {
+		return nil, fmt.Errorf("test_case_id must be positive")
+	}
+	result, err := r.allure.GetTestCaseScenario(ctx, args.TestCaseID)
+	if err != nil {
+		return nil, fmt.Errorf("get test case scenario: %w", err)
+	}
+	return result, nil
+}
+
+type getTestCaseStepsArgs struct {
+	TestCaseID int64 `json:"test_case_id"`
+}
+
+func (r *Registry) getTestCaseSteps(ctx context.Context, args getTestCaseStepsArgs) (any, error) {
+	if args.TestCaseID <= 0 {
+		return nil, fmt.Errorf("test_case_id must be positive")
+	}
+	result, err := r.allure.GetTestCaseSteps(ctx, args.TestCaseID)
+	if err != nil {
+		return nil, fmt.Errorf("get test case steps: %w", err)
+	}
+	return result, nil
 }
 
 type deleteTestCaseScenarioArgs struct {

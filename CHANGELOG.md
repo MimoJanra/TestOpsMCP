@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-06-01 - Tool Discovery & Test Case Management
+
+### Fixed
+
+- **All tools now visible to Claude** — `tools/list` page size raised from 50 to 1000. With 110+ tools sorted alphabetically, clients that fetch the list once without following `nextCursor` (Claude Desktop, Claude Code) were silently missing every tool past the first 50 — including `update_test_case`, `update_test_case_step`, `validate_test_case_query`, and others starting with letters S–V. All tools are now returned in a single response.
+
+### Added
+
+#### Test Case Tree Navigation
+- **`browse_test_case_tree`** — browse test cases at any folder level in the project tree. Pass an empty `path` to start at the root; use returned folder IDs to navigate deeper.
+- **`get_test_case_tree_folders`** — list subfolders at a given tree path. Use before moving test cases to find the correct destination.
+- **`move_test_cases_to_folder`** — move test cases to a specific folder (`POST /api/testcase/bulk/draganddrop`). The primary tool for organizing and sorting test cases across the project tree.
+- **`create_test_case_folder`** — create a new folder (group) at any level of the tree.
+
+#### Scenario Read Tools
+- **`get_test_case_scenario`** — read the full step tree of a test case (names, keywords, expected results, nesting). Use before editing steps.
+- **`get_test_case_steps`** — read the normalized step list including step IDs required by `move_test_case_step`, `copy_test_case_step`, and `delete_test_case_step`.
+
+#### Prompt
+- **`test-case-management`** — workflow prompt for test case CRUD: covers explore → read → edit → organize → safety checkpoints. Accepts `project_id` and optional `goal`.
+
+### Changed
+
+- All tool descriptions rewritten to explain **when** to use each tool, what it returns, and which other tools to call first — rather than just describing the API action.
+- `update_test_case` description now explicitly lists editable fields (`name`, `description`, `precondition`, `expected_result`, `status`, `tags`, `members`, `links`, `test layer`) so Claude picks the right tool without guessing.
+- `bulk_mute_test_results`, `bulk_unmute_test_results`, `bulk_resolve_test_results`, `bulk_mute_test_cases` descriptions now explain what "mute" and "resolve" mean in TestOps context (excluded from pass rate, alerts suppressed).
+
 ## [2.0.1] - 2026-06-01 - Security & Health Check Fixes
 
 ### Added
