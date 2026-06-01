@@ -58,12 +58,12 @@ docker build -t allure-mcp .
 docker run -d \
   -e ALLURE_BASE_URL=https://your-allure.com \
   -e ALLURE_TOKEN=your_token_here \
-  -e MCP_AUTH_TOKEN=your_shared_secret \
+  -e MCP_AUTH_TOKENS=alice:token-for-alice,bob:token-for-bob \
   -p 3000:3000 \
   allure-mcp --http
 
-# 3. Test
-curl -H "Authorization: Bearer your_shared_secret" \
+# 3. Test (use any configured user's token)
+curl -H "Authorization: Bearer token-for-alice" \
      http://localhost:3000/sse
 
 ```

@@ -501,7 +501,7 @@ data: {"jsonrpc":"2.0","id":1,"result":{"content":[...]}}
 ```
 
 **Headers:**
-- `Authorization: Bearer <MCP_AUTH_TOKEN>` (if `MCP_AUTH_TOKEN` is set)
+- `Authorization: Bearer <your-token>` — required when `MCP_AUTH_TOKENS` is configured on the server
 
 ---
 
@@ -539,7 +539,7 @@ Content-Length: 0
 The actual response is delivered to the SSE stream.
 
 **Headers:**
-- `Authorization: Bearer <MCP_AUTH_TOKEN>` (if required)
+- `Authorization: Bearer <your-token>` — required when `MCP_AUTH_TOKENS` is configured on the server
 - `Content-Type: application/json`
 
 ---
@@ -760,7 +760,7 @@ asyncio.run(main())
 | `200` | OK (SSE stream opened) | GET /sse |
 | `202` | Accepted (request queued) | POST /messages |
 | `400` | Bad Request | Missing sessionId, invalid JSON |
-| `401` | Unauthorized | Missing/invalid `MCP_AUTH_TOKEN` |
+| `401` | Unauthorized | Missing or invalid bearer token |
 | `404` | Not Found | Unknown sessionId |
 | `500` | Server Error | Crash, internal bug |
 

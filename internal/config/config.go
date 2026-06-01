@@ -15,7 +15,7 @@ const (
 	maxTimeoutSec             = 600
 	defaultPort               = ":3000"
 	defaultLogLevel           = "INFO"
-	defaultCORSOrigin         = "*"
+	defaultCORSOrigin         = "" // disabled by default; set CORS_ALLOWED_ORIGIN explicitly in production
 	defaultAuditRetentionDays = 30
 	defaultAuditLogPath       = "audit"
 )

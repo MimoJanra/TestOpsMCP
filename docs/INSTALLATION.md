@@ -126,7 +126,7 @@ Run the container:
 docker run \
   -e ALLURE_BASE_URL=https://your-allure.com \
   -e ALLURE_TOKEN=your_token_here \
-  -e MCP_AUTH_TOKEN=your_shared_secret \
+  -e MCP_AUTH_TOKENS=alice:token-for-alice,bob:token-for-bob \
   -e LOG_LEVEL=INFO \
   -p 3000:3000 \
   allure-mcp
@@ -213,11 +213,11 @@ spec:
             secretKeyRef:
               name: allure-secrets
               key: token
-        - name: MCP_AUTH_TOKEN
+        - name: MCP_AUTH_TOKENS
           valueFrom:
             secretKeyRef:
               name: mcp-secrets
-              key: auth-token
+              key: auth-tokens
         livenessProbe:
           httpGet:
             path: /health

@@ -185,7 +185,8 @@ cat > .env << EOF
 ALLURE_BASE_URL=https://your-testops.com
 PORT=3000
 LOG_LEVEL=INFO
-MCP_AUTH_TOKEN=generate-random-string-here
+# Preferred for teams: name:token pairs (each user gets their own token)
+MCP_AUTH_TOKENS=artem:$(openssl rand -hex 16),ivan:$(openssl rand -hex 16)
 EOF
 ```
 
@@ -406,7 +407,7 @@ Or deploy with:
 - Default mode for Claude Desktop
 
 ### Team Shared Server (HTTP Mode)
-**Always set `MCP_AUTH_TOKEN` in production:**
+**Always set `MCP_AUTH_TOKENS` in production:**
 - Use HTTPS (or ngrok) to encrypt credentials
 - Set concrete CORS origin (not `*`)
 - Place behind reverse proxy (nginx, Caddy)

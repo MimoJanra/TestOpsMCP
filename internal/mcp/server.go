@@ -84,6 +84,10 @@ func NewServer(registry *tools.Registry, logger *core.Logger, opts Options) *Ser
 
 // HandleHealth responds 200 OK without authentication. Used for container health checks.
 func (s *Server) HandleHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok"))

@@ -47,13 +47,18 @@ func panicRecoveryMiddleware(logger *core.Logger) middlewareFunc {
 func auditMiddleware(auditLog *audit.Logger) middlewareFunc {
 	return func(next requestHandler) requestHandler {
 		return func(ctx context.Context, req *JSONRPCRequest) *JSONRPCResponse {
-			if auditLog == nil || req.IsNotification() {
+			if auditLog == nil {
 				return next(ctx, req)
 			}
+			// Always audit, even notification-style requests (id=null), so that
+			// omitting the id field cannot be used to silently skip the audit log.
 			start := time.Now()
+			isNotif := req.IsNotification()
 			resp := next(ctx, req)
 			status := "ok"
-			if resp != nil && resp.Error != nil {
+			if isNotif {
+				status = "notification"
+			} else if resp != nil && resp.Error != nil {
 				status = "error"
 			}
 			entry := audit.Entry{
@@ -73,6 +78,9 @@ func auditMiddleware(auditLog *audit.Logger) middlewareFunc {
 				}
 			}
 			auditLog.Write(entry)
+			if isNotif {
+				return nil
+			}
 			return resp
 		}
 	}

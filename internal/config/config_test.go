@@ -58,7 +58,7 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.LogLevel != "INFO" {
 		t.Errorf("default log level = %q", cfg.LogLevel)
 	}
-	if cfg.CORSAllowOrigin != "*" {
+	if cfg.CORSAllowOrigin != "" {
 		t.Errorf("default CORS = %q", cfg.CORSAllowOrigin)
 	}
 }

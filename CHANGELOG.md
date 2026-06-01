@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-06-01 - Security & Health Check Fixes
+
+### Added
+- `GET /health` — unauthenticated liveness probe endpoint; returns `200 ok`. Used by Docker `HEALTHCHECK`, Kubernetes liveness/readiness probes, and uptime monitors. Does not expose any server state.
+
+### Fixed
+- **Audit log bypass** — notification-style JSON-RPC requests (no `id` field) were silently skipped by the audit middleware. A client could send `tools/call` without an `id` and the tool would execute without being logged. All requests are now audited regardless of notification status; notification entries get `status: "notification"`.
+- **Docker `HEALTHCHECK`** — was calling unauthenticated `GET /sse`, which returns `401` when `MCP_AUTH_TOKENS` is configured. Now calls `GET /health`.
+- **CORS wildcard default** — `CORS_ALLOWED_ORIGIN` now defaults to `""` (disabled) instead of `"*"`. Operators must explicitly set the origin. A startup INFO log explains the setting and suggests `https://claude.ai` for browser-based access. Claude Desktop and CLI tools (mcp-remote) are unaffected — they do not enforce browser CORS policy.
+- **`/health` method restriction** — previously accepted any HTTP method and returned `200`. Now only `GET` and `HEAD` are accepted; other methods return `405 Method Not Allowed`.
+
+### Changed
+- All documentation updated to prefer `MCP_AUTH_TOKENS=name:token,...` over the legacy `MCP_AUTH_TOKEN` single-token variable in shared server examples.
+- Kubernetes liveness/readiness probes in docs updated to use `/health` instead of `/sse` or `/messages`.
+
 ## [2.0.0] - 2026-05-31 - MCP Protocol Improvements
 
 ### Added

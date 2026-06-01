@@ -23,27 +23,30 @@ Security considerations and best practices for Allure MCP Server.
 
 ### HTTP Mode (Team/Server)
 
-**Always set `MCP_AUTH_TOKEN` in production.**
+**Always set `MCP_AUTH_TOKENS` in production** (preferred for teams — each user gets their own named token):
 
 ```bash
-# Generate a strong random token
-openssl rand -base64 32
+# Generate a strong random token per user
+openssl rand -hex 32
 
-# Export to .env
+# Set in .env — format: name:token,name:token,...
+MCP_AUTH_TOKENS=artem:token1,ivan:token2,qa:token3
+```
+
+Each client authenticates with their own token:
+
+```bash
+curl -H "Authorization: Bearer $MY_TOKEN" http://localhost:3000/sse
+```
+
+The token is checked on every authenticated endpoint (`/sse`, `/messages`, `/mcp`). `/health` is exempt.
+
+**Legacy single-token mode** (backward-compatible, treated as user `"default"`):
+```bash
 MCP_AUTH_TOKEN=your_generated_token_here
 ```
 
-Clients must include the token:
-
-```bash
-curl -H "Authorization: Bearer $MCP_AUTH_TOKEN" http://localhost:3000/sse
-```
-
-The token is checked on:
-- `GET /sse` — SSE stream endpoint
-- `POST /messages` — Message submission endpoint
-
-**Note:** Token is case-sensitive and checked with Bearer scheme.
+**Note:** Tokens are case-sensitive and checked with the Bearer scheme.
 
 ---
 
@@ -238,7 +241,7 @@ type: Opaque
 stringData:
   ALLURE_BASE_URL: https://allure.example.com
   ALLURE_TOKEN: your_token_here
-  MCP_AUTH_TOKEN: your_mcp_secret
+  MCP_AUTH_TOKENS: alice:token1,bob:token2
 ```
 
 Mount in pod:
@@ -261,13 +264,13 @@ env:
 3. Restart server with new token
 4. Revoke old token in Allure UI
 
-**MCP Auth Token:**
+**MCP Auth Tokens:**
 
-1. Generate new token: `openssl rand -base64 32`
-2. Update `MCP_AUTH_TOKEN` in `.env` or secret manager
+1. Generate new token for the user: `openssl rand -hex 32`
+2. Update `MCP_AUTH_TOKENS` in `.env` or secret manager (replace only that user's entry)
 3. Restart server
-4. Notify team of new token
-5. Clients must update their config
+4. Notify the affected user of their new token
+5. Other users' tokens remain valid — no team-wide disruption
 
 ---
 
@@ -361,9 +364,9 @@ Send logs to centralized system:
 ### Before Production Deployment
 
 - [ ] **Authentication**
-  - [ ] `MCP_AUTH_TOKEN` is set to strong random value
-  - [ ] Token is stored in secret manager (Vault, AWS Secrets Manager, etc.)
-  - [ ] Token rotated monthly
+  - [ ] `MCP_AUTH_TOKENS` is set with strong per-user tokens
+  - [ ] Tokens are stored in secret manager (Vault, AWS Secrets Manager, etc.)
+  - [ ] Tokens rotated periodically per user
 
 - [ ] **Network**
   - [ ] HTTPS/TLS enabled

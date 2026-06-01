@@ -78,6 +78,9 @@ func runHTTP(mcpServer *mcp.Server, cfg *config.Config, logger *core.Logger) {
 	if len(cfg.Users) == 0 {
 		logger.Warn("no auth tokens configured (MCP_AUTH_TOKENS / MCP_AUTH_TOKEN) — server accepts unauthenticated requests", nil)
 	}
+	if cfg.CORSAllowOrigin == "" {
+		logger.Info("CORS not configured — fine for Claude Desktop and CLI tools; set CORS_ALLOWED_ORIGIN=https://claude.ai if connecting via a web browser", nil)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", mcpServer.HandleHealth)
