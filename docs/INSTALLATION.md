@@ -75,7 +75,7 @@ Then restart Claude Desktop to pick up the MCP server in the dropdown.
 make run-http
 ```
 
-Visit `http://localhost:3000/sse` to verify it's running.
+Visit `http://localhost:3000/health` to verify it's running (returns `ok`).
 
 ### Step 5: Configure Claude Desktop
 
@@ -220,7 +220,7 @@ spec:
               key: auth-token
         livenessProbe:
           httpGet:
-            path: /sse
+            path: /health
             port: 3000
           initialDelaySeconds: 10
           periodSeconds: 30

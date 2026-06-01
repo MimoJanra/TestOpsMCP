@@ -105,7 +105,7 @@ Prompts are returned via `prompts/list` and `prompts/get` JSON-RPC methods.
 ```
 macOS/Linux: `"command": "npx", "args": ["-y","mcp-remote",...]`
 
-- Endpoints: `POST /mcp` (streamable), `GET /sse` + `POST /messages` (legacy SSE)
+- Endpoints: `GET /health` (no auth, liveness probe), `POST /mcp` (streamable), `GET /sse` + `POST /messages` (legacy SSE)
 - Named user auth via `MCP_AUTH_TOKENS=alice:tok1,bob:tok2` on the server
 - All requests logged to daily JSONL audit files under `AUDIT_LOG_PATH`
 

@@ -49,6 +49,7 @@ internal/
 - Used for Claude Desktop local integration
 
 **HTTP + SSE** (multi-user team server):
+- `GET /health` — unauthenticated liveness probe, returns `ok`; used by Docker HEALTHCHECK and K8s probes
 - `POST /mcp` — streamable HTTP transport (MCP spec 2025-11-25), recommended
 - `GET /sse` — legacy SSE stream, returns `session_id` as first event
 - `POST /messages?sessionId=<id>` — legacy JSON-RPC request for a session

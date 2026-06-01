@@ -82,6 +82,13 @@ func NewServer(registry *tools.Registry, logger *core.Logger, opts Options) *Ser
 	return s
 }
 
+// HandleHealth responds 200 OK without authentication. Used for container health checks.
+func (s *Server) HandleHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ok"))
+}
+
 // HandleSSE serves the MCP SSE transport: streams the per-session endpoint URL
 // and subsequent JSON-RPC responses to the client.
 func (s *Server) HandleSSE(w http.ResponseWriter, r *http.Request) {
@@ -613,9 +620,9 @@ func (s *Server) handleComplete(ctx context.Context, req *JSONRPCRequest) *JSONR
 	}
 
 	s.logger.Debug("completion/complete", map[string]any{
-		"ref":       completeReq.Ref.Name,
-		"arg":       completeReq.Argument.Name,
-		"results":   len(values),
+		"ref":     completeReq.Ref.Name,
+		"arg":     completeReq.Argument.Name,
+		"results": len(values),
 	})
 
 	return s.okResponse(req.ID, CompleteResult{

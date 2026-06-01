@@ -139,7 +139,7 @@ services:
           cpus: '0.5'
           memory: 128M
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/sse"]
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://localhost:3000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -328,7 +328,7 @@ Already configured in `Dockerfile`:
 
 ```dockerfile
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD test -S /proc/net/unix || exit 1
+    CMD wget -qO /dev/null http://localhost:3000/health || exit 1
 ```
 
 ### Kubernetes Probe
@@ -336,7 +336,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 ```yaml
 livenessProbe:
   httpGet:
-    path: /sse
+    path: /health
     port: 3000
     scheme: HTTP
   initialDelaySeconds: 10
@@ -346,7 +346,7 @@ livenessProbe:
 
 readinessProbe:
   httpGet:
-    path: /messages
+    path: /health
     port: 3000
     scheme: HTTP
   initialDelaySeconds: 5
@@ -358,8 +358,8 @@ readinessProbe:
 ### Manual Health Check
 
 ```bash
-curl -v http://localhost:3000/sse
-# Should return: event: endpoint\ndata: /messages?sessionId=...
+curl -f http://localhost:3000/health
+# Should return: ok
 ```
 
 ---
@@ -468,7 +468,7 @@ Use external monitors like:
 - **New Relic Synthetics**
 
 ```bash
-curl -f https://allure-mcp.example.com/sse > /dev/null 2>&1
+curl -f https://allure-mcp.example.com/health > /dev/null 2>&1
 ```
 
 ---

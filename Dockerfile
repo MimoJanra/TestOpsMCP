@@ -31,9 +31,9 @@ USER mcp
 # Default to HTTP mode
 EXPOSE 3000
 
-# Health check (HTTP mode: wget SSE endpoint; stdio mode: no-op)
+# Health check (HTTP mode: wget /health; stdio mode: no-op)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -qO /dev/null http://localhost:3000/sse || exit 1
+    CMD wget -qO /dev/null http://localhost:3000/health || exit 1
 
 ENTRYPOINT ["/app/server"]
 CMD ["--http"]

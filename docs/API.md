@@ -467,6 +467,17 @@ Get test case success rate metrics.
 
 ## HTTP Endpoints
 
+### `GET /health`
+
+Liveness probe — returns `200 ok` with no authentication required. Used by Docker, Kubernetes, and uptime monitors.
+
+```bash
+curl http://localhost:3000/health
+# ok
+```
+
+---
+
 ### `GET /sse`
 
 Opens a Server-Sent Events (SSE) stream for receiving async responses.
