@@ -1,6 +1,6 @@
 # TestOps MCP — Full LLM Reference
 
-> MCP server that connects Claude to Allure TestOps. 104 curated tools + 600+ dynamic OpenAPI endpoints + 2 prompt templates + 4 resources.
+> MCP server that connects Claude to Allure TestOps. 112 curated tools + 600+ dynamic OpenAPI endpoints + 2 prompt templates + 4 resources.
 > Module: github.com/MimoJanra/TestOpsMCP | Go 1.26+ | Apache 2.0 | MCP protocol 2025-11-25
 
 ---
@@ -104,7 +104,7 @@ Each HTTP session gets its own Allure API token. Priority:
 | `LOG_LEVEL` | No | `INFO` | `DEBUG` / `INFO` / `WARN` / `ERROR` |
 | `MCP_AUTH_TOKENS` | No | — | Named user tokens: `alice:tok1,bob:tok2` (preferred) |
 | `MCP_AUTH_TOKEN` | No | — | Single legacy token; treated as user `"default"` |
-| `CORS_ALLOWED_ORIGIN` | No | `*` | CORS `Access-Control-Allow-Origin` value |
+| `CORS_ALLOWED_ORIGIN` | No | — (disabled) | CORS `Access-Control-Allow-Origin` value |
 | `AUDIT_LOG_PATH` | No | `audit` | Directory for daily audit JSONL files |
 | `AUDIT_RETENTION_DAYS` | No | `30` | Days to keep audit files before auto-deletion |
 
@@ -721,6 +721,36 @@ Change history for a test case.
   "page": "integer (default 0)",
   "size": "integer (default 20)"
 }
+```
+
+---
+
+### Test Cases — Folder Tree (4 tools)
+
+Navigate and manage the test case folder tree.
+
+#### browse_test_case_tree
+Browse test cases at a given tree path. Start with empty path for root.
+```json
+{"project_id": "integer (required)", "path": "[integer] (default [])", "page": "integer (default 0)", "size": "integer (default 50)"}
+```
+
+#### get_test_case_tree_folders
+List subfolders inside a tree path. Returns folder names and IDs.
+```json
+{"project_id": "integer (required)", "path": "[integer] (default [])", "page": "integer (default 0)", "size": "integer (default 50)"}
+```
+
+#### move_test_cases_to_folder
+Move test cases to a folder (drag-and-drop). Pass empty dest_path to move to root.
+```json
+{"project_id": "integer (required)", "test_case_ids": "[integer] (required)", "dest_path": "[integer] (default [])"}
+```
+
+#### create_test_case_folder
+Create a new folder in the test case tree.
+```json
+{"project_id": "integer (required)", "name": "string (required)", "parent_path": "[integer] (default [])"}
 ```
 
 ---

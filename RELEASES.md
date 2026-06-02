@@ -5,7 +5,7 @@ All pre-built binaries are provided for easy setup without requiring Go installa
 ## 🆕 What's New in v2.0.0
 
 - **MCP protocol 2025-11-25** with version negotiation and stable cursor-based pagination
-- **104 tools** (+ `get_task_status`, `list_running_tasks`, `cancel_task`, `analyze_launch_failures`)
+- **112 tools** (+ `get_task_status`, `list_running_tasks`, `cancel_task`, `analyze_launch_failures`)
 - **Async task system** — `run_allure_launch`, `copy_launch`, `merge_launches`, bulk runs return `task_id` immediately; tasks auto-expire after 1 hour
 - **AI failure analysis** — `analyze_launch_failures` asks Claude to identify root causes via MCP sampling
 - **Confirmation dialogs** — `delete_test_case` / `bulk_delete_test_cases` require user confirmation via elicitation (requires HTTP transport; stdio returns an error)
@@ -19,16 +19,18 @@ All pre-built binaries are provided for easy setup without requiring Go installa
 
 | Platform | Download | Architecture |
 |----------|----------|---------------|
-| **Windows** | `testops-windows-amd64.exe` | x86-64 (64-bit) |
-| **macOS Intel** | `testops-darwin-amd64` | x86-64 (Intel) |
-| **macOS Apple Silicon** | `testops-darwin-arm64` | ARM64 (M1/M2/M3) |
-| **Linux** | `testops-linux-amd64` | x86-64 (64-bit) |
+| **Windows 64-bit** | `testops-mcp-windows-amd64.exe` | x86-64 |
+| **Windows ARM** | `testops-mcp-windows-arm64.exe` | ARM64 |
+| **macOS Intel** | `testops-mcp-macos-amd64` | x86-64 (Intel) |
+| **macOS Apple Silicon** | `testops-mcp-macos-arm64` | ARM64 (M1/M2/M3) |
+| **Linux 64-bit** | `testops-mcp-linux-amd64` | x86-64 |
+| **Linux ARM** | `testops-mcp-linux-arm64` | ARM64 |
 
 ## 🚀 Setup Instructions
 
 ### Windows
 
-1. Download `testops-windows-amd64.exe`
+1. Download `testops-mcp-windows-amd64.exe` (or `arm64` for ARM devices)
 2. Create a folder (e.g., `C:\testops`)
 3. Move the binary there
 4. Create `.env` file in the same folder:
@@ -39,21 +41,21 @@ All pre-built binaries are provided for easy setup without requiring Go installa
 5. Open PowerShell and run:
    ```powershell
    cd C:\testops
-   .\testops-windows-amd64.exe --http
+   .\testops-mcp-windows-amd64.exe --http
    ```
 
 ### macOS (Intel & Apple Silicon)
 
 1. Download appropriate binary:
-   - **Intel (x86-64)**: `testops-darwin-amd64`
-   - **Apple Silicon (M1/M2/M3)**: `testops-darwin-arm64`
+   - **Intel (x86-64)**: `testops-mcp-macos-amd64`
+   - **Apple Silicon (M1/M2/M3)**: `testops-mcp-macos-arm64`
 
 2. Create setup directory:
    ```bash
    mkdir ~/testops
    cd ~/testops
-   mv ~/Downloads/testops-darwin-* .
-   chmod +x testops-darwin-*
+   mv ~/Downloads/testops-mcp-macos-* .
+   chmod +x testops-mcp-macos-*
    ```
 
 3. Create `.env` file:
@@ -67,21 +69,21 @@ All pre-built binaries are provided for easy setup without requiring Go installa
 4. Run:
    ```bash
    # Intel
-   ./testops-darwin-amd64 --http
+   ./testops-mcp-macos-amd64 --http
    
    # Apple Silicon
-   ./testops-darwin-arm64 --http
+   ./testops-mcp-macos-arm64 --http
    ```
 
 ### Linux
 
-1. Download `testops-linux-amd64`
+1. Download `testops-mcp-linux-amd64` (or `arm64` for ARM servers)
 2. Setup directory:
    ```bash
    mkdir ~/testops
    cd ~/testops
-   mv ~/Downloads/testops-linux-amd64 .
-   chmod +x testops-linux-amd64
+   mv ~/Downloads/testops-mcp-linux-amd64 .
+   chmod +x testops-mcp-linux-amd64
    ```
 
 3. Create `.env`:
@@ -94,7 +96,7 @@ All pre-built binaries are provided for easy setup without requiring Go installa
 
 4. Run:
    ```bash
-   ./testops-linux-amd64 --http
+   ./testops-mcp-linux-amd64 --http
    ```
 
 ## 🔧 Configuration
@@ -110,13 +112,13 @@ All pre-built binaries are provided for easy setup without requiring Go installa
 
 **Stdio Mode** (Claude Desktop):
 ```bash
-./testops-darwin-amd64
+./testops-mcp-macos-amd64
 ```
 Used for Claude Desktop integration via MCP configuration.
 
 **HTTP Mode** (Team/Server):
 ```bash
-./testops-darwin-amd64 --http
+./testops-mcp-macos-amd64 --http
 ```
 Runs on `http://localhost:3000` for team deployments.
 
@@ -152,11 +154,13 @@ Expected response: Connection successful message
 For team/server deployments:
 
 ```bash
+docker pull ghcr.io/MimoJanra/TestOpsMCP:latest
+
 docker run -d \
   -e ALLURE_BASE_URL=https://your-testops.com \
   -e ALLURE_TOKEN=your-token \
   -p 3000:3000 \
-  mimjanra/testops-mcp:latest
+  ghcr.io/MimoJanra/TestOpsMCP:latest --http
 ```
 
 ## 🆘 Troubleshooting
@@ -181,7 +185,7 @@ xattr -d com.apple.quarantine ./testops-darwin-amd64
 
 ## 📚 Available Tools
 
-Over **104 MCP tools** for Allure TestOps integration:
+Over **112 MCP tools** for Allure TestOps integration:
 
 - Launch management (create, run\*, close, reopen, copy\*, merge\*) — \*async
 - Test case operations (create, update, delete†, clone, restore, versions, audit) — †with confirmation

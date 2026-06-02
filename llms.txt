@@ -16,7 +16,7 @@ TestOps MCP is a production-grade Go server implementing the Model Context Proto
 |---------|------|
 | `cmd/server` | Entry point; `--http` flag selects transport |
 | `internal/mcp` | JSON-RPC 2.0 dispatcher, SSE sessions, heartbeat |
-| `internal/tools` | Tool registry, 104 tools, OpenAPI search/execute |
+| `internal/tools` | Tool registry, 112 tools, OpenAPI search/execute |
 | `internal/adapters/allure` | HTTP client for Allure TestOps API, JWT caching |
 | `internal/config` | Env-var configuration loader |
 | `internal/core` | Structured JSON logger (slog-backed) |
@@ -36,6 +36,7 @@ TestOps MCP is a production-grade Go server implementing the Model Context Proto
 - **Test Cases — Defects** (3): `get_test_case_defects`, `add_test_case_defect`, `remove_test_case_defect`
 - **Test Cases — Versions & Attachments** (7): `list_test_case_versions`, `create_test_case_version`, `restore_test_case_version`, `get_test_case_version_data`, `delete_test_case_version`, `get_test_case_attachments`, `delete_test_case_attachment`
 - **Test Cases — Audit & State** (4): `get_test_case_audit`, `get_test_case_history`, `list_deleted_test_cases`, `list_muted_test_cases`
+- **Test Cases — Folder Tree** (4): `browse_test_case_tree`, `get_test_case_tree_folders`, `move_test_cases_to_folder`, `create_test_case_folder`
 - **Bulk Operations** (18): `bulk_set_test_case_status`, `bulk_add_test_case_tags`, `bulk_remove_test_case_tags`, `bulk_clone_test_cases`, `bulk_mute_test_cases`, `bulk_delete_test_cases`, `bulk_move_test_cases`, `bulk_set_test_case_layer`, `bulk_add_test_case_members`, `bulk_remove_test_case_members`, `bulk_add_test_case_custom_fields`, `bulk_remove_test_case_custom_fields`, `bulk_add_test_case_external_links`, `bulk_add_test_case_issues`, `bulk_remove_test_case_issues`, `bulk_run_test_cases_new_launch`, `bulk_run_test_cases_existing_launch`, `bulk_create_test_plan`
 - **Projects** (3): `list_projects`, `get_project`, `get_project_stats`
 - **Analytics** (3): `get_launch_trend_analytics`, `get_launch_duration_analytics`, `get_test_success_rate`
@@ -72,11 +73,20 @@ Prompts are returned via `prompts/list` and `prompts/get` JSON-RPC methods.
 | `LOG_LEVEL` | No | INFO | DEBUG / INFO / WARN / ERROR |
 | `MCP_AUTH_TOKENS` | No | — | Named user tokens: `alice:tok1,bob:tok2` (preferred) |
 | `MCP_AUTH_TOKEN` | No | — | Single legacy token; treated as user `"default"` |
-| `CORS_ALLOWED_ORIGIN` | No | * | CORS origin header value |
+| `CORS_ALLOWED_ORIGIN` | No | — (disabled) | CORS origin header value |
 | `AUDIT_LOG_PATH` | No | `audit` | Directory for daily audit JSONL files |
 | `AUDIT_RETENTION_DAYS` | No | 30 | Days to keep audit files before auto-deletion |
 
 ## Deployment
+
+**Docker (recommended — no clone required):**
+```bash
+docker pull ghcr.io/MimoJanra/TestOpsMCP:latest
+docker run -e ALLURE_BASE_URL=https://your-testops.com -e ALLURE_TOKEN=... \
+  -e MCP_AUTH_TOKENS=alice:tok1,bob:tok2 -p 3000:3000 \
+  ghcr.io/MimoJanra/TestOpsMCP:latest --http
+```
+Multi-arch image: linux/amd64, linux/arm64. Pin versions: `ghcr.io/MimoJanra/TestOpsMCP:v2.0.3`
 
 **Stdio (per-user, Claude Desktop):**
 ```json

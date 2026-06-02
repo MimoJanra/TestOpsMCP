@@ -51,8 +51,8 @@ make run
 Perfect for: Testing, single server deployment, CI/CD
 
 ```bash
-# 1. Build image
-docker build -t allure-mcp .
+# 1. Pull pre-built image (no clone needed)
+docker pull ghcr.io/MimoJanra/TestOpsMCP:latest
 
 # 2. Run with environment variables
 docker run -d \
@@ -60,7 +60,7 @@ docker run -d \
   -e ALLURE_TOKEN=your_token_here \
   -e MCP_AUTH_TOKENS=alice:token-for-alice,bob:token-for-bob \
   -p 3000:3000 \
-  allure-mcp --http
+  ghcr.io/MimoJanra/TestOpsMCP:latest --http
 
 # 3. Test (use any configured user's token)
 curl -H "Authorization: Bearer token-for-alice" \
@@ -109,17 +109,34 @@ curl -H "Authorization: Bearer token-for-alice" \
 Perfect for: Team deployment, easy configuration, multiple services
 
 ```bash
-# 1. Create .env file
-cp .env.example .env
-# Edit .env with your Allure credentials and team settings
+# 1. Create docker-compose.yml (no clone needed)
+cat > docker-compose.yml << 'EOF'
+services:
+  testops-mcp:
+    image: ghcr.io/MimoJanra/TestOpsMCP:latest
+    restart: unless-stopped
+    command: ./testops-mcp --http
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+EOF
 
-# 2. Start services
+# 2. Create .env file
+cat > .env << 'EOF'
+ALLURE_BASE_URL=https://your-allure.com
+ALLURE_TOKEN=your_token_here
+MCP_AUTH_TOKENS=alice:token-for-alice,bob:token-for-bob
+LOG_LEVEL=INFO
+EOF
+
+# 3. Start services
 docker-compose up -d
 
-# 3. Check logs
-docker-compose logs -f allure-mcp
+# 4. Check logs
+docker-compose logs -f testops-mcp
 
-# 4. Stop (when done)
+# 5. Stop (when done)
 docker-compose down
 
 ```
@@ -322,11 +339,11 @@ make clean      # Remove artifacts
 ### Docker
 
 ```bash
-docker build -t allure-mcp .                    # Build image
-docker run allure-mcp --http                   # Run HTTP mode
-docker-compose up -d                           # Start services
-docker-compose logs -f allure-mcp              # View logs
-docker-compose down                            # Stop services
+docker pull ghcr.io/MimoJanra/TestOpsMCP:latest          # Pull pre-built image
+docker run ghcr.io/MimoJanra/TestOpsMCP:latest --http     # Run HTTP mode
+docker-compose up -d                                       # Start services
+docker-compose logs -f testops-mcp                         # View logs
+docker-compose down                                        # Stop services
 ```
 
 ### Kubernetes

@@ -112,12 +112,12 @@ Restart Claude Desktop. The Allure tools should now appear in the tool dropdown.
 - Docker 20.10+ or Docker Desktop
 - Docker Compose 1.29+ (if using `docker-compose.yml`)
 
-### Option 1: Docker CLI
+### Option 1: Pre-built Image from GitHub Container Registry (Recommended)
 
-Build the image:
+No need to clone the repo — pull the ready-to-use image:
 
 ```bash
-docker build -t allure-mcp .
+docker pull ghcr.io/MimoJanra/TestOpsMCP:latest
 ```
 
 Run the container:
@@ -129,15 +129,38 @@ docker run \
   -e MCP_AUTH_TOKENS=alice:token-for-alice,bob:token-for-bob \
   -e LOG_LEVEL=INFO \
   -p 3000:3000 \
-  allure-mcp
+  ghcr.io/MimoJanra/TestOpsMCP:latest --http
 ```
 
-### Option 2: Docker Compose (Recommended)
-
-Create `.env` file (copy from `.env.example`):
+Or pin a specific version:
 
 ```bash
-cp .env.example .env
+docker run ... ghcr.io/MimoJanra/TestOpsMCP:v2.0.3 --http
+```
+
+### Option 2: Docker Compose (Recommended for Teams)
+
+Create a `docker-compose.yml` (no need to clone the repo):
+
+```yaml
+services:
+  testops-mcp:
+    image: ghcr.io/MimoJanra/TestOpsMCP:latest
+    restart: unless-stopped
+    command: ./testops-mcp --http
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+```
+
+Create `.env`:
+
+```env
+ALLURE_BASE_URL=https://your-allure.com
+ALLURE_TOKEN=your_token_here
+MCP_AUTH_TOKENS=alice:token-for-alice,bob:token-for-bob
+LOG_LEVEL=INFO
 ```
 
 Start the service:
@@ -158,21 +181,16 @@ docker-compose logs -f
 docker-compose down
 ```
 
-### Custom Image Tags
+### Option 3: Build from Source
 
-For registry / team deployments:
+Only needed if you want to modify the code:
 
 ```bash
-docker build -t registry.example.com/allure-mcp:1.0 .
-docker push registry.example.com/allure-mcp:1.0
-```
-
-Then reference in `docker-compose.yml`:
-
-```yaml
-services:
-  allure-mcp:
-    image: registry.example.com/allure-mcp:1.0
+git clone https://github.com/MimoJanra/TestOpsMCP.git
+cd TestOpsMCP
+docker build -t testops-mcp:local .
+docker run -e ALLURE_BASE_URL=https://your-allure.com -e ALLURE_TOKEN=your_token_here \
+  -p 3000:3000 testops-mcp:local --http
 ```
 
 ---
@@ -199,7 +217,7 @@ spec:
     spec:
       containers:
       - name: allure-mcp
-        image: allure-mcp:latest
+        image: ghcr.io/MimoJanra/TestOpsMCP:latest
         ports:
         - containerPort: 3000
         env:
@@ -255,7 +273,7 @@ Type=simple
 User=allure-mcp
 Group=allure-mcp
 WorkingDirectory=/opt/allure-mcp
-ExecStart=/opt/allure-mcp/bin/server --http
+ExecStart=/opt/allure-mcp/testops-mcp --http
 Restart=on-failure
 RestartSec=10
 
@@ -356,4 +374,4 @@ make build
 
 - [See Deployment Guide](./DEPLOYMENT.md) for production setup
 - [Check API Reference](./API.md) for tool usage
-- [Review Security Notes](../README.md#security-notes) in main README
+- [Review Security Notes](../README.md#-security) in main README

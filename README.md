@@ -26,7 +26,7 @@ Integrate **Allure TestOps** with Claude using the Model Context Protocol. Launc
 - Works with Claude Desktop, Claude Web, and custom MCP clients
 
 ### 🏭 Production-Grade
-- **104 tools** — complete Allure TestOps test case API coverage + full OpenAPI fallback (600+ endpoints)
+- **112 tools** — complete Allure TestOps test case API coverage + full OpenAPI fallback (600+ endpoints)
 - **MCP Prompts** — built-in templates (`analyze-test-failures`, `launch-report-summary`) for one-click workflows
 - **MCP Resources** — attach `allure://docs/quickstart` as context; widget resources for visual dashboards
 - **AI analysis** — `analyze_launch_failures` asks Claude to find root causes via MCP sampling
@@ -118,12 +118,12 @@ Claude: The auth endpoint returned 401.
 
 ## 📦 Installation Options
 
-### **Option A: Per-User (Recommended)**
-Each team member uses their own API token.
+### **Option A: Per-User**
+Each team member runs their own binary with their own Allure token.
 → [Per-User Setup](#per-user-setup)
 
 ### **Option B: Shared Server**
-One server for the team with a shared token.
+One server for the whole team — one deployment, everyone connects via HTTP.
 → [Shared Server Setup](#shared-server-setup)
 
 ---
@@ -174,35 +174,42 @@ One server for the team with a shared token.
 
 ### Quick Start with Docker Compose (Recommended)
 
-**1. Clone repo and create .env:**
-```bash
-# Clone repo
-git clone https://github.com/MimoJanra/TestOpsMCP.git
-cd TestOpsMCP
+No need to clone the repo — the image is published on GitHub Container Registry.
 
-# Create .env file (ALLURE_TOKEN is optional - each user provides their own)
-cat > .env << EOF
+**1. Create `docker-compose.yml` and `.env`:**
+```bash
+# Create docker-compose.yml
+cat > docker-compose.yml << 'EOF'
+services:
+  testops-mcp:
+    image: ghcr.io/MimoJanra/TestOpsMCP:latest
+    restart: unless-stopped
+    command: ./testops-mcp --http
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+EOF
+
+# Create .env (ALLURE_TOKEN is optional — each user can provide their own)
+cat > .env << 'EOF'
 ALLURE_BASE_URL=https://your-testops.com
 PORT=3000
 LOG_LEVEL=INFO
 # Preferred for teams: name:token pairs (each user gets their own token)
-MCP_AUTH_TOKENS=artem:$(openssl rand -hex 16),ivan:$(openssl rand -hex 16)
+MCP_AUTH_TOKENS=alice:token-for-alice,bob:token-for-bob
 EOF
 ```
 
-**Optional:** If you want a fallback shared token for the server:
+**Optional:** Add a fallback shared Allure token:
 ```bash
-# Add to .env (optional)
-ALLURE_TOKEN=your-shared-token
+echo "ALLURE_TOKEN=your-shared-token" >> .env
 ```
 
 **2. Start with Docker Compose:**
 ```bash
-# Start server
 docker-compose up -d
-
-# Check logs
-docker-compose logs -f
+docker-compose logs -f testops-mcp
 ```
 
 Server runs on `http://localhost:3000`
@@ -311,6 +318,9 @@ If you prefer running without Docker:
 ### Test Cases — Audit & State
 `get_test_case_audit` • `get_test_case_history` • `list_deleted_test_cases` • `list_muted_test_cases`
 
+### Test Cases — Folder Tree
+`browse_test_case_tree` • `get_test_case_tree_folders` • `move_test_cases_to_folder` • `create_test_case_folder`
+
 ### Bulk Test Case Operations
 `bulk_set_test_case_status` • `bulk_add_test_case_tags` • `bulk_remove_test_case_tags` • `bulk_clone_test_cases` • `bulk_mute_test_cases` • `bulk_delete_test_cases` • `bulk_move_test_cases` • `bulk_set_test_case_layer` • `bulk_add_test_case_members` • `bulk_remove_test_case_members` • `bulk_add_test_case_custom_fields` • `bulk_remove_test_case_custom_fields` • `bulk_add_test_case_external_links` • `bulk_add_test_case_issues` • `bulk_remove_test_case_issues` • `bulk_run_test_cases_new_launch` • `bulk_run_test_cases_existing_launch` • `bulk_create_test_plan`
 
@@ -393,7 +403,7 @@ Or deploy with:
 | `LOG_LEVEL` | No | INFO | DEBUG/INFO/WARN/ERROR |
 | `MCP_AUTH_TOKENS` | No | — | Named user tokens: `alice:tok1,bob:tok2` (preferred for teams) |
 | `MCP_AUTH_TOKEN` | No | — | Single legacy bearer token; treated as user `"default"` |
-| `CORS_ALLOWED_ORIGIN` | No | * | CORS origin (set to `https://claude.ai` for Claude.ai) |
+| `CORS_ALLOWED_ORIGIN` | No | — (disabled) | CORS origin — set to `https://claude.ai` for Claude.ai |
 | `AUDIT_LOG_PATH` | No | `audit` | Directory for daily audit JSONL files |
 | `AUDIT_RETENTION_DAYS` | No | `30` | Days to keep audit files |
 

@@ -561,7 +561,7 @@ Access-Control-Max-Age: 86400
 
 ## Protocol
 
-The server implements **MCP Protocol 2024-11-05** (JSON-RPC 2.0 subset).
+The server implements **MCP Protocol 2025-11-25** (JSON-RPC 2.0 subset).
 
 ### Initialization Sequence
 

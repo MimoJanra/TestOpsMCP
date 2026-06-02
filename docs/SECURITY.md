@@ -116,7 +116,7 @@ spec:
 
 ### Restrict CORS
 
-**Default `CORS_ALLOWED_ORIGIN=*` allows any site to call your server.**
+**By default `CORS_ALLOWED_ORIGIN` is unset — CORS headers are not sent at all.** Set it explicitly for browser-based clients (e.g. claude.ai):
 
 Set to specific domains:
 
