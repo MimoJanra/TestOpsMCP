@@ -143,7 +143,9 @@ One server for the whole team — one deployment, everyone connects via HTTP.
    - Copy the token (it won't be shown again!)
    - Store it somewhere safe
 
-3. Add to Claude Desktop config (**Settings → Developer → Edit Config**):
+3. Configure your Claude client:
+
+**Claude Desktop** (**Settings → Developer → Edit Config**):
 
 ```json
 {
@@ -161,7 +163,23 @@ One server for the whole team — one deployment, everyone connects via HTTP.
 }
 ```
 
-4. Restart Claude Desktop and test:
+**Claude Code** (terminal / IDE extensions):
+
+```bash
+# macOS / Linux
+claude mcp add -s user testops ~/Downloads/testops-mcp-macos-arm64 \
+  -e ALLURE_BASE_URL=https://your-testops.com \
+  -e ALLURE_TOKEN=your-token-here
+
+# Windows (PowerShell)
+claude mcp add -s user testops "$env:USERPROFILE\Downloads\testops-mcp-windows-amd64.exe" `
+  -e ALLURE_BASE_URL=https://your-testops.com `
+  -e ALLURE_TOKEN=your-token-here
+```
+
+The `-s user` flag saves the config to `~/.claude.json` so it's available in all your projects. Use `-s local` to limit it to the current project only.
+
+4. Restart Claude Desktop (or reload Claude Code) and test:
 ```
 "List all projects in Allure"
 ```
@@ -216,9 +234,11 @@ Server runs on `http://localhost:3000`
 
 **3. Team members connect with their own tokens**
 
-Each team member adds to their Claude Desktop config (**Settings → Developer → Edit Config**):
+Each team member picks their client:
 
-**Windows:**
+**Claude Desktop** (**Settings → Developer → Edit Config**):
+
+*Windows:*
 ```json
 {
   "mcpServers": {
@@ -235,7 +255,7 @@ Each team member adds to their Claude Desktop config (**Settings → Developer �
 }
 ```
 
-**macOS / Linux:**
+*macOS / Linux:*
 ```json
 {
   "mcpServers": {
@@ -252,13 +272,27 @@ Each team member adds to their Claude Desktop config (**Settings → Developer �
 }
 ```
 
-- **`Authorization`** — each user's named bearer token from `MCP_AUTH_TOKENS`. Omit the arg entirely if no auth is configured.
+**Claude Code** (terminal / IDE extensions — one command, all platforms):
+
+```bash
+claude mcp add -s user --transport http testops http://your-server.com:3000/mcp \
+  --header "Authorization:Bearer your-mcp-auth-token" \
+  --header "X-Allure-Token:your-personal-allure-token"
+```
+
+Verify it's registered:
+
+```bash
+claude mcp list
+```
+
+- **`Authorization`** — each user's named bearer token from `MCP_AUTH_TOKENS`. Omit the `--header "Authorization:..."` arg if the server has no auth configured.
 - **`X-Allure-Token`** — each person's own Allure API token. Actions in Allure are performed under that account.
 
 Each person needs to:
 1. Get their personal Allure API token (Settings → API tokens in Allure TestOps)
-2. Add it to their Claude Desktop config as `X-Allure-Token`
-3. Restart Claude Desktop
+2. Add it to their config as `X-Allure-Token`
+3. Restart Claude Desktop (or reload Claude Code)
 
 All actions will be done from their personal Allure account! ✅
 

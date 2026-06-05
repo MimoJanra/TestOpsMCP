@@ -46,6 +46,55 @@ make run
 
 ---
 
+### ⌨️ Claude Code (CLI)
+
+Perfect for: Developers using Claude Code in terminal or IDE extensions
+
+**Stdio mode** — connect directly to the local binary:
+
+```bash
+# Build first
+make build
+
+# Add to Claude Code (user scope — works in all projects)
+claude mcp add -s user testops ./bin/server \
+  -e ALLURE_BASE_URL=https://your-allure.com \
+  -e ALLURE_TOKEN=your_token_here
+
+# Windows
+claude mcp add -s user testops .\bin\server.exe `
+  -e ALLURE_BASE_URL=https://your-allure.com `
+  -e ALLURE_TOKEN=your_token_here
+```
+
+**HTTP mode** — connect to a running server (Docker, remote, etc.):
+
+```bash
+claude mcp add -s user --transport http testops http://localhost:3000/mcp \
+  --header "Authorization:Bearer your-mcp-auth-token" \
+  --header "X-Allure-Token:your-personal-allure-token"
+```
+
+**Scope options:**
+
+| Flag | Saved to | Shared? |
+|------|----------|---------|
+| `-s user` | `~/.claude.json` | No — your machine only |
+| `-s local` | `.claude/settings.local.json` | No — gitignored |
+| `-s project` | `.mcp.json` in project root | Yes — committed to repo |
+
+Verify the server is registered:
+
+```bash
+claude mcp list
+```
+
+**Time:** ~2 minutes  
+**Requirements:** Go 1.26+, Claude Code CLI  
+**See also:** [Installation Guide](./INSTALLATION.md#claude-code-cli)
+
+---
+
 ### 🐳 Docker (Single Instance)
 
 Perfect for: Testing, single server deployment, CI/CD

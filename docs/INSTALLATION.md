@@ -103,6 +103,55 @@ Edit your Claude Desktop config:
 
 Restart Claude Desktop. The Allure tools should now appear in the tool dropdown.
 
+### Step 6 (Alternative): Configure Claude Code CLI
+
+If you use **Claude Code** in the terminal or IDE extensions instead of Claude Desktop, register the server with `claude mcp add`:
+
+**Stdio mode** — runs the binary directly (no HTTP server needed):
+
+```bash
+# macOS / Linux
+claude mcp add -s user testops ./bin/server \
+  -e ALLURE_BASE_URL=https://your-allure.com \
+  -e ALLURE_TOKEN=your_token_here
+
+# Windows (PowerShell)
+claude mcp add -s user testops .\bin\server.exe `
+  -e ALLURE_BASE_URL=https://your-allure.com `
+  -e ALLURE_TOKEN=your_token_here
+```
+
+**HTTP mode** — connect to a running server (`make run-http` or Docker):
+
+```bash
+claude mcp add -s user --transport http testops http://localhost:3000/mcp \
+  --header "Authorization:Bearer your-mcp-auth-token" \
+  --header "X-Allure-Token:your-personal-allure-token"
+```
+
+**Scope flags explained:**
+
+| Flag | Where it's saved | Shared with team? |
+|------|-----------------|-------------------|
+| `-s user` | `~/.claude.json` | No |
+| `-s local` | `.claude/settings.local.json` | No (gitignored) |
+| `-s project` | `.mcp.json` in repo root | Yes (committed) |
+
+Use `-s user` for personal setups. Use `-s project` to share the config via git (don't commit secrets — use `-e` env vars or a `.env` file).
+
+Verify registration:
+
+```bash
+claude mcp list
+# testops: /path/to/server.exe [user]
+```
+
+Remove if needed:
+
+```bash
+claude mcp remove testops
+```
+
 ---
 
 ## Docker Setup
