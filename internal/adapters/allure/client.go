@@ -2108,6 +2108,64 @@ func (c *Client) BulkAssignTestResults(ctx context.Context, launchID int64, test
 	return nil
 }
 
+// DeleteTestResult permanently deletes a single test result by ID, removing it
+// (and the test case it represents) from the launch it belongs to.
+func (c *Client) DeleteTestResult(ctx context.Context, testResultID int64) error {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.url(fmt.Sprintf("/api/testresult/%d", testResultID)), nil)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
+// BulkHideTestResults hides the given test results in a launch
+// (POST /api/testresult/bulk/hide). Hidden results stay in the launch data but
+// are excluded from the report; unlike DeleteTestResult this is non-destructive.
+func (c *Client) BulkHideTestResults(ctx context.Context, launchID int64, testResultIDs []int64) error {
+	body, err := json.Marshal(TestResultBulkDto{
+		Selection: TestResultTreeSelectionDto{
+			LaunchID:     launchID,
+			LeafsInclude: testResultIDs,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/testresult/bulk/hide"), bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, httpReq); err != nil {
+		return fmt.Errorf("set auth: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
 func (c *Client) BulkMuteTestResults(ctx context.Context, launchID int64, testResultIDs []int64, reason string) error {
 	selection := TestResultTreeSelectionDto{
 		LaunchID:     launchID,

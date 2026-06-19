@@ -43,6 +43,7 @@ func TestRegistry_HasExpectedTools(t *testing.T) {
 		"update_test_case",
 		"delete_test_case",
 		"list_projects",
+		"find_project",
 		"get_project",
 		"get_project_stats",
 		"get_launch_trend_analytics",
@@ -64,6 +65,7 @@ func TestRegistry_HasExpectedTools(t *testing.T) {
 		"bulk_clone_test_cases",
 		"add_test_cases_to_launch",
 		"add_test_plan_to_launch",
+		"remove_test_cases_from_launch",
 		"create_test_case_step",
 		"update_test_case_step",
 		"delete_test_case_step",
@@ -149,10 +151,10 @@ func TestRegistry_HasExpectedTools(t *testing.T) {
 	has_search := r.GetTool("search_testops_operations") != nil
 	has_execute := r.GetTool("execute_testops_operation") != nil
 
-	// Expected count: 109 base tools + 2 OpenAPI tools (if spec found)
-	expected_count := 109
+	// Expected count: 111 base tools + 2 OpenAPI tools (if spec found)
+	expected_count := 111
 	if has_search && has_execute {
-		expected_count = 112
+		expected_count = 114
 	}
 
 	if got := len(r.ListTools()); got != expected_count {
@@ -337,6 +339,36 @@ func TestListProjects_ValidatesInput(t *testing.T) {
 
 	if _, err := callTool(r, "list_projects", `not-json`); err == nil {
 		t.Error("expected error for bad json")
+	}
+}
+
+func TestRemoveTestCasesFromLaunch_ValidatesInput(t *testing.T) {
+	r := newTestRegistry(t)
+
+	cases := []string{
+		`{}`,
+		`{"launch_id":0,"test_case_ids":[1]}`,
+		`{"launch_id":-1,"test_case_ids":[1]}`,
+		`{"launch_id":1}`,
+		`{"launch_id":1,"test_case_ids":[]}`,
+		`{"launch_id":1,"test_case_ids":[0]}`,
+		`{"launch_id":1,"test_case_ids":[1],"mode":"bogus"}`,
+		`not-json`,
+	}
+	for _, in := range cases {
+		if _, err := callTool(r, "remove_test_cases_from_launch", in); err == nil {
+			t.Errorf("expected error for input %q", in)
+		}
+	}
+}
+
+func TestFindProject_ValidatesInput(t *testing.T) {
+	r := newTestRegistry(t)
+
+	for _, in := range []string{`{}`, `{"query":""}`, `{"query":"   "}`, `not-json`} {
+		if _, err := callTool(r, "find_project", in); err == nil {
+			t.Errorf("expected error for input %q", in)
+		}
 	}
 }
 

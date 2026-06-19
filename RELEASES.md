@@ -5,7 +5,7 @@ All pre-built binaries are provided for easy setup without requiring Go installa
 ## 🆕 What's New in v2.0.0
 
 - **MCP protocol 2025-11-25** with version negotiation and stable cursor-based pagination
-- **112 tools** (+ `get_task_status`, `list_running_tasks`, `cancel_task`, `analyze_launch_failures`)
+- **114 tools** (+ `find_project`, `remove_test_cases_from_launch`, `get_task_status`, `list_running_tasks`, `cancel_task`, `analyze_launch_failures`)
 - **Async task system** — `run_allure_launch`, `copy_launch`, `merge_launches`, bulk runs return `task_id` immediately; tasks auto-expire after 1 hour
 - **AI failure analysis** — `analyze_launch_failures` asks Claude to identify root causes via MCP sampling
 - **Confirmation dialogs** — `delete_test_case` / `bulk_delete_test_cases` require user confirmation via elicitation (requires HTTP transport; stdio returns an error)
@@ -185,7 +185,7 @@ xattr -d com.apple.quarantine ./testops-darwin-amd64
 
 ## 📚 Available Tools
 
-Over **112 MCP tools** for Allure TestOps integration:
+Over **114 MCP tools** for Allure TestOps integration:
 
 - Launch management (create, run\*, close, reopen, copy\*, merge\*) — \*async
 - Test case operations (create, update, delete†, clone, restore, versions, audit) — †with confirmation

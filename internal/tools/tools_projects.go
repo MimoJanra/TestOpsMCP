@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 func (r *Registry) registerProjectTools() {
@@ -25,6 +26,29 @@ func (r *Registry) registerProjectTools() {
 			},
 		},
 		Handler: Typed(r.listProjects),
+	})
+
+	r.register(&Tool{
+		Name: "find_project",
+		Description: "Find a project by name or code (case-insensitive substring match). " +
+			"Use this to resolve a human-readable project name or code (e.g. \"TSi\") to its numeric " +
+			"Allure project ID — instead of paging through list_projects or guessing IDs.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": map[string]any{
+					"type":        "string",
+					"description": "Name or code to search for (case-insensitive substring match)",
+				},
+				"limit": map[string]any{
+					"type":        "integer",
+					"description": "Max matches to return (1-100, default 20)",
+					"default":     20,
+				},
+			},
+			"required": []string{"query"},
+		},
+		Handler: Typed(r.findProject),
 	})
 
 	r.register(&Tool{
@@ -99,6 +123,82 @@ func (r *Registry) listProjects(ctx context.Context, args listProjectsArgs) (any
 		"size":     projects.Size,
 		"total":    projects.Total,
 		"is_last":  projects.Last,
+	}, nil
+}
+
+// find_project scans pages of /api/project client-side because the Allure
+// TestOps API exposes no reliable server-side name/code filter for projects.
+const (
+	findProjectPageSize = 100
+	findProjectMaxPages = 50 // scan at most 5000 projects before giving up
+)
+
+type findProjectArgs struct {
+	Query string `json:"query"`
+	Limit int    `json:"limit"`
+}
+
+func (r *Registry) findProject(ctx context.Context, args findProjectArgs) (any, error) {
+	query := strings.TrimSpace(args.Query)
+	if query == "" {
+		return nil, fmt.Errorf("query cannot be empty")
+	}
+
+	limit := args.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	r.logger.Info("finding project", map[string]any{"query": query, "limit": limit})
+
+	needle := strings.ToLower(query)
+	matches := make([]map[string]any, 0)
+	scanned := 0
+	truncated := false
+
+	for page := 0; page < findProjectMaxPages; page++ {
+		resp, err := r.allure.ListProjects(ctx, page, findProjectPageSize)
+		if err != nil {
+			r.logger.Error("find project", err, map[string]any{"query": query})
+			return nil, fmt.Errorf("find project: %w", err)
+		}
+
+		for _, p := range resp.Content {
+			scanned++
+			if strings.Contains(strings.ToLower(p.Name), needle) ||
+				strings.Contains(strings.ToLower(p.Code), needle) {
+				matches = append(matches, map[string]any{
+					"id":   p.ID,
+					"name": p.Name,
+					"code": p.Code,
+				})
+			}
+		}
+
+		if len(matches) >= limit {
+			// More matches may exist beyond the requested limit.
+			truncated = len(matches) > limit
+			matches = matches[:limit]
+			break
+		}
+		if resp.Last || len(resp.Content) == 0 {
+			break
+		}
+		if page == findProjectMaxPages-1 {
+			// Hit the page cap before exhausting the project list.
+			truncated = true
+		}
+	}
+
+	return map[string]any{
+		"query":     query,
+		"matches":   matches,
+		"count":     len(matches),
+		"scanned":   scanned,
+		"truncated": truncated,
 	}, nil
 }
 

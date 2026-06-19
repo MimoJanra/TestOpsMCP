@@ -16,7 +16,7 @@ TestOps MCP is a production-grade Go server implementing the Model Context Proto
 |---------|------|
 | `cmd/server` | Entry point; `--http` flag selects transport |
 | `internal/mcp` | JSON-RPC 2.0 dispatcher, SSE sessions, heartbeat |
-| `internal/tools` | Tool registry, 112 tools, OpenAPI search/execute |
+| `internal/tools` | Tool registry, 114 tools, OpenAPI search/execute |
 | `internal/adapters/allure` | HTTP client for Allure TestOps API, JWT caching |
 | `internal/config` | Env-var configuration loader |
 | `internal/core` | Structured JSON logger (slog-backed) |
@@ -27,7 +27,7 @@ TestOps MCP is a production-grade Go server implementing the Model Context Proto
 ## Tool Groups (104 total)
 
 - **Universal** (3): `configure_allure_token`, `search_testops_operations`, `execute_testops_operation`
-- **Launches** (14): `run_allure_launch`, `get_launch_status`, `get_launch_report`, `list_launches`, `get_launch_details`, `close_launch`, `reopen_launch`, `copy_launch`, `merge_launches`, `get_launch_environment`, `update_launch_environment`, `add_test_cases_to_launch`, `add_test_plan_to_launch`, `get_launch_defects`
+- **Launches** (14): `run_allure_launch`, `get_launch_status`, `get_launch_report`, `list_launches`, `get_launch_details`, `close_launch`, `reopen_launch`, `copy_launch`, `merge_launches`, `get_launch_environment`, `add_test_cases_to_launch`, `add_test_plan_to_launch`, `remove_test_cases_from_launch`, `get_launch_defects`
 - **Test Results** (6): `list_test_results`, `get_test_result`, `assign_test_result`, `mute_test_result`, `resolve_test_result`, `unmute_test_result`
 - **Test Cases — Core** (11): `list_test_cases`, `get_test_case`, `create_test_case`, `update_test_case`, `delete_test_case`, `clone_test_case`, `restore_test_case`, `run_test_case`, `search_test_cases`, `suggest_test_cases`, `validate_test_case_query`
 - **Test Cases — Steps** (8): `create_test_case_step`, `update_test_case_step`, `delete_test_case_step`, `move_test_case_step`, `copy_test_case_step`, `delete_test_case_scenario`, `get_test_case_scenario_from_run`, `detach_test_case_automation`

@@ -106,6 +106,14 @@ func TestServer_InitializeOverSSE(t *testing.T) {
 	if string(parsed.ID) != "1" {
 		t.Errorf("id = %s, want 1", parsed.ID)
 	}
+
+	result, ok := parsed.Result.(map[string]any)
+	if !ok {
+		t.Fatalf("result is not an object: %T", parsed.Result)
+	}
+	if instr, _ := result["instructions"].(string); instr == "" {
+		t.Error("initialize response should include non-empty instructions for tool discoverability")
+	}
 }
 
 func TestServer_ToolsListOverSSE(t *testing.T) {

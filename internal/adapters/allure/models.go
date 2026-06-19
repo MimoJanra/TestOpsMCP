@@ -685,6 +685,12 @@ type TestResultBulkResolveDto struct {
 	Issues    []interface{}              `json:"issues,omitempty"`
 }
 
+// TestResultBulkDto is the request body for selection-only bulk test result
+// operations such as POST /api/testresult/bulk/hide.
+type TestResultBulkDto struct {
+	Selection TestResultTreeSelectionDto `json:"selection"`
+}
+
 // ── Launch population DTOs ────────────────────────────────────────────────────
 
 type LaunchTestCasesAddDto struct {

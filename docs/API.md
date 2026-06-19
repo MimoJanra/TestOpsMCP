@@ -235,9 +235,25 @@ Add a test plan to a launch.
 
 ---
 
+### 10. `remove_test_cases_from_launch`
+
+Remove test cases from a launch. Resolves each `test_case_id` to its test result(s) in the launch (including retries) and removes them — use to trim a launch that has too many cases or duplicates.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `launch_id` | integer | ✓ | Launch ID to remove test cases from |
+| `test_case_ids` | integer[] | ✓ | Test case IDs to remove |
+| `mode` | string | | `hide` (default) excludes results from the report but keeps the data; `delete` permanently deletes them |
+
+Returns `removed_count`, `removed_result_ids`, `not_found_test_case_ids`, and `truncated`. In `delete` mode, any per-result failures are listed under `failed`. No bulk-delete API exists, so `delete` issues one `DELETE` per result.
+
+---
+
 ## Test Results Management Tools
 
-### 10. `list_test_results`
+### 11. `list_test_results`
 
 List test results in a launch with optional status filter.
 
@@ -252,7 +268,7 @@ List test results in a launch with optional status filter.
 
 ---
 
-### 11. `get_test_result`
+### 12. `get_test_result`
 
 Get detailed information about a single test result.
 
@@ -264,7 +280,7 @@ Get detailed information about a single test result.
 
 ---
 
-### 12. `assign_test_result`
+### 13. `assign_test_result`
 
 Assign a test result to a team member.
 
@@ -277,7 +293,7 @@ Assign a test result to a team member.
 
 ---
 
-### 13. `mute_test_result`
+### 14. `mute_test_result`
 
 Mute a failing test result (mark as known issue).
 
@@ -405,7 +421,22 @@ List all accessible projects.
 
 ---
 
-### 28. `get_project`
+### 28. `find_project`
+
+Find a project by name or code (case-insensitive substring match). Resolves a human-readable name/code (e.g. `TSi`) to its numeric project ID — instead of paging through `list_projects` or guessing IDs.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | string | ✓ | Name or code to match (case-insensitive substring) |
+| `limit` | integer | | Max matches to return (1–100, default 20) |
+
+Returns `matches` (array of `{id, name, code}`), `count`, `scanned`, and `truncated` (`true` if more matches may exist beyond `limit` or the scan cap).
+
+---
+
+### 29. `get_project`
 
 Get project details and settings.
 
@@ -417,7 +448,7 @@ Get project details and settings.
 
 ---
 
-### 29. `get_project_stats`
+### 30. `get_project_stats`
 
 Get project statistics (test count, runs, automation %).
 
@@ -429,7 +460,7 @@ Get project statistics (test count, runs, automation %).
 
 ---
 
-### 30. `get_launch_trend_analytics`
+### 31. `get_launch_trend_analytics`
 
 Get launch trend data over time (passed/failed/broken/skipped).
 
@@ -441,7 +472,7 @@ Get launch trend data over time (passed/failed/broken/skipped).
 
 ---
 
-### 31. `get_launch_duration_analytics`
+### 32. `get_launch_duration_analytics`
 
 Get launch execution time distribution.
 
@@ -453,7 +484,7 @@ Get launch execution time distribution.
 
 ---
 
-### 32. `get_test_success_rate`
+### 33. `get_test_success_rate`
 
 Get test case success rate metrics.
 

@@ -1,6 +1,6 @@
 # TestOps MCP — Full LLM Reference
 
-> MCP server that connects Claude to Allure TestOps. 112 curated tools + 600+ dynamic OpenAPI endpoints + 2 prompt templates + 4 resources.
+> MCP server that connects Claude to Allure TestOps. 114 curated tools + 600+ dynamic OpenAPI endpoints + 2 prompt templates + 4 resources.
 > Module: github.com/MimoJanra/TestOpsMCP | Go 1.26+ | Apache 2.0 | MCP protocol 2025-11-25
 
 ---
@@ -264,6 +264,16 @@ Returns: `{"status": "success", "count": N}`
 }
 ```
 Returns: `{"status": "success"}`
+
+#### remove_test_cases_from_launch
+```json
+{
+  "launch_id": "integer (required)",
+  "test_case_ids": "[integer] (required) — test cases to remove from the launch",
+  "mode": "string (hide|delete, default hide)"
+}
+```
+Removes test cases from a launch by resolving each `test_case_id` to its test result(s) in the launch (including retries) and removing them. `mode=hide` excludes them from the report but keeps the data (non-destructive); `mode=delete` permanently deletes the results (no bulk delete API exists, so deletions are issued one-by-one). Returns: `{"launch_id", "mode", "removed_count", "removed_result_ids", "not_found_test_case_ids", "truncated", "failed"?}`.
 
 #### get_launch_defects
 ```json
@@ -872,13 +882,19 @@ All accept `launch_id` (integer, required) and `test_result_ids` ([integer], req
 
 ---
 
-### Projects (3 tools)
+### Projects (4 tools)
 
 #### list_projects
 ```json
 { "page": "integer (default 0)", "size": "integer (default 10, max 100)" }
 ```
 Returns: `{"projects": [{"id": N, "name": "...", "code": "..."}], "page", "size", "total", "is_last"}`
+
+#### find_project
+```json
+{ "query": "string (required, name or code, case-insensitive substring)", "limit": "integer (default 20, max 100)" }
+```
+Resolves a human-readable project name/code (e.g. `TSi`) to its numeric ID by scanning `/api/project` client-side (no server-side name filter exists). Returns: `{"query", "matches": [{"id": N, "name": "...", "code": "..."}], "count", "scanned", "truncated"}`.
 
 #### get_project
 ```json

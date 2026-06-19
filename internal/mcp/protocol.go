@@ -79,6 +79,10 @@ type InitializeResponse struct {
 		Name    string `json:"name"`
 		Version string `json:"version"`
 	} `json:"serverInfo"`
+	// Instructions is an optional overview of the server's capabilities that
+	// MCP clients add to the model's system prompt, so the model knows what
+	// tools/workflows exist without having to infer them from tool names alone.
+	Instructions string `json:"instructions,omitempty"`
 }
 
 // PaginatedRequest and PaginatedResponse support cursor-based pagination

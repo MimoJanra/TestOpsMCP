@@ -244,6 +244,43 @@ func (r *Registry) registerLaunchTools() {
 	})
 
 	r.register(&Tool{
+		Name: "remove_test_cases_from_launch",
+		Description: "Remove test cases from a launch. Resolves each test_case_id to its test result(s) in the launch (including retries) and removes them. " +
+			"mode=\"hide\" (default) keeps the data but excludes it from the report (safer, reversible); " +
+			"mode=\"delete\" permanently deletes the test results (irreversible — including execution history). " +
+			"Use this to trim a launch that has too many cases or duplicates, e.g. after add_test_cases_to_launch.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"launch_id": map[string]any{
+					"type":        "integer",
+					"description": "Allure launch ID to remove test cases from",
+				},
+				"test_case_ids": map[string]any{
+					"type": "array",
+					"items": map[string]any{
+						"type": "integer",
+					},
+					"description": "Test case IDs to remove from the launch",
+				},
+				"mode": map[string]any{
+					"type":        "string",
+					"enum":        []string{"hide", "delete"},
+					"description": "\"hide\" (default) excludes results from the report but keeps the data; \"delete\" permanently deletes them",
+					"default":     "hide",
+				},
+			},
+			"required": []string{"launch_id", "test_case_ids"},
+		},
+		// Can permanently delete data when mode=delete, so flag as destructive.
+		Annotations: map[string]any{
+			"readOnlyHint":    false,
+			"destructiveHint": true,
+		},
+		Handler: Typed(r.removeTestCasesFromLaunch),
+	})
+
+	r.register(&Tool{
 		Name:        "get_launch_defects",
 		Description: "Get defects (bugs/issues) linked to test results within a launch — useful for a post-run defect summary.",
 		InputSchema: map[string]any{
@@ -631,6 +668,136 @@ func (r *Registry) addTestPlanToLaunch(ctx context.Context, args addTestPlanToLa
 	}
 
 	return map[string]any{"status": "success"}, nil
+}
+
+// remove_test_cases_from_launch scans the launch's test results client-side to
+// map test_case_id → test result IDs, because the Allure API offers no
+// "remove test case from launch" endpoint and no bulk test-result delete.
+const (
+	removeFromLaunchPageSize = 100
+	removeFromLaunchMaxPages = 200 // scan at most 20000 results per launch
+)
+
+type removeTestCasesFromLaunchArgs struct {
+	LaunchID    int64   `json:"launch_id"`
+	TestCaseIDs []int64 `json:"test_case_ids"`
+	Mode        string  `json:"mode"`
+}
+
+func (r *Registry) removeTestCasesFromLaunch(ctx context.Context, args removeTestCasesFromLaunchArgs) (any, error) {
+	if args.LaunchID <= 0 {
+		return nil, fmt.Errorf("launch_id must be positive")
+	}
+	if len(args.TestCaseIDs) == 0 {
+		return nil, fmt.Errorf("test_case_ids must not be empty")
+	}
+
+	mode := args.Mode
+	if mode == "" {
+		mode = "hide"
+	}
+	if mode != "hide" && mode != "delete" {
+		return nil, fmt.Errorf("mode must be \"hide\" or \"delete\"")
+	}
+
+	// Build a lookup set of the requested test case IDs.
+	wanted := make(map[int64]bool, len(args.TestCaseIDs))
+	for _, id := range args.TestCaseIDs {
+		if id > 0 {
+			wanted[id] = true
+		}
+	}
+	if len(wanted) == 0 {
+		return nil, fmt.Errorf("test_case_ids must contain a positive ID")
+	}
+
+	r.logger.Info("removing test cases from launch", map[string]any{
+		"launch_id": args.LaunchID,
+		"count":     len(wanted),
+		"mode":      mode,
+	})
+
+	// Scan the launch's results and collect the result IDs that belong to the
+	// requested test cases. A test case may have several results (retries).
+	var resultIDs []int64
+	found := make(map[int64]bool) // test case IDs with at least one result
+	truncated := false
+
+	for page := 0; page < removeFromLaunchMaxPages; page++ {
+		resp, err := r.allure.ListTestResults(ctx, args.LaunchID, "", page, removeFromLaunchPageSize)
+		if err != nil {
+			r.logger.Error("remove test cases from launch: list results", err, map[string]any{"launch_id": args.LaunchID})
+			return nil, fmt.Errorf("list test results: %w", err)
+		}
+
+		for _, tr := range resp.Content {
+			if wanted[tr.TestCaseID] {
+				resultIDs = append(resultIDs, tr.ID)
+				found[tr.TestCaseID] = true
+			}
+		}
+
+		if resp.Last || len(resp.Content) == 0 {
+			break
+		}
+		if page == removeFromLaunchMaxPages-1 {
+			truncated = true
+		}
+	}
+
+	// Requested test case IDs that had no result in this launch.
+	notFound := make([]int64, 0)
+	for _, id := range args.TestCaseIDs {
+		if id > 0 && !found[id] {
+			notFound = append(notFound, id)
+		}
+	}
+
+	if len(resultIDs) == 0 {
+		return map[string]any{
+			"launch_id":               args.LaunchID,
+			"mode":                    mode,
+			"removed_count":           0,
+			"removed_result_ids":      []int64{},
+			"not_found_test_case_ids": notFound,
+			"truncated":               truncated,
+			"message":                 "no matching test results found in the launch",
+		}, nil
+	}
+
+	// Apply the removal.
+	succeeded := make([]int64, 0, len(resultIDs))
+	var failed []map[string]any
+
+	switch mode {
+	case "hide":
+		if err := r.allure.BulkHideTestResults(ctx, args.LaunchID, resultIDs); err != nil {
+			r.logger.Error("remove test cases from launch: hide", err, map[string]any{"launch_id": args.LaunchID})
+			return nil, fmt.Errorf("hide test results: %w", err)
+		}
+		succeeded = resultIDs
+	case "delete":
+		for _, id := range resultIDs {
+			if err := r.allure.DeleteTestResult(ctx, id); err != nil {
+				failed = append(failed, map[string]any{"test_result_id": id, "error": err.Error()})
+				continue
+			}
+			succeeded = append(succeeded, id)
+		}
+	}
+
+	result := map[string]any{
+		"launch_id":               args.LaunchID,
+		"mode":                    mode,
+		"removed_count":           len(succeeded),
+		"removed_result_ids":      succeeded,
+		"not_found_test_case_ids": notFound,
+		"truncated":               truncated,
+	}
+	if len(failed) > 0 {
+		result["failed"] = failed
+	}
+	return result, nil
 }
 
 type getLaunchDefectsArgs struct {

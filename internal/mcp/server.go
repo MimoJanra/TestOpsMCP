@@ -359,6 +359,31 @@ func (s *Server) handleJSONRPCResponse(ctx context.Context, req *JSONRPCRequest)
 	}
 }
 
+// serverInstructions is returned in the initialize response so MCP clients can
+// surface an overview of this server's capabilities to the model. It is meant
+// to answer "what can I do here, and how do I find it" up front, so the model
+// does not have to guess from bare tool names.
+const serverInstructions = `Allure TestOps integration for test management. You have 100+ dedicated tools plus a search/execute fallback that covers 600+ API endpoints — if you don't see a dedicated tool, assume the capability still exists and find it before giving up.
+
+Tool groups:
+- Launches: run_allure_launch, list_launches, get_launch_status/details/report, close/reopen/copy/merge_launch, add_test_cases_to_launch, add_test_plan_to_launch, remove_test_cases_from_launch.
+- Test results: list_test_results, get_test_result, assign/mute/resolve/unmute_test_result, plus bulk_* variants.
+- Test cases: list/get/create/update/delete/clone/restore, steps & scenario, tags/issues/links/members/custom-fields/relations, versions, attachments, search_test_cases, suggest_test_cases.
+- Folder tree: browse_test_case_tree, get_test_case_tree_folders, move_test_cases_to_folder, create_test_case_folder.
+- Bulk test-case ops: bulk_set/add/remove/move/run/delete_* (act on many cases at once).
+- Projects: list_projects, find_project (resolve a name or code like "TSi" to its numeric ID), get_project, get_project_stats.
+- Analytics: get_launch_trend_analytics, get_launch_duration_analytics, get_test_success_rate.
+- Async tasks: long operations return a task_id immediately — poll get_task_status, see list_running_tasks, cancel_task.
+- AI: analyze_launch_failures.
+
+Finding things:
+- Most tools take numeric IDs. To turn a human name/code into an ID: find_project (projects), list_launches (launches in a project), list_test_cases or search_test_cases (cases).
+- For anything without a dedicated tool, call search_testops_operations with your intent, then execute_testops_operation to run the operation it returns.
+
+Safety:
+- Destructive tools (delete_*, bulk_delete_*, and remove_test_cases_from_launch with mode=delete) permanently remove data — confirm intent first and prefer non-destructive options (e.g. remove_test_cases_from_launch with mode=hide) when unsure.
+- If no API token is configured, use configure_allure_token (stored for the session only).`
+
 func (s *Server) handleInitialize(req *JSONRPCRequest) *JSONRPCResponse {
 	var initReq InitializeRequest
 	if len(req.Params) > 0 {
@@ -383,6 +408,7 @@ func (s *Server) handleInitialize(req *JSONRPCRequest) *JSONRPCResponse {
 	resp.Capabilities.Resources.Subscribe = true
 	resp.ServerInfo.Name = "allure-mcp-server"
 	resp.ServerInfo.Version = Version
+	resp.Instructions = serverInstructions
 
 	s.logger.Info("initialize response sent", map[string]any{
 		"version": resp.ProtocolVersion,

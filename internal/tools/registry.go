@@ -392,7 +392,7 @@ func (r *Registry) GetResource(uri string) *Resource {
 // autoAnnotate returns MCP tool annotations derived from the tool's name.
 //
 // Naming conventions:
-//   - get_* / list_* / search_* / suggest_* / validate_* → readOnly
+//   - get_* / list_* / find_* / search_* / suggest_* / validate_* → readOnly
 //   - delete_* / bulk_delete_* / detach_* → destructive write
 //   - everything else → non-destructive write
 func autoAnnotate(name string) map[string]any {
@@ -415,6 +415,7 @@ func autoAnnotate(name string) map[string]any {
 	readOnlyPrefixes := []string{
 		"get_",
 		"list_",
+		"find_",
 		"search_",
 		"suggest_",
 		"validate_",

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-06-19 - Project Search, Launch Cleanup & Tool Discoverability
+
+### Added
+
+- **`find_project`** — find a project by name or code (case-insensitive substring match). Resolves a human-readable name/code (e.g. `TSi`) to its numeric project ID without paging through `list_projects` or guessing IDs. Scans `/api/project` client-side since the Allure TestOps API exposes no server-side project name filter; returns `matches`, `count`, `scanned`, and a `truncated` flag when more matches may exist beyond `limit` (default 20) or the 5000-project scan cap.
+
+- **`remove_test_cases_from_launch`** — remove test cases from a launch (e.g. to trim a launch with too many cases or duplicates, including already-started ones). Resolves each `test_case_id` to its test result(s) in the launch — including retries — and removes them. `mode="hide"` (default) excludes the results from the report but keeps the data (`POST /api/testresult/bulk/hide`, non-destructive); `mode="delete"` permanently deletes them (`DELETE /api/testresult/{id}`). Since the Allure API has no bulk test-result delete, `delete` issues one request per result and reports per-result failures under `failed`. Returns `removed_count`, `removed_result_ids`, `not_found_test_case_ids`, and `truncated`.
+
+- **`initialize` now returns an `instructions` field** — the MCP handshake response includes a capability overview (tool groups, how to resolve names→IDs, the `search_testops_operations`/`execute_testops_operation` fallback for the 600+ endpoints, and safety notes). MCP clients add this to the model's system prompt, so Claude knows what the server can do instead of inferring it from bare tool names. Directly improves tool discoverability.
+
+- Tool count: 112 → 114.
+
+### Fixed
+
+- **`llms.txt` listed the removed `update_launch_environment` tool** — dropped from the Launches group (it was removed in 2.0.3) and the group count corrected.
+
 ## [2.0.3] - 2026-06-01 - API Compliance Fixes
 
 ### Fixed
