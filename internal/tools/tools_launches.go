@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/MimoJanra/TestOpsMCP/internal/tasks"
 )
@@ -190,8 +191,10 @@ func (r *Registry) registerLaunchTools() {
 	})
 
 	r.register(&Tool{
-		Name:        "add_test_cases_to_launch",
-		Description: "Add test cases to an existing launch so they appear in its scope and can receive results.",
+		Name: "add_test_cases_to_launch",
+		Description: "Add test cases to an existing launch so they appear in its scope and can receive results. " +
+			"Only works for test cases with automation_status \"manual\" — cases with automation_status \"automated\" require a CI job assignment in TestOps " +
+			"and will fail with a \"no-job-assigned\" error if added this way. Check automation_status via get_test_case or search_test_cases first.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -641,6 +644,9 @@ func (r *Registry) addTestCasesToLaunch(ctx context.Context, args addTestCasesTo
 
 	if err := r.allure.AddTestCasesToLaunch(ctx, args.LaunchID, args.ProjectID, args.TestCaseIDs, args.Assignees); err != nil {
 		r.logger.Error("add test cases to launch", err, map[string]any{"launch_id": args.LaunchID})
+		if strings.Contains(err.Error(), "no-job-assigned") {
+			return nil, fmt.Errorf("add test cases: one or more of these test cases has automation_status \"automated\" and TestOps requires a CI job assignment before it can be added to a launch this way; either add only cases with automation_status \"manual\", or assign an automation job to the automated cases in TestOps first: %w", err)
+		}
 		return nil, fmt.Errorf("add test cases: %w", err)
 	}
 
