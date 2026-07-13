@@ -3003,6 +3003,23 @@ func (c *Client) CreateTestCaseFolder(ctx context.Context, projectID int64, pare
 	return result, nil
 }
 
+// APIError represents a failed Allure API response. Code holds a machine-readable
+// error identifier parsed from the response body (e.g. "no-job-assigned"), when
+// the upstream service returns one, so callers can branch on it with errors.As
+// instead of matching substrings in the formatted error text.
+type APIError struct {
+	StatusCode int
+	Code       string
+	Message    string
+}
+
+func (e *APIError) Error() string {
+	if e.Message == "" {
+		return fmt.Sprintf("unexpected status %d", e.StatusCode)
+	}
+	return fmt.Sprintf("unexpected status %d: %s", e.StatusCode, e.Message)
+}
+
 func errFromResponse(resp *http.Response) error {
 	const limit = 4 * 1024
 	body, err := io.ReadAll(io.LimitReader(resp.Body, limit))
@@ -3010,8 +3027,26 @@ func errFromResponse(resp *http.Response) error {
 		return fmt.Errorf("unexpected status %d: read body: %w", resp.StatusCode, err)
 	}
 	text := strings.TrimSpace(string(body))
-	if text == "" {
-		return fmt.Errorf("unexpected status %d", resp.StatusCode)
+
+	apiErr := &APIError{StatusCode: resp.StatusCode, Message: text}
+
+	// Allure error bodies are typically JSON with a machine-readable code under
+	// one of these keys; try each and keep the raw text as Message regardless.
+	var parsed struct {
+		Code      string `json:"code"`
+		ErrorCode string `json:"errorCode"`
+		ErrorType string `json:"errorType"`
 	}
-	return fmt.Errorf("unexpected status %d: %s", resp.StatusCode, text)
+	if text != "" && json.Unmarshal(body, &parsed) == nil {
+		switch {
+		case parsed.Code != "":
+			apiErr.Code = parsed.Code
+		case parsed.ErrorCode != "":
+			apiErr.Code = parsed.ErrorCode
+		case parsed.ErrorType != "":
+			apiErr.Code = parsed.ErrorType
+		}
+	}
+
+	return apiErr
 }

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-07-13 - Safer Deletes & Sturdier Error Handling
+
+### Fixed
+
+- **`remove_test_cases_from_launch` (`mode="delete"`) — no confirmation before permanent deletion.** Now requires interactive elicitation confirmation before deleting test results, matching the existing pattern used by `delete_test_case`/`bulk_delete_test_cases`. Without an interactive session, the call now fails clearly instead of silently deleting, and suggests `mode="hide"`.
+
+- **`add_test_cases_to_launch` — fragile "no-job-assigned" detection.** The friendly error message for automated test cases without a CI job was previously matched via a substring check on the raw upstream error text, which would silently stop firing if Allure changed its wording. Errors from the Allure client are now parsed into a structured `allure.APIError` with a machine-readable `Code` field, checked via `errors.As` (with the substring match kept only as a fallback).
+
+- **`execute_testops_operation` description** — now explicitly tells the model to call `search_testops_operations` first for the exact parameter schema of the target operation, since the generic `parameters` field is necessarily untyped (it proxies 600+ distinct OpenAPI operations).
+
 ## [2.1.0] - 2026-06-19 - Project Search, Launch Cleanup & Tool Discoverability
 
 ### Added

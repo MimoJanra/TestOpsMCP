@@ -218,7 +218,9 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 
 		r.register(&Tool{
 			Name: "execute_testops_operation",
-			Description: "Execute a TestOps API operation by operation_id (from search_testops_operations results). " +
+			Description: "Execute a TestOps API operation by operation_id. Always call search_testops_operations first to get the operation_id " +
+				"and its exact list of named parameters (with required/optional and path/query/body placement) — this tool's own " +
+				"\"parameters\" schema is intentionally generic because it proxies any of 600+ different OpenAPI operations. " +
 				"Handles path parameters, query parameters, and request bodies automatically. " +
 				"For operations that require an array or a specific body structure, pass the value under the special key \"body\" " +
 				"(e.g. {\"testCaseId\": 1, \"body\": [{\"customField\": {\"id\": 5}, \"values\": [{\"id\": 12}]}]}). " +

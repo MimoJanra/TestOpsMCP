@@ -2,9 +2,13 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/MimoJanra/TestOpsMCP/internal/adapters/allure"
+	"github.com/MimoJanra/TestOpsMCP/internal/session"
 	"github.com/MimoJanra/TestOpsMCP/internal/tasks"
 )
 
@@ -644,7 +648,10 @@ func (r *Registry) addTestCasesToLaunch(ctx context.Context, args addTestCasesTo
 
 	if err := r.allure.AddTestCasesToLaunch(ctx, args.LaunchID, args.ProjectID, args.TestCaseIDs, args.Assignees); err != nil {
 		r.logger.Error("add test cases to launch", err, map[string]any{"launch_id": args.LaunchID})
-		if strings.Contains(err.Error(), "no-job-assigned") {
+		var apiErr *allure.APIError
+		isNoJobAssigned := errors.As(err, &apiErr) &&
+			(apiErr.Code == "no-job-assigned" || strings.Contains(apiErr.Message, "no-job-assigned"))
+		if isNoJobAssigned {
 			return nil, fmt.Errorf("add test cases: one or more of these test cases has automation_status \"automated\" and TestOps requires a CI job assignment before it can be added to a launch this way; either add only cases with automation_status \"manual\", or assign an automation job to the automated cases in TestOps first: %w", err)
 		}
 		return nil, fmt.Errorf("add test cases: %w", err)
@@ -783,6 +790,24 @@ func (r *Registry) removeTestCasesFromLaunch(ctx context.Context, args removeTes
 		}
 		succeeded = resultIDs
 	case "delete":
+		elicit, ok := session.ElicitFromContext(ctx)
+		if !ok {
+			return nil, fmt.Errorf("mode=\"delete\" requires user confirmation but no interactive session is available; use mode=\"hide\" instead")
+		}
+		schema, _ := json.Marshal(map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"confirmed": map[string]any{"type": "boolean", "description": "Confirm permanent deletion"},
+			},
+		})
+		confirmResult, err := elicit(ctx, fmt.Sprintf("Permanently delete %d test result(s) from launch #%d? This cannot be undone.", len(resultIDs), args.LaunchID), schema)
+		if err != nil {
+			return nil, fmt.Errorf("confirmation failed: %w", err)
+		}
+		if confirmResult.Action != "accept" {
+			return map[string]any{"cancelled": true, "message": "Deletion cancelled."}, nil
+		}
+
 		for _, id := range resultIDs {
 			if err := r.allure.DeleteTestResult(ctx, id); err != nil {
 				failed = append(failed, map[string]any{"test_result_id": id, "error": err.Error()})
