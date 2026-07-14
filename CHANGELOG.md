@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.5] - 2026-07-14 - Fix Widget Crash on Null Launch Status
+
+### Fixed
+
+- **Launch Dashboard widget still crashing with `Cannot read properties of null (reading '_zod')` on some launches.** Root cause: Allure returns `status: null` for launches without a terminal status yet (e.g. still running), and that raw `null` was passed straight through `get_launch_dashboard`/`get_launch_details` into the widget's data payload, tripping the host's schema validation. Both tools now normalize status (string, `{id,name}` object, or `null`) into a plain string, defaulting to `"UNKNOWN"`.
+
 ## [2.1.4] - 2026-07-14 - Pinned Widget SDK & Better Diagnostics
 
 ### Fixed

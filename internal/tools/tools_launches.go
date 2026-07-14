@@ -525,7 +525,7 @@ func (r *Registry) getLaunchDetails(ctx context.Context, args getLaunchDetailsAr
 		"id":             details.ID,
 		"uuid":           details.UUID,
 		"name":           details.Name,
-		"status":         details.Status,
+		"status":         normalizeLaunchStatus(details.Status),
 		"project_id":     details.ProjectID,
 		"start_time":     details.StartTime,
 		"end_time":       details.EndTime,

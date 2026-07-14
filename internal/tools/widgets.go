@@ -568,6 +568,28 @@ func (r *Registry) StartLaunchWatch(ctx context.Context, launchID int64) {
 // Handlers
 // ---------------------------------------------------------------------------
 
+// normalizeLaunchStatus coerces Allure's raw launch status (a string, a
+// {id,name} object, or null for launches with no status yet) into a plain
+// string for the widget, which expects a string it can uppercase and badge.
+func normalizeLaunchStatus(status any) string {
+	switch v := status.(type) {
+	case nil:
+		return "UNKNOWN"
+	case string:
+		if v == "" {
+			return "UNKNOWN"
+		}
+		return v
+	case map[string]any:
+		if name, ok := v["name"].(string); ok && name != "" {
+			return name
+		}
+		return "UNKNOWN"
+	default:
+		return "UNKNOWN"
+	}
+}
+
 type getLaunchDashboardArgs struct {
 	LaunchID int64 `json:"launch_id"`
 }
@@ -599,7 +621,7 @@ func (r *Registry) getLaunchDashboard(ctx context.Context, args getLaunchDashboa
 	return map[string]any{
 		"launch_id":      details.ID,
 		"name":           details.Name,
-		"status":         details.Status,
+		"status":         normalizeLaunchStatus(details.Status),
 		"start_time":     details.StartTime,
 		"end_time":       details.EndTime,
 		"environment":    details.Environment,
