@@ -37,13 +37,16 @@ func parseLaunchDashboardURI(uri string) (int64, bool) {
 	return id, true
 }
 
+// extAppsVersion pins the ext-apps package version served to widgets. Floating
+// on "latest" let upstream releases silently break the widget handshake twice
+// before (see 43f4bc8, 0e258cc) — bump this deliberately after verifying a new
+// version against the widget templates below.
+const extAppsVersion = "1.7.4"
+
 // extAppsCandidates lists CDN URLs for the ext-apps browser bundle, tried in order.
 var extAppsCandidates = []string{
-	"https://unpkg.com/@modelcontextprotocol/ext-apps/dist/src/app-with-deps.js",
-	"https://cdn.jsdelivr.net/npm/@modelcontextprotocol/ext-apps/dist/src/app-with-deps.js",
-	"https://unpkg.com/@modelcontextprotocol/ext-apps/dist/app-with-deps.js",
-	"https://unpkg.com/@modelcontextprotocol/ext-apps/app-with-deps.js",
-	"https://cdn.jsdelivr.net/npm/@modelcontextprotocol/ext-apps/dist/app-with-deps.js",
+	"https://unpkg.com/@modelcontextprotocol/ext-apps@" + extAppsVersion + "/dist/src/app-with-deps.js",
+	"https://cdn.jsdelivr.net/npm/@modelcontextprotocol/ext-apps@" + extAppsVersion + "/dist/src/app-with-deps.js",
 }
 
 // bundleFallback is a minimal stub used when the real ext-apps bundle cannot be
@@ -82,31 +85,42 @@ func getExtAppsBundle(logger interface {
 }) string {
 	bundleOnce.Do(func() {
 		client := &http.Client{Timeout: 15 * time.Second}
+		var attempts []map[string]any
 		for _, u := range extAppsCandidates {
 			resp, err := client.Get(u)
 			if err != nil {
+				attempts = append(attempts, map[string]any{"url": u, "error": err.Error()})
 				continue
 			}
 			body, readErr := io.ReadAll(io.LimitReader(resp.Body, 4<<20)) // 4 MiB cap
 			resp.Body.Close()
-			if readErr != nil || resp.StatusCode != http.StatusOK || len(body) == 0 {
+			if readErr != nil {
+				attempts = append(attempts, map[string]any{"url": u, "status": resp.StatusCode, "error": readErr.Error()})
+				continue
+			}
+			if resp.StatusCode != http.StatusOK || len(body) == 0 {
+				attempts = append(attempts, map[string]any{"url": u, "status": resp.StatusCode, "bytes": len(body)})
 				continue
 			}
 			rewritten := rewriteESMExports(string(body))
-			if rewritten != "" {
-				bundleJS = rewritten
-				if logger != nil {
-					logger.Info("ext-apps bundle loaded", map[string]any{
-						"url":  u,
-						"size": len(bundleJS),
-					})
-				}
-				return
+			if rewritten == "" {
+				attempts = append(attempts, map[string]any{"url": u, "status": resp.StatusCode, "bytes": len(body), "error": "no ESM export statement found to rewrite"})
+				continue
 			}
+			bundleJS = rewritten
+			if logger != nil {
+				logger.Info("ext-apps bundle loaded", map[string]any{
+					"url":  u,
+					"size": len(bundleJS),
+				})
+			}
+			return
 		}
 		bundleJS = bundleFallback
 		if logger != nil {
-			logger.Warn("ext-apps bundle unavailable, using fallback stub", nil)
+			logger.Warn("ext-apps bundle unavailable, using fallback stub", map[string]any{
+				"attempts": attempts,
+			})
 		}
 	})
 	return bundleJS
@@ -280,34 +294,44 @@ function render(d){
   });
 }
 
+function showError(prefix,e){
+  console.error('[launch-dashboard]',prefix,e);
+  root.innerHTML='<div class="error">'+esc(prefix+': '+(e&&(e.message||e)||'unknown error'))+' (see browser console for details)</div>';
+}
+
 (async()=>{
   if(!globalThis.ExtApps||!globalThis.ExtApps.App){
-    root.innerHTML='<div class="error">ExtApps SDK not available</div>';return;
+    console.error('[launch-dashboard] globalThis.ExtApps missing or incomplete:',globalThis.ExtApps);
+    root.innerHTML='<div class="error">ExtApps SDK not available (see browser console for details)</div>';return;
   }
-  const app=new App({name:'launch-dashboard',version:'1.0.0'},{},{autoResize:true});
+  try{
+    const app=new App({name:'launch-dashboard',version:'1.0.0'},{},{autoResize:true});
 
-  const applyTheme=ctx=>{
-    if(ctx&&ctx.colorScheme==='dark')document.documentElement.classList.add('dark');
-    else if(ctx&&ctx.theme==='dark')document.documentElement.classList.add('dark');
-    else document.documentElement.classList.remove('dark');
-  };
-  app.onhostcontextchanged=applyTheme;
+    const applyTheme=ctx=>{
+      if(ctx&&ctx.colorScheme==='dark')document.documentElement.classList.add('dark');
+      else if(ctx&&ctx.theme==='dark')document.documentElement.classList.add('dark');
+      else document.documentElement.classList.remove('dark');
+    };
+    app.onhostcontextchanged=applyTheme;
 
-  app.ontoolresult=({content})=>{
-    try{
-      const raw=Array.isArray(content)?content[0]?.text:content;
-      const data=typeof raw==='string'?JSON.parse(raw):raw;
-      render(data);
-    }catch(e){
-      root.innerHTML='<div class="error">Parse error: '+String(e.message||e)+'</div>';
-    }
-  };
+    app.ontoolresult=({content})=>{
+      try{
+        const raw=Array.isArray(content)?content[0]?.text:content;
+        const data=typeof raw==='string'?JSON.parse(raw):raw;
+        render(data);
+      }catch(e){
+        showError('Render error',e);
+      }
+    };
 
-  window.ask=msg=>app.sendMessage({role:'user',content:[{type:'text',text:msg}]});
-  window.openUrl=url=>app.openLink?.({url});
+    window.ask=msg=>app.sendMessage({role:'user',content:[{type:'text',text:msg}]});
+    window.openUrl=url=>app.openLink?.({url});
 
-  await app.connect();
-  applyTheme(app.getHostContext?.());
+    await app.connect();
+    applyTheme(app.getHostContext?.());
+  }catch(e){
+    showError('Widget init error',e);
+  }
 })();
 </script>
 </body>

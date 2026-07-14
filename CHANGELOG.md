@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [2.1.3] - 2026-07-14 - Widget Handshake Fix
+## [2.1.4] - 2026-07-14 - Pinned Widget SDK & Better Diagnostics
+
+### Fixed
+
+- **Launch Dashboard widget crashing with `Cannot read properties of null (reading '_zod')`.** The ext-apps SDK bundle was fetched unpinned from unpkg/jsdelivr ("latest"), so an upstream package release could silently change SDK internals underneath us — the same class of issue behind the two prior widget fixes (`2.1.2`, `2.1.3`). The bundle version is now pinned (`1.7.4`) and only bumped deliberately after verification.
+- **Widget failures were hard to diagnose.** `new App(...)`/`app.connect()` weren't wrapped in error handling, so an SDK-internal throw could leave the widget blank with no explanation. The whole init flow is now guarded, and both server-side (bundle fetch attempts per CDN candidate) and client-side (`console.error` with the full error/stack) now log the actual reason a widget failed to render instead of just a generic fallback message.
 
 ### Fixed
 
