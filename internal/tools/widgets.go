@@ -39,6 +39,8 @@ func parseLaunchDashboardURI(uri string) (int64, bool) {
 
 // extAppsCandidates lists CDN URLs for the ext-apps browser bundle, tried in order.
 var extAppsCandidates = []string{
+	"https://unpkg.com/@modelcontextprotocol/ext-apps/dist/src/app-with-deps.js",
+	"https://cdn.jsdelivr.net/npm/@modelcontextprotocol/ext-apps/dist/src/app-with-deps.js",
 	"https://unpkg.com/@modelcontextprotocol/ext-apps/dist/app-with-deps.js",
 	"https://unpkg.com/@modelcontextprotocol/ext-apps/app-with-deps.js",
 	"https://cdn.jsdelivr.net/npm/@modelcontextprotocol/ext-apps/dist/app-with-deps.js",

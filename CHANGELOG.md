@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.2] - 2026-07-14 - Widget Rendering Fix
+
+### Fixed
+
+- **Interactive widgets (dashboard, action picker, results display) rendering blank.** The ext-apps SDK bundle was fetched from `dist/app-with-deps.js`, but the published package places it at `dist/src/app-with-deps.js` — every CDN candidate 404'd, so the server always silently fell back to a minimal stub that doesn't implement the real widget host handshake. Corrected the CDN paths so the real SDK loads.
+
 ## [2.1.1] - 2026-07-13 - Safer Deletes & Sturdier Error Handling
 
 ### Fixed
