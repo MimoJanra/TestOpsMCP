@@ -264,21 +264,27 @@ function render(d){
   ${start_time?'<span>📅 '+dt(start_time)+'</span>':''}
 </div>
 <div class="actions">
-  <button class="btn primary" onclick="ask('List test results for launch ${lid}')">📊 Results</button>
-  <button class="btn" onclick="ask('Show failed tests in launch ${lid}')">✗ Failures</button>
+  <button class="btn primary" data-action="ask" data-msg="List test results for launch ${lid}">📊 Results</button>
+  <button class="btn" data-action="ask" data-msg="Show failed tests in launch ${lid}">✗ Failures</button>
   ${isRun
-    ? '<button class="btn danger" onclick="ask(\'Close launch '+lid+'\')">■ Close</button>'
-    : '<button class="btn danger" onclick="ask(\'Reopen launch '+lid+'\')">↩ Reopen</button>'}
-  ${report_web_url?'<button class="btn" onclick="openUrl(\''+esc(report_web_url)+'\')">🔗 Report</button>':''}
+    ? '<button class="btn danger" data-action="ask" data-msg="Close launch '+lid+'">■ Close</button>'
+    : '<button class="btn danger" data-action="ask" data-msg="Reopen launch '+lid+'">↩ Reopen</button>'}
+  ${report_web_url?'<button class="btn" data-action="open" data-url="'+esc(report_web_url)+'">🔗 Report</button>':''}
 </div>
 </div>` + "`" + `;
+  root.querySelectorAll('[data-action]').forEach(el=>{
+    el.addEventListener('click',()=>{
+      if(el.dataset.action==='ask')ask(el.dataset.msg);
+      else if(el.dataset.action==='open')openUrl(el.dataset.url);
+    });
+  });
 }
 
 (async()=>{
   if(!globalThis.ExtApps||!globalThis.ExtApps.App){
     root.innerHTML='<div class="error">ExtApps SDK not available</div>';return;
   }
-  const app=new App('launch-dashboard',{},{});
+  const app=new App({name:'launch-dashboard',version:'1.0.0'},{},{autoResize:true});
 
   const applyTheme=ctx=>{
     if(ctx&&ctx.colorScheme==='dark')document.documentElement.classList.add('dark');
@@ -348,7 +354,7 @@ function render(){
     listDiv.append(el);
   }
 }
-(async()=>{const app=new App('action-picker',{},{});
+(async()=>{const app=new App({name:'action-picker',version:'1.0.0'},{},{autoResize:true});
 app.ontoolresult=({content})=>{
   try{const raw=Array.isArray(content)?content[0]?.text:content;const data=typeof raw==='string'?JSON.parse(raw):raw;items=data.results||[];filterInput.value='';render();}
   catch(e){listDiv.innerHTML='<div class="empty">Error: '+String(e)+'</div>';}
@@ -386,7 +392,7 @@ function render(data){
   try{const parsed=JSON.parse(content);content=formatJSON(parsed);}catch(_){}
   root.innerHTML='<div class="header"><span class="'+statusClass+'">● '+status+'</span></div><div class="body">'+esc(content)+'</div>';
 }
-(async()=>{const app=new App('results-display',{},{});
+(async()=>{const app=new App({name:'results-display',version:'1.0.0'},{},{autoResize:true});
 app.ontoolresult=(data)=>{render(data);};
 await app.connect();})();
 </script></body></html>`

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.3] - 2026-07-14 - Widget Handshake Fix
+
+### Fixed
+
+- **Widgets still rendering blank after the ext-apps bundle fix.** The `App` constructor was called with a bare string (`new App('launch-dashboard', {}, {})`) instead of the required `{name, version}` info object, breaking the widget-host connection handshake so the host never revealed the iframe. Also replaced inline `onclick="..."` handlers in the dashboard's action buttons with `addEventListener`, since the widget sandbox's CSP blocks inline event handler attributes. Added `autoResize: true` so widget height tracks rendered content.
+
 ## [2.1.2] - 2026-07-14 - Widget Rendering Fix
 
 ### Fixed
