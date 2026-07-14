@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.7] - 2026-07-14 - Revert SDK Downgrade, Route Around jitless zod Bug Instead
+
+### Fixed
+
+- **`2.1.6`'s downgrade to `ext-apps@1.6.0` broke the widget handshake** with a new error (`i.parts is not iterable`) — that version's wire protocol isn't compatible with the current Claude Desktop host. Reverted the pinned bundle back to `1.7.4`.
+- **Internal zod crashes** (`_zod`/`.def` undefined) instead worked around via the SDK's own `allowUnsafeEval: true` App option, which skips the `zod.config({jitless:true})` call in the constructor that appears to trigger them. Applied to all three widgets (dashboard, action picker, results display).
+
 ## [2.1.6] - 2026-07-14 - Downgrade Pinned Widget SDK to Avoid jitless zod Crashes
 
 ### Fixed

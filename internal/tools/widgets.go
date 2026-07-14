@@ -42,13 +42,13 @@ func parseLaunchDashboardURI(uri string) (int64, bool) {
 // before (see 43f4bc8, 0e258cc) — bump this deliberately after verifying a new
 // version against the widget templates below.
 //
-// Pinned to 1.6.0, not the current 1.7.x line: 1.7.0 introduced an
-// unconditional `zod.config({jitless:true})` call in the App constructor
-// (needed since the widget iframe's CSP blocks eval-based JIT compilation),
-// and that path has produced intermittent internal zod crashes here
-// (`Cannot read properties of null/undefined (reading '_zod'/'def')`) on
-// otherwise-valid data. 1.6.0 predates that code path.
-const extAppsVersion = "1.6.0"
+// Stay on the 1.7.x line: 1.6.0 was tried briefly to dodge a suspected
+// zod-jitless bug in the App constructor, but its wire protocol turned out
+// to be incompatible with the current Claude Desktop host (`i.parts is not
+// iterable`). The jitless crash is instead worked around via the
+// `allowUnsafeEval` App option passed from the widget templates, which
+// skips the `zod.config({jitless:true})` call altogether.
+const extAppsVersion = "1.7.4"
 
 // extAppsCandidates lists CDN URLs for the ext-apps browser bundle, tried in order.
 var extAppsCandidates = []string{
@@ -312,7 +312,7 @@ function showError(prefix,e){
     root.innerHTML='<div class="error">ExtApps SDK not available (see browser console for details)</div>';return;
   }
   try{
-    const app=new App({name:'launch-dashboard',version:'1.0.0'},{},{autoResize:true});
+    const app=new App({name:'launch-dashboard',version:'1.0.0'},{},{autoResize:true,allowUnsafeEval:true});
 
     const applyTheme=ctx=>{
       if(ctx&&ctx.colorScheme==='dark')document.documentElement.classList.add('dark');
@@ -385,7 +385,7 @@ function render(){
     listDiv.append(el);
   }
 }
-(async()=>{const app=new App({name:'action-picker',version:'1.0.0'},{},{autoResize:true});
+(async()=>{const app=new App({name:'action-picker',version:'1.0.0'},{},{autoResize:true,allowUnsafeEval:true});
 app.ontoolresult=({content})=>{
   try{const raw=Array.isArray(content)?content[0]?.text:content;const data=typeof raw==='string'?JSON.parse(raw):raw;items=data.results||[];filterInput.value='';render();}
   catch(e){listDiv.innerHTML='<div class="empty">Error: '+String(e)+'</div>';}
@@ -423,7 +423,7 @@ function render(data){
   try{const parsed=JSON.parse(content);content=formatJSON(parsed);}catch(_){}
   root.innerHTML='<div class="header"><span class="'+statusClass+'">● '+status+'</span></div><div class="body">'+esc(content)+'</div>';
 }
-(async()=>{const app=new App({name:'results-display',version:'1.0.0'},{},{autoResize:true});
+(async()=>{const app=new App({name:'results-display',version:'1.0.0'},{},{autoResize:true,allowUnsafeEval:true});
 app.ontoolresult=(data)=>{render(data);};
 await app.connect();})();
 </script></body></html>`
