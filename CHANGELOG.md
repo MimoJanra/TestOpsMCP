@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.6] - 2026-07-14 - Downgrade Pinned Widget SDK to Avoid jitless zod Crashes
+
+### Fixed
+
+- **Launch Dashboard widget crashing with shifting internal zod errors** (`Cannot read properties of null (reading '_zod')`, `Cannot read properties of undefined (reading 'def')`) on valid, non-null data. Traced to `ext-apps@1.7.x`, which added an unconditional `zod.config({jitless:true})` call in the `App` constructor (needed since the widget iframe's CSP blocks eval-based JIT compilation) — that code path appears to have bugs that surface intermittently depending on which fields are present. Pinned the bundle back to `1.6.0`, which predates that change and has the same `App` API shape our widgets use.
+
 ## [2.1.5] - 2026-07-14 - Fix Widget Crash on Null Launch Status
 
 ### Fixed

@@ -41,7 +41,14 @@ func parseLaunchDashboardURI(uri string) (int64, bool) {
 // on "latest" let upstream releases silently break the widget handshake twice
 // before (see 43f4bc8, 0e258cc) — bump this deliberately after verifying a new
 // version against the widget templates below.
-const extAppsVersion = "1.7.4"
+//
+// Pinned to 1.6.0, not the current 1.7.x line: 1.7.0 introduced an
+// unconditional `zod.config({jitless:true})` call in the App constructor
+// (needed since the widget iframe's CSP blocks eval-based JIT compilation),
+// and that path has produced intermittent internal zod crashes here
+// (`Cannot read properties of null/undefined (reading '_zod'/'def')`) on
+// otherwise-valid data. 1.6.0 predates that code path.
+const extAppsVersion = "1.6.0"
 
 // extAppsCandidates lists CDN URLs for the ext-apps browser bundle, tried in order.
 var extAppsCandidates = []string{
