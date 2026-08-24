@@ -58,7 +58,7 @@ func buildSearchResults(ops []*Operation, limit int) []SearchResult {
 			Summary:     op.Summary,
 			Description: op.Description,
 			Tags:        op.Tags,
-			Parameters:  make([]struct {
+			Parameters: make([]struct {
 				Name        string `json:"name"`
 				In          string `json:"in"`
 				Description string `json:"description"`
@@ -86,62 +86,87 @@ func buildSearchResults(ops []*Operation, limit int) []SearchResult {
 	return results
 }
 
+// destructiveHTTPMethods are the methods executeOperation refuses to run
+// without an explicit confirmation, since op.Method comes straight from the
+// OpenAPI spec and can target any of 600+ operations, including deletes and
+// overwrites, with no other server-side gate in front of it.
+var destructiveHTTPMethods = map[string]bool{
+	http.MethodDelete: true,
+	http.MethodPut:    true,
+	http.MethodPatch:  true,
+}
+
 // executeOperation executes a discovered operation against TestOps API
 func (r *Registry) executeOperation(ctx context.Context, op *Operation, params interface{}) (any, error) {
+	var paramMap map[string]interface{}
+	if params != nil {
+		if pm, ok := params.(map[string]interface{}); ok {
+			paramMap = pm
+		}
+	}
+
+	if destructiveHTTPMethods[op.Method] {
+		confirmed, _ := paramMap["confirm"].(bool)
+		if !confirmed {
+			return nil, fmt.Errorf(
+				"operation %q uses %s and is destructive; re-call execute_testops_operation with parameters.confirm=true to proceed",
+				op.OperationID, op.Method,
+			)
+		}
+	}
+
 	// Build URL with path parameters and query parameters
 	reqURL := r.allure.GetBaseURL() + op.Path
 	var pathParams map[string]interface{}
 	var queryParams url.Values
 	var bodyData interface{}
 
-	if params != nil {
-		if paramMap, ok := params.(map[string]interface{}); ok {
-			pathParams = make(map[string]interface{})
-			queryParams = make(url.Values)
+	if paramMap != nil {
+		pathParams = make(map[string]interface{})
+		queryParams = make(url.Values)
 
-			// Special key "body" allows passing any value (object OR array) as the request body directly.
-			if explicitBody, hasBody := paramMap["body"]; hasBody {
-				bodyData = explicitBody
+		// Special key "body" allows passing any value (object OR array) as the request body directly.
+		if explicitBody, hasBody := paramMap["body"]; hasBody {
+			bodyData = explicitBody
+		}
+
+		// unknownParams collects parameters not found in the spec's named parameters list.
+		// They are used as the request body only if no explicit "body" key was provided.
+		unknownParams := make(map[string]interface{})
+
+		for name, value := range paramMap {
+			if name == "body" || name == "confirm" {
+				// "body" already handled above; "confirm" is the destructive-op ack, not API data.
+				continue
 			}
-
-			// unknownParams collects parameters not found in the spec's named parameters list.
-			// They are used as the request body only if no explicit "body" key was provided.
-			unknownParams := make(map[string]interface{})
-
-			for name, value := range paramMap {
-				if name == "body" {
-					// Already handled above.
-					continue
-				}
-				var found bool
-				for _, p := range op.Parameters {
-					if p.Name == name {
-						found = true
-						switch p.In {
-						case "path":
-							pathParams[name] = value
-						case "query":
-							if v, ok := value.(string); ok {
-								queryParams.Set(name, v)
-							} else {
-								queryParams.Set(name, fmt.Sprintf("%v", value))
-							}
-						case "body":
-							bodyData = value
+			var found bool
+			for _, p := range op.Parameters {
+				if p.Name == name {
+					found = true
+					switch p.In {
+					case "path":
+						pathParams[name] = value
+					case "query":
+						if v, ok := value.(string); ok {
+							queryParams.Set(name, v)
+						} else {
+							queryParams.Set(name, fmt.Sprintf("%v", value))
 						}
-						break
+					case "body":
+						bodyData = value
 					}
-				}
-				if !found {
-					unknownParams[name] = value
+					break
 				}
 			}
+			if !found {
+				unknownParams[name] = value
+			}
+		}
 
-			// If no explicit body was provided but the operation has a requestBody schema,
-			// use only the unrecognised parameters as the body (not path/query params too).
-			if bodyData == nil && op.RequestBody != nil && len(unknownParams) > 0 {
-				bodyData = unknownParams
-			}
+		// If no explicit body was provided but the operation has a requestBody schema,
+		// use only the unrecognised parameters as the body (not path/query params too).
+		if bodyData == nil && op.RequestBody != nil && len(unknownParams) > 0 {
+			bodyData = unknownParams
 		}
 	}
 

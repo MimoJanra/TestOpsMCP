@@ -1,7 +1,7 @@
 # TestOps MCP — Full LLM Reference
 
-> MCP server that connects Claude to Allure TestOps. 114 curated tools + 600+ dynamic OpenAPI endpoints + 2 prompt templates + 4 resources.
-> Module: github.com/MimoJanra/TestOpsMCP | Go 1.26+ | Apache 2.0 | MCP protocol 2025-11-25
+> MCP server that connects Claude to Allure TestOps. 115 curated tools + 600+ dynamic OpenAPI endpoints + 2 prompt templates + 4 resources.
+> Module: github.com/MimoJanra/TestOpsMCP | Go 1.27+ | Apache 2.0 | MCP protocol 2025-11-25
 
 ---
 

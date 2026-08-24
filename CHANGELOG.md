@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.8] - 2026-08-24 - Vendored Widgets, Destructive-Op Guard, Test Coverage
+
+### Fixed
+
+- **`execute_testops_operation` could run any DELETE/PUT/PATCH from the 600+ OpenAPI operations with no server-side check.** The `destructiveHint` annotation was advisory metadata only — no client is required to honor it. The tool now requires `parameters.confirm: true` for any operation that resolves to DELETE, PUT, or PATCH; without it, the call fails with a clear error instead of executing.
+- **ext-apps widget bundle was fetched from unpkg/jsdelivr at runtime with no integrity check.** A compromised or unavailable CDN could serve unverified JS into the widget sandbox, and a single transient network failure permanently poisoned the process-lifetime cache with a stripped-down fallback stub until restart. The exact pinned `1.7.4` bundle is now vendored into the repo (`internal/tools/assets/ext-apps-1.7.4.js`) and loaded via `go:embed` — no runtime network dependency, no fallback-stub failure mode. A test now fails the build if a future version bump ships a bundle whose export shape the rewrite regex no longer recognizes.
+- **Tool count documentation had drifted from the code in multiple ways** (README.md and docs/API.md said 104, llms.txt said both 104 and 114 in the same file) — corrected to 115 everywhere, the real count from a fully-configured server (verified against the actual binary, not just the unit-test registry, which never exercises the OpenAPI-spec-loaded code path since `go test`'s working directory prevents `FindSpecFile` from finding `spec/testops.json`). A new `TestDocsToolCountMatchesRegistry` test now fails the build if the docs and the code disagree again.
+
+### Changed
+
+- **Go version bumped to 1.27** (`go.mod`, CI, and all docs referencing the minimum Go version).
+- Widget HTML/JS templates (`launch-dashboard`, `action-picker`, `results-display`) moved from Go string constants into standalone `.html` files under `internal/tools/assets/`, loaded via `go:embed` — gives them real editor syntax highlighting/linting.
+- `internal/adapters/allure/client.go` refactored: the repeated build-request → auth → send → status-check → decode pattern across ~110 methods is now a shared `doJSON`/`doRequest`/`doRaw` helper, with behavior unchanged.
+- Test coverage raised well above 80% across all internal packages (was as low as 0% in `internal/adapters/allure`, `internal/audit`, `internal/core`, `internal/session`, `internal/tasks`, and ~31% in `internal/mcp`).
+
 ## [2.1.7] - 2026-07-14 - Revert SDK Downgrade, Route Around jitless zod Bug Instead
 
 ### Fixed

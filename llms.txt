@@ -4,10 +4,10 @@
 
 ## Overview
 
-TestOps MCP is a production-grade Go server implementing the Model Context Protocol (MCP, protocol version 2025-11-25). It exposes **104 curated tools** plus a dynamic fallback covering **600+ Allure TestOps API endpoints** via an OpenAPI spec index, **2 prompt templates**, and **4 resources** (including 3 interactive widget resources). Supports two transports: **stdio** (Claude Desktop, single-user) and **HTTP + SSE** (shared team server, multi-user with per-session token isolation). Async tasks auto-expire after 1 hour; finished-task list is pruned every 5 minutes.
+TestOps MCP is a production-grade Go server implementing the Model Context Protocol (MCP, protocol version 2025-11-25). It exposes **115 curated tools** plus a dynamic fallback covering **600+ Allure TestOps API endpoints** via an OpenAPI spec index, **2 prompt templates**, and **4 resources** (including 3 interactive widget resources). Supports two transports: **stdio** (Claude Desktop, single-user) and **HTTP + SSE** (shared team server, multi-user with per-session token isolation). Async tasks auto-expire after 1 hour; finished-task list is pruned every 5 minutes.
 
 - Module: `github.com/MimoJanra/TestOpsMCP`
-- Language: Go 1.26+
+- Language: Go 1.27+
 - License: Apache 2.0
 
 ## Key Packages
@@ -16,7 +16,7 @@ TestOps MCP is a production-grade Go server implementing the Model Context Proto
 |---------|------|
 | `cmd/server` | Entry point; `--http` flag selects transport |
 | `internal/mcp` | JSON-RPC 2.0 dispatcher, SSE sessions, heartbeat |
-| `internal/tools` | Tool registry, 114 tools, OpenAPI search/execute |
+| `internal/tools` | Tool registry, 115 tools, OpenAPI search/execute |
 | `internal/adapters/allure` | HTTP client for Allure TestOps API, JWT caching |
 | `internal/config` | Env-var configuration loader |
 | `internal/core` | Structured JSON logger (slog-backed) |
@@ -24,7 +24,7 @@ TestOps MCP is a production-grade Go server implementing the Model Context Proto
 | `internal/audit` | Daily JSONL audit log with configurable retention |
 | `internal/tasks` | Async task store (working/succeeded/failed/cancelled lifecycle) |
 
-## Tool Groups (104 total)
+## Tool Groups (115 total)
 
 - **Universal** (3): `configure_allure_token`, `search_testops_operations`, `execute_testops_operation`
 - **Launches** (14): `run_allure_launch`, `get_launch_status`, `get_launch_report`, `list_launches`, `get_launch_details`, `close_launch`, `reopen_launch`, `copy_launch`, `merge_launches`, `get_launch_environment`, `add_test_cases_to_launch`, `add_test_plan_to_launch`, `remove_test_cases_from_launch`, `get_launch_defects`

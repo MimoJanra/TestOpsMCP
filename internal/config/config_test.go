@@ -104,3 +104,61 @@ func TestLoad_TimeoutBounds(t *testing.T) {
 		t.Errorf("timeout = %v, want 45s", cfg.RequestTimeout)
 	}
 }
+
+func TestParseUsers(t *testing.T) {
+	cases := []struct {
+		name        string
+		tokensEnv   string
+		singleToken string
+		want        []UserConfig
+	}{
+		{"empty", "", "", nil},
+		{"single_legacy_token", "", "  legacy-tok  ", []UserConfig{{Name: "default", Token: "legacy-tok"}}},
+		{"multi", "alice:token1,bob:token2", "", []UserConfig{
+			{Name: "alice", Token: "token1"},
+			{Name: "bob", Token: "token2"},
+		}},
+		{"multi_takes_precedence_over_single", "alice:token1", "ignored", []UserConfig{
+			{Name: "alice", Token: "token1"},
+		}},
+		{"skips_blank_entries", "alice:token1,,bob:token2,", "", []UserConfig{
+			{Name: "alice", Token: "token1"},
+			{Name: "bob", Token: "token2"},
+		}},
+		{"skips_malformed_entries", "alice:token1,noseparator,bob:,:empty-name", "", []UserConfig{
+			{Name: "alice", Token: "token1"},
+		}},
+		{"trims_whitespace", " alice : token1 , bob:token2", "", []UserConfig{
+			{Name: "alice", Token: "token1"},
+			{Name: "bob", Token: "token2"},
+		}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := parseUsers(tc.tokensEnv, tc.singleToken)
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %d users %+v, want %d %+v", len(got), got, len(tc.want), tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("user[%d] = %+v, want %+v", i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestParseRetentionDays(t *testing.T) {
+	if n, err := parseRetentionDays(""); err != nil || n != defaultAuditRetentionDays {
+		t.Errorf("empty: got (%d, %v), want (%d, nil)", n, err, defaultAuditRetentionDays)
+	}
+	if n, err := parseRetentionDays("14"); err != nil || n != 14 {
+		t.Errorf("14: got (%d, %v), want (14, nil)", n, err)
+	}
+	for _, bad := range []string{"0", "-5", "abc", "3.5"} {
+		if _, err := parseRetentionDays(bad); err == nil {
+			t.Errorf("AUDIT_RETENTION_DAYS=%q: expected error", bad)
+		}
+	}
+}

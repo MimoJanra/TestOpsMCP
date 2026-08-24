@@ -2,9 +2,8 @@ package tools
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
-	"io"
-	"net/http"
 	"regexp"
 	"strings"
 	"sync"
@@ -37,10 +36,11 @@ func parseLaunchDashboardURI(uri string) (int64, bool) {
 	return id, true
 }
 
-// extAppsVersion pins the ext-apps package version served to widgets. Floating
+// extAppsVersion pins the ext-apps package version vendored below. Floating
 // on "latest" let upstream releases silently break the widget handshake twice
-// before (see 43f4bc8, 0e258cc) — bump this deliberately after verifying a new
-// version against the widget templates below.
+// before (see 43f4bc8, 0e258cc) — bump this deliberately (re-download the
+// bundle, update assets/ext-apps-<version>.js and the go:embed directive)
+// only after verifying the new version against the widget templates.
 //
 // Stay on the 1.7.x line: 1.6.0 was tried briefly to dodge a suspected
 // zod-jitless bug in the App constructor, but its wire protocol turned out
@@ -50,83 +50,43 @@ func parseLaunchDashboardURI(uri string) (int64, bool) {
 // skips the `zod.config({jitless:true})` call altogether.
 const extAppsVersion = "1.7.4"
 
-// extAppsCandidates lists CDN URLs for the ext-apps browser bundle, tried in order.
-var extAppsCandidates = []string{
-	"https://unpkg.com/@modelcontextprotocol/ext-apps@" + extAppsVersion + "/dist/src/app-with-deps.js",
-	"https://cdn.jsdelivr.net/npm/@modelcontextprotocol/ext-apps@" + extAppsVersion + "/dist/src/app-with-deps.js",
-}
-
-// bundleFallback is a minimal stub used when the real ext-apps bundle cannot be
-// fetched. It implements enough of the App API for the widget to function.
-const bundleFallback = `globalThis.ExtApps={App:class{constructor(i,c,o){this._opts=o||{}}` +
-	`set ontoolresult(f){this._tr=f}` +
-	`set onhostcontextchanged(f){this._hcc=f}` +
-	`set ontoolinput(f){this._ti=f}` +
-	`async connect(){` +
-	`window.addEventListener('message',e=>{` +
-	`const d=e.data;` +
-	`if(d&&d.type==='toolresult')this._tr?.({content:d.content||[]});` +
-	`if(d&&d.type==='hostcontext')this._hcc?.(d.context);` +
-	`});` +
-	`window.parent?.postMessage({type:'mcp:widget:ready'},'*');` +
-	`}` +
-	`sendMessage(m){window.parent?.postMessage({type:'mcp:widget:message',payload:m},'*')}` +
-	`getHostContext(){return null}` +
-	`updateModelContext(){}` +
-	`async callServerTool(){return{content:[]}}` +
-	`openLink(o){try{window.open(o.url,'_blank')}catch(_){}}` +
-	`downloadFile(){}` +
-	`requestDisplayMode(){}` +
-	`}};`
+// extAppsBundleRaw is the ext-apps browser bundle, vendored at build time
+// instead of fetched from a CDN at runtime. This removes a supply-chain
+// dependency on unpkg/jsdelivr staying up and unmodified, and removes the
+// failure mode where a single transient network error used to poison the
+// process-lifetime bundle cache with a stripped-down fallback stub.
+//
+//go:embed assets/ext-apps-1.7.4.js
+var extAppsBundleRaw string
 
 var (
 	bundleOnce sync.Once
 	bundleJS   string
 )
 
-// getExtAppsBundle returns the ext-apps browser bundle with ESM exports rewritten
-// to globalThis.ExtApps. It is fetched once and cached for the process lifetime.
+// getExtAppsBundle returns the vendored ext-apps browser bundle with ESM
+// exports rewritten to globalThis.ExtApps. The rewrite is pure CPU work, so
+// it's cached for the process lifetime purely to avoid repeating it per request.
 func getExtAppsBundle(logger interface {
 	Info(string, any)
 	Warn(string, any)
 }) string {
 	bundleOnce.Do(func() {
-		client := &http.Client{Timeout: 15 * time.Second}
-		var attempts []map[string]any
-		for _, u := range extAppsCandidates {
-			resp, err := client.Get(u)
-			if err != nil {
-				attempts = append(attempts, map[string]any{"url": u, "error": err.Error()})
-				continue
-			}
-			body, readErr := io.ReadAll(io.LimitReader(resp.Body, 4<<20)) // 4 MiB cap
-			resp.Body.Close()
-			if readErr != nil {
-				attempts = append(attempts, map[string]any{"url": u, "status": resp.StatusCode, "error": readErr.Error()})
-				continue
-			}
-			if resp.StatusCode != http.StatusOK || len(body) == 0 {
-				attempts = append(attempts, map[string]any{"url": u, "status": resp.StatusCode, "bytes": len(body)})
-				continue
-			}
-			rewritten := rewriteESMExports(string(body))
-			if rewritten == "" {
-				attempts = append(attempts, map[string]any{"url": u, "status": resp.StatusCode, "bytes": len(body), "error": "no ESM export statement found to rewrite"})
-				continue
-			}
-			bundleJS = rewritten
+		bundleJS = rewriteESMExports(extAppsBundleRaw)
+		if bundleJS == "" {
+			// Should be unreachable: TestExtAppsBundleRewrite fails the build
+			// before this ships if the vendored bundle's export shape changes.
 			if logger != nil {
-				logger.Info("ext-apps bundle loaded", map[string]any{
-					"url":  u,
-					"size": len(bundleJS),
+				logger.Warn("vendored ext-apps bundle failed to rewrite ESM exports", map[string]any{
+					"version": extAppsVersion,
 				})
 			}
 			return
 		}
-		bundleJS = bundleFallback
 		if logger != nil {
-			logger.Warn("ext-apps bundle unavailable, using fallback stub", map[string]any{
-				"attempts": attempts,
+			logger.Info("ext-apps bundle loaded", map[string]any{
+				"version": extAppsVersion,
+				"size":    len(bundleJS),
 			})
 		}
 	})
@@ -166,267 +126,22 @@ func rewriteESMExports(js string) string {
 }
 
 // ---------------------------------------------------------------------------
-// Launch Dashboard HTML template
+// Widget HTML templates
 // ---------------------------------------------------------------------------
+//
+// Vendored as separate .html files (instead of Go string constants) so they
+// get real HTML/JS syntax highlighting and linting in editors. Each embeds
+// the /*__EXT_APPS_BUNDLE__*/ marker that getExtAppsBundle's caller replaces
+// with the vendored ext-apps bundle at serve time.
 
-const launchDashboardTemplate = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
-:root{--bg:#fff;--card:#f8f9fa;--text:#1a1a1a;--sub:#6b7280;--border:#e5e7eb;
-  --passed:#16a34a;--passed-bg:#dcfce7;
-  --failed:#dc2626;--failed-bg:#fee2e2;
-  --broken:#d97706;--broken-bg:#fef3c7;
-  --skip:#6b7280;--skip-bg:#f3f4f6;
-  --run:#2563eb;--run-bg:#dbeafe}
-html.dark{--bg:#1c1c1e;--card:#2c2c2e;--text:#f0f0f0;--sub:#9ca3af;--border:#3a3a3c;
-  --passed-bg:#14532d;--failed-bg:#7f1d1d;--broken-bg:#78350f;--skip-bg:#374151;--run-bg:#1e3a8a}
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-  background:var(--bg);color:var(--text);padding:12px;font-size:14px;line-height:1.4}
-.card{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden}
-.header{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:10px}
-.launch-name{font-size:15px;font-weight:600;flex:1;word-break:break-word}
-.badge{padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.04em;white-space:nowrap;flex-shrink:0}
-.RUNNING{background:var(--run-bg);color:var(--run)}
-.DONE{background:var(--passed-bg);color:var(--passed)}
-.FAILED{background:var(--failed-bg);color:var(--failed)}
-.CLOSED{background:var(--skip-bg);color:var(--skip)}
-.UNKNOWN{background:var(--skip-bg);color:var(--skip)}
-.prog{padding:14px 16px;border-bottom:1px solid var(--border)}
-.prog-row{display:flex;justify-content:space-between;margin-bottom:8px;font-size:12px;color:var(--sub)}
-.track{height:8px;background:var(--border);border-radius:99px;overflow:hidden}
-.fill{height:100%;border-radius:99px;background:var(--passed);transition:width .4s ease}
-.fill.running{background:var(--run)}
-.stats{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--border)}
-.stat{padding:14px 8px;text-align:center;border-right:1px solid var(--border)}
-.stat:last-child{border-right:none}
-.sv{font-size:20px;font-weight:700}
-.sl{font-size:10px;color:var(--sub);margin-top:2px;text-transform:uppercase;letter-spacing:.06em}
-.p{color:var(--passed)}.f{color:var(--failed)}.b{color:var(--broken)}.s{color:var(--skip)}
-.meta{padding:10px 16px;font-size:12px;color:var(--sub);display:flex;gap:12px;flex-wrap:wrap;border-bottom:1px solid var(--border)}
-.actions{padding:12px 16px;display:flex;gap:8px;flex-wrap:wrap}
-.btn{padding:7px 13px;border-radius:8px;border:1px solid var(--border);background:var(--bg);
-  color:var(--text);cursor:pointer;font-size:13px;font-weight:500;transition:.15s}
-.btn:hover{background:var(--border)}.btn:active{opacity:.8}
-.primary{background:#2563eb;color:#fff;border-color:#2563eb}
-.primary:hover{background:#1d4ed8;border-color:#1d4ed8}
-.danger{background:var(--failed-bg);color:var(--failed);border-color:var(--failed)}
-.danger:hover{opacity:.8}
-.loading,.error{padding:32px;text-align:center;color:var(--sub)}
-.error{color:var(--failed)}
-.spin{display:inline-block;width:20px;height:20px;
-  border:2px solid var(--border);border-top-color:var(--run);
-  border-radius:50%;animation:spin .8s linear infinite;margin-bottom:8px}
-@keyframes spin{to{transform:rotate(360deg)}}
-</style>
-</head>
-<body>
-<div id="root"><div class="loading"><div class="spin"></div><div>Loading dashboard…</div></div></div>
-<script>
-/*__EXT_APPS_BUNDLE__*/
-const{App}=globalThis.ExtApps;
-const root=document.getElementById('root');
+//go:embed assets/launch-dashboard.html
+var launchDashboardTemplate string
 
-function fmt(ms){
-  if(!ms||ms<=0)return'—';
-  const s=Math.floor(ms/1000);
-  if(s<60)return s+'s';
-  const m=Math.floor(s/60),r=s%60;
-  if(m<60)return m+'m '+r+'s';
-  return Math.floor(m/60)+'h '+(m%60)+'m';
-}
-function dt(ts){
-  if(!ts)return'—';
-  try{return new Date(ts).toLocaleString();}catch(_){return String(ts);}
-}
-function sl(s){
-  if(!s)return'UNKNOWN';
-  return(typeof s==='string'?s:s.name||String(s)).toUpperCase();
-}
-function esc(s){
-  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
+//go:embed assets/action-picker.html
+var actionPickerTemplate string
 
-function render(d){
-  const{name,status,stats={},start_time,end_time,environment,tags=[],launch_id,report_web_url}=d;
-  const total=+(stats.total||0),passed=+(stats.passed||0);
-  const failed=+(stats.failed||0),broken=+(stats.broken||0);
-  const done=passed+failed+broken,pend=Math.max(0,total-done);
-  const pct=total>0?Math.round(done/total*100):0;
-  const sLabel=sl(status);
-  const isRun=sLabel==='RUNNING';
-  const dur=(start_time&&end_time&&end_time>start_time)?fmt(end_time-start_time):(isRun?'Running…':'—');
-  const tagStr=(tags||[]).map(t=>esc(t.name)).join(', ')||'—';
-  const env=esc(environment||'—');
-  const lid=+launch_id;
-
-  root.innerHTML=` + "`" + `<div class="card">
-<div class="header">
-  <div class="launch-name">🧪 ${esc(name||'Launch #'+lid)}</div>
-  <span class="badge ${esc(sLabel)}">● ${esc(sLabel)}</span>
-</div>
-<div class="prog">
-  <div class="prog-row"><span>${done}/${total} done</span><span>${pct}%</span></div>
-  <div class="track"><div class="fill${isRun?' running':''}" style="width:${pct}%"></div></div>
-</div>
-<div class="stats">
-  <div class="stat"><div class="sv p">${passed}</div><div class="sl">Passed</div></div>
-  <div class="stat"><div class="sv f">${failed}</div><div class="sl">Failed</div></div>
-  <div class="stat"><div class="sv b">${broken}</div><div class="sl">Broken</div></div>
-  <div class="stat"><div class="sv s">${pend}</div><div class="sl">Pending</div></div>
-</div>
-<div class="meta">
-  <span>⏱ ${dur}</span>
-  <span>🏷 ${tagStr}</span>
-  <span>🖥 ${env}</span>
-  ${start_time?'<span>📅 '+dt(start_time)+'</span>':''}
-</div>
-<div class="actions">
-  <button class="btn primary" data-action="ask" data-msg="List test results for launch ${lid}">📊 Results</button>
-  <button class="btn" data-action="ask" data-msg="Show failed tests in launch ${lid}">✗ Failures</button>
-  ${isRun
-    ? '<button class="btn danger" data-action="ask" data-msg="Close launch '+lid+'">■ Close</button>'
-    : '<button class="btn danger" data-action="ask" data-msg="Reopen launch '+lid+'">↩ Reopen</button>'}
-  ${report_web_url?'<button class="btn" data-action="open" data-url="'+esc(report_web_url)+'">🔗 Report</button>':''}
-</div>
-</div>` + "`" + `;
-  root.querySelectorAll('[data-action]').forEach(el=>{
-    el.addEventListener('click',()=>{
-      if(el.dataset.action==='ask')ask(el.dataset.msg);
-      else if(el.dataset.action==='open')openUrl(el.dataset.url);
-    });
-  });
-}
-
-function showError(prefix,e){
-  console.error('[launch-dashboard]',prefix,e);
-  root.innerHTML='<div class="error">'+esc(prefix+': '+(e&&(e.message||e)||'unknown error'))+' (see browser console for details)</div>';
-}
-
-(async()=>{
-  if(!globalThis.ExtApps||!globalThis.ExtApps.App){
-    console.error('[launch-dashboard] globalThis.ExtApps missing or incomplete:',globalThis.ExtApps);
-    root.innerHTML='<div class="error">ExtApps SDK not available (see browser console for details)</div>';return;
-  }
-  try{
-    const app=new App({name:'launch-dashboard',version:'1.0.0'},{},{autoResize:true,allowUnsafeEval:true});
-
-    const applyTheme=ctx=>{
-      if(ctx&&ctx.colorScheme==='dark')document.documentElement.classList.add('dark');
-      else if(ctx&&ctx.theme==='dark')document.documentElement.classList.add('dark');
-      else document.documentElement.classList.remove('dark');
-    };
-    app.onhostcontextchanged=applyTheme;
-
-    app.ontoolresult=({content})=>{
-      try{
-        const raw=Array.isArray(content)?content[0]?.text:content;
-        const data=typeof raw==='string'?JSON.parse(raw):raw;
-        render(data);
-      }catch(e){
-        showError('Render error',e);
-      }
-    };
-
-    window.ask=msg=>app.sendMessage({role:'user',content:[{type:'text',text:msg}]});
-    window.openUrl=url=>app.openLink?.({url});
-
-    await app.connect();
-    applyTheme(app.getHostContext?.());
-  }catch(e){
-    showError('Widget init error',e);
-  }
-})();
-</script>
-</body>
-</html>`
-
-// ---------------------------------------------------------------------------
-// Action Picker Widget HTML template
-// ---------------------------------------------------------------------------
-
-const actionPickerTemplate = `<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
-:root{--bg:#fff;--card:#f8f9fa;--text:#1a1a1a;--sub:#6b7280;--border:#e5e7eb;--accent:#2563eb}
-html.dark{--bg:#1c1c1e;--card:#2c2c2e;--text:#f0f0f0;--sub:#9ca3af;--border:#3a3a3c;--accent:#3b82f6}
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);padding:12px;font-size:13px;line-height:1.5}
-.search{display:flex;gap:8px;margin-bottom:12px}.search input{flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px}
-.list{display:flex;flex-direction:column;gap:8px;max-height:400px;overflow-y:auto}
-.item{padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--card);cursor:pointer;transition:.15s}
-.item:hover{background:var(--accent);color:#fff;border-color:var(--accent)}.item-title{font-weight:600;margin-bottom:4px}
-.item-method{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;background:var(--bg);margin-right:6px}
-.item:hover .item-method{color:inherit}.empty{padding:32px;text-align:center;color:var(--sub)}
-</style></head><body>
-<div class="search"><input id="filter" type="text" placeholder="Filter results..."></div>
-<div id="list" class="list"></div>
-<script>
-/*__EXT_APPS_BUNDLE__*/
-const {App}=globalThis.ExtApps;
-const filterInput=document.getElementById('filter');
-const listDiv=document.getElementById('list');
-let items=[];
-function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-function render(){
-  const q=filterInput.value.toLowerCase();
-  const filtered=items.filter(it=>it.summary.toLowerCase().includes(q)||it.description.toLowerCase().includes(q)||it.path.toLowerCase().includes(q));
-  listDiv.innerHTML='';
-  if(filtered.length===0){listDiv.innerHTML='<div class="empty">No operations match your filter</div>';return;}
-  for(const op of filtered){
-    const el=document.createElement('div');
-    el.className='item';
-    const methodClass={GET:'#10b981',POST:'#3b82f6',PUT:'#f59e0b',DELETE:'#ef4444'}[op.method]||'#6b7280';
-    el.innerHTML='<div class="item-title">'+esc(op.summary)+'</div><span class="item-method" style="background:'+methodClass+';color:#fff">'+esc(op.method)+'</span><span style="color:var(--sub)">'+esc(op.path)+'</span>';
-    el.onclick=()=>app.sendMessage({role:'user',content:[{type:'text',text:'Select operation: '+op.operation_id}]});
-    listDiv.append(el);
-  }
-}
-(async()=>{const app=new App({name:'action-picker',version:'1.0.0'},{},{autoResize:true,allowUnsafeEval:true});
-app.ontoolresult=({content})=>{
-  try{const raw=Array.isArray(content)?content[0]?.text:content;const data=typeof raw==='string'?JSON.parse(raw):raw;items=data.results||[];filterInput.value='';render();}
-  catch(e){listDiv.innerHTML='<div class="empty">Error: '+String(e)+'</div>';}
-};
-filterInput.addEventListener('input',render);await app.connect();})();
-</script></body></html>`
-
-// ---------------------------------------------------------------------------
-// Results Display Widget HTML template
-// ---------------------------------------------------------------------------
-
-const resultsDisplayTemplate = `<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
-:root{--bg:#fff;--card:#f8f9fa;--text:#1a1a1a;--sub:#6b7280;--border:#e5e7eb;--success:#16a34a;--error:#dc2626}
-html.dark{--bg:#1c1c1e;--card:#2c2c2e;--text:#f0f0f0;--sub:#9ca3af;--border:#3a3a3c;--success:#22c55e;--error:#ef4444}
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);padding:12px;font-size:13px;line-height:1.5}
-.header{padding:12px;background:var(--card);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;display:flex;align-items:center;gap:8px}
-.status-ok{color:var(--success)}.status-err{color:var(--error)}
-.body{padding:12px;background:var(--card);border:1px solid var(--border);border-radius:8px;font-family:monospace;font-size:11px;max-height:300px;overflow-y:auto;white-space:pre-wrap;word-break:break-word}
-.empty{padding:32px;text-align:center;color:var(--sub)}
-</style></head><body>
-<div id="root"><div class="empty">Executing...</div></div>
-<script>
-/*__EXT_APPS_BUNDLE__*/
-const {App}=globalThis.ExtApps;
-const root=document.getElementById('root');
-function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-function formatJSON(obj){try{return JSON.stringify(obj,null,2);}catch(e){return String(obj);}}
-function render(data){
-  const isErr=data.isError;const status=isErr?'Error':'Success';const statusClass=isErr?'status-err':'status-ok';
-  let content='';
-  if(Array.isArray(data.content)&&data.content.length>0){const txt=data.content[0]?.text||'';content=txt;}
-  try{const parsed=JSON.parse(content);content=formatJSON(parsed);}catch(_){}
-  root.innerHTML='<div class="header"><span class="'+statusClass+'">● '+status+'</span></div><div class="body">'+esc(content)+'</div>';
-}
-(async()=>{const app=new App({name:'results-display',version:'1.0.0'},{},{autoResize:true,allowUnsafeEval:true});
-app.ontoolresult=(data)=>{render(data);};
-await app.connect();})();
-</script></body></html>`
+//go:embed assets/results-display.html
+var resultsDisplayTemplate string
 
 // ---------------------------------------------------------------------------
 // Widget registration
