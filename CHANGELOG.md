@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.9] - 2026-08-24 - Fix Docker Build on Go 1.27
+
+### Fixed
+
+- **Docker Release build failed** (`go.mod requires go >= 1.27 (running go 1.26.7; GOTOOLCHAIN=local)`) — the builder stage was still pinned to `golang:1.26-alpine` after 2.1.8 bumped `go.mod` to 1.27. Bumped the Dockerfile's base image to `golang:1.27-alpine`. Cross-platform binary builds were unaffected (they don't use the Dockerfile) and shipped correctly in 2.1.8.
+
 ## [2.1.8] - 2026-08-24 - Vendored Widgets, Destructive-Op Guard, Test Coverage
 
 ### Fixed
