@@ -124,7 +124,7 @@ func (s *Server) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 
 	sessCtx := sessctx.WithRemoteAddr(sessctx.WithUser(r.Context(), authUser), r.RemoteAddr)
-	sess := s.newSession(sessCtx)
+	sess := s.newSession(sessCtx, newSessionID())
 	defer s.closeSession(sess)
 
 	// If the client supplies their Allure token as a header, store it for this session
@@ -996,10 +996,10 @@ func resultToJSON(result any) string {
 
 // --- sessions ---
 
-func (s *Server) newSession(parent context.Context) *session {
+func (s *Server) newSession(parent context.Context, id string) *session {
 	ctx, cancel := context.WithCancel(parent)
 	sess := &session{
-		id:            newSessionID(),
+		id:            id,
 		send:          make(chan []byte, sessionSendBuffer),
 		ctx:           ctx,
 		cancel:        cancel,
@@ -1011,6 +1011,22 @@ func (s *Server) newSession(parent context.Context) *session {
 	s.sessions[sess.id] = sess
 	s.mu.Unlock()
 	return sess
+}
+
+// StdioSession creates the single fixed-ID session used by the stdio transport
+// and returns it along with a context wired for elicitation and sampling, the
+// same way each HTTP request's context is wired to its session. Without this,
+// tools that require user confirmation (delete_test_case, bulk_delete_test_cases)
+// or sampling (analyze_launch_failures) fail over stdio with "no interactive
+// session is available" — elicitFuncForSession/samplingFuncForSession resolve
+// the session via sessctx.IDFromContext, so the session must exist and the ID
+// must be on the context before any tool call is dispatched.
+func (s *Server) StdioSession(parent context.Context) (*session, context.Context) {
+	sess := s.newSession(parent, sessctx.StdioID)
+	ctx := sessctx.WithID(sess.ctx, sess.id)
+	ctx = sessctx.WithElicit(ctx, s.elicitFuncForSession(ctx))
+	ctx = sessctx.WithSampling(ctx, s.samplingFuncForSession(ctx))
+	return sess, ctx
 }
 
 func (s *Server) closeSession(sess *session) {

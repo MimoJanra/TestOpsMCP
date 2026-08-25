@@ -63,9 +63,8 @@ func TestCopyLaunch_Success(t *testing.T) {
 		if req.URL.Path != "/api/launch/5/copy" {
 			t.Errorf("path = %q", req.URL.Path)
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(map[string]any{"id": 6, "name": "copy of 5"})
+		// Real API responds 202 Accepted with no body.
+		w.WriteHeader(http.StatusAccepted)
 	})
 	result, err := r.copyLaunch(context.Background(), copyLaunchArgs{LaunchID: 5})
 	if err != nil {
@@ -77,7 +76,7 @@ func TestCopyLaunch_Success(t *testing.T) {
 		t.Fatalf("task status = %s, error = %s", task.Status, task.Error)
 	}
 	res := task.Result.(map[string]any)
-	if res["launch_id"] != int64(6) {
+	if res["status"] != "copied" {
 		t.Errorf("result = %+v", res)
 	}
 }

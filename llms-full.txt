@@ -1,6 +1,6 @@
 # TestOps MCP — Full LLM Reference
 
-> MCP server that connects Claude to Allure TestOps. 115 curated tools + 600+ dynamic OpenAPI endpoints + 2 prompt templates + 4 resources.
+> MCP server that connects Claude to Allure TestOps. 117 curated tools + 600+ dynamic OpenAPI endpoints + 2 prompt templates + 4 resources.
 > Module: github.com/MimoJanra/TestOpsMCP | Go 1.27+ | Apache 2.0 | MCP protocol 2025-11-25
 
 ---
@@ -504,7 +504,7 @@ Convert automated test case back to manual.
 
 ---
 
-### Test Cases — Metadata (13 tools)
+### Test Cases — Metadata (14 tools)
 
 #### get_test_case_tags / set_test_case_tags
 get: `{ "test_case_id": integer }`
@@ -512,9 +512,16 @@ set (full replace):
 ```json
 {
   "test_case_id": "integer (required)",
-  "tags": [{"id": N, "name": "..."}]  // pass complete desired list
+  "tags": [{"id": N, "name": "..."}]  // pass complete desired list; a tag needs either id (existing) or name (new)
 }
 ```
+
+#### create_test_tag
+Creates a new project-wide tag by name and returns its id. Use when you need a tag that doesn't exist yet, then attach the returned id via `set_test_case_tags` or `bulk_add_test_case_tags`.
+```json
+{ "name": "string (required)" }
+```
+→ `{ "id": N, "name": "..." }`
 
 #### get_test_case_issues / set_test_case_issues
 get: `{ "test_case_id": integer }`
@@ -546,11 +553,23 @@ set (parametrized data table):
 
 #### get_test_case_custom_fields / update_test_case_custom_fields
 get: `{ "test_case_id": integer }`
-update:
+update: each value needs BOTH `id` and `name` — an id-only value is rejected with a not-null constraint on the value's name. Get both via `list_custom_field_values` or `get_test_case_custom_fields`.
 ```json
 {
   "test_case_id": "integer (required)",
-  "custom_fields": [{"custom_field_id": N, "values": [{"id": N}]}]
+  "custom_fields": [{"custom_field_id": N, "values": [{"id": N, "name": "..."}]}]
+}
+```
+
+#### list_custom_field_values
+Lists the valid values defined for a custom field within a project (e.g. allowed Priority/Section options), so you can pick a real value ID instead of guessing. Get `custom_field_id` from `get_test_case_custom_fields` on any test case in the project.
+```json
+{
+  "project_id": "integer (required)",
+  "custom_field_id": "integer (required)",
+  "query": "string (optional, filter by value name)",
+  "page": "integer (optional, default 0)",
+  "size": "integer (optional, default 10)"
 }
 ```
 
@@ -809,7 +828,7 @@ add: `{ "project_id": N, "test_case_ids": [...], "members": [{"id": N, "name": "
 remove: `{ "project_id": N, "test_case_ids": [...], "member_ids": [N] }`
 
 #### bulk_add_test_case_custom_fields / bulk_remove_test_case_custom_fields
-add: `{ "project_id": N, "test_case_ids": [...], "custom_fields": [{"custom_field_id": N, "value_ids": [N]}] }`
+add: each value needs BOTH `id` and `name` (an id-only value is rejected with a not-null constraint on the value's name) — `{ "project_id": N, "test_case_ids": [...], "custom_fields": [{"custom_field_id": N, "values": [{"id": N, "name": "..."}]}] }`
 remove: `{ "project_id": N, "test_case_ids": [...], "custom_field_ids": [N] }`
 
 #### bulk_add_test_case_external_links

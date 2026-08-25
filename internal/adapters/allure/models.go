@@ -501,7 +501,7 @@ type TestResultTreeSelectionDto struct {
 }
 
 type TestTagDto struct {
-	ID   int64  `json:"id"`
+	ID   int64  `json:"id,omitempty"`
 	Name string `json:"name"`
 }
 
@@ -708,10 +708,40 @@ type LaunchTestPlanAddDto struct {
 
 // ── Bulk test case operations ─────────────────────────────────────────────────
 
-// BulkCfvAddDto is the request body for POST /api/testcase/bulk/cfv/add.
-type BulkCfvAddDto struct {
-	Selection TestCaseTreeSelectionDto   `json:"selection"`
-	Cfv       []CustomFieldWithValuesDto `json:"cfv"`
+// TestCaseSelectionDtoV2 is the v2 test-case selection shape used by
+// /api/v2/test-case/bulk/* endpoints. It is not interchangeable with
+// TestCaseTreeSelectionDto (the v1 shape): field names and semantics differ
+// (e.g. testCasesInclude vs leafsInclude, flat groupsInclude vs nested).
+type TestCaseSelectionDtoV2 struct {
+	ProjectID        int64   `json:"projectId"`
+	TreeID           int64   `json:"treeId,omitempty"`
+	NodeID           int64   `json:"nodeId,omitempty"`
+	Search           string  `json:"search,omitempty"`
+	TestCasesInclude []int64 `json:"testCasesInclude,omitempty"`
+	TestCasesExclude []int64 `json:"testCasesExclude,omitempty"`
+	GroupsInclude    []int64 `json:"groupsInclude,omitempty"`
+	GroupsExclude    []int64 `json:"groupsExclude,omitempty"`
+	Deleted          bool    `json:"deleted,omitempty"`
+	Inverted         bool    `json:"inverted,omitempty"`
+	FilterID         int64   `json:"filterId,omitempty"`
+}
+
+// CustomFieldValueWithCfV2Dto is a single custom-field-value assignment in the
+// v2 bulk cfv shape: one row per value, with the owning custom field nested
+// inside (the inverse of CustomFieldWithValuesDto's field-with-nested-values shape).
+// Not to be confused with the differently-shaped CustomFieldValueWithCfDto above,
+// which belongs to the test-case create/update endpoints.
+type CustomFieldValueWithCfV2Dto struct {
+	ID          int64          `json:"id"`
+	CustomField CustomFieldDto `json:"customField"`
+}
+
+// TestCaseCfvBulkAddDto is the request body for POST /api/v2/test-case/bulk/cfv/add.
+// Used instead of the v1 /api/testcase/bulk/cfv/add endpoint, which returns 500 on
+// this API's backend regardless of which custom field is targeted.
+type TestCaseCfvBulkAddDto struct {
+	Selection TestCaseSelectionDtoV2        `json:"selection"`
+	Cfv       []CustomFieldValueWithCfV2Dto `json:"cfv"`
 }
 
 // BulkCfvRemoveDto is the request body for POST /api/testcase/bulk/cfv/remove.

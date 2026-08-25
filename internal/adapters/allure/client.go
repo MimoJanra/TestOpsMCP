@@ -246,11 +246,11 @@ func (c *Client) GetTestResult(ctx context.Context, testResultID int64) (*TestRe
 }
 
 func (c *Client) AssignTestResult(ctx context.Context, testResultID int64, username string) error {
-	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testresult/%d/assign", testResultID), AssignTestResultRequest{Username: username}, []int{http.StatusOK, http.StatusNoContent}...)
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testresult/%d/assign", testResultID), AssignTestResultRequest{Username: username}, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
 }
 
 func (c *Client) MuteTestResult(ctx context.Context, testResultID int64, reason string) error {
-	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testresult/%d/mute", testResultID), MuteTestResultRequest{Reason: reason}, []int{http.StatusOK, http.StatusNoContent}...)
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testresult/%d/mute", testResultID), MuteTestResultRequest{Reason: reason}, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
 }
 
 func (c *Client) ListTestCases(ctx context.Context, projectID int64, page, size int) (*TestCaseListResponse, error) {
@@ -273,14 +273,6 @@ func (c *Client) GetTestCase(ctx context.Context, testCaseID int64) (*TestCaseDe
 func (c *Client) GetTestCaseOverview(ctx context.Context, testCaseID int64) (map[string]any, error) {
 	var result map[string]any
 	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/testcase/%d/overview", testCaseID), nil, &result, []int{http.StatusOK}...); err != nil {
-		return nil, err
-	}
-	return result, nil
-}
-
-func (c *Client) GetTestCaseScenario(ctx context.Context, testCaseID int64) (map[string]any, error) {
-	var result map[string]any
-	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/testcase/%d/scenario", testCaseID), nil, &result, []int{http.StatusOK}...); err != nil {
 		return nil, err
 	}
 	return result, nil
@@ -373,6 +365,21 @@ func (c *Client) UpdateTestCaseCustomFields(ctx context.Context, testCaseID int6
 	return c.doRequest(ctx, http.MethodPatch, fmt.Sprintf("/api/testcase/%d/cfv", testCaseID), fields, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
+// ListCustomFieldValues lists the valid values defined for a custom field within a project
+// (e.g. the allowed Priority or Section options), so callers can pick a real value ID
+// instead of guessing one.
+func (c *Client) ListCustomFieldValues(ctx context.Context, projectID, customFieldID int64, query string, page, size int) (map[string]any, error) {
+	u := fmt.Sprintf("/api/project/%d/cfv?customFieldId=%d&page=%d&size=%d", projectID, customFieldID, page, size)
+	if query != "" {
+		u += "&query=" + url.QueryEscape(query)
+	}
+	var result map[string]any
+	if err := c.doJSON(ctx, http.MethodGet, u, nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 // ─── Tags ────────────────────────────────────────────────────────────────────
 
 // GetTestCaseTags returns the tags of a test case.
@@ -387,6 +394,15 @@ func (c *Client) GetTestCaseTags(ctx context.Context, testCaseID int64) ([]TestT
 // SetTestCaseTags replaces all tags on a test case.
 func (c *Client) SetTestCaseTags(ctx context.Context, testCaseID int64, tags []TestTagDto) error {
 	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testcase/%d/tag", testCaseID), tags, []int{http.StatusOK, http.StatusNoContent}...)
+}
+
+// CreateTestTag creates a new project-wide tag via POST /api/tag and returns it (with its new ID).
+func (c *Client) CreateTestTag(ctx context.Context, name string) (TestTagDto, error) {
+	var result TestTagDto
+	if err := c.doJSON(ctx, http.MethodPost, "/api/tag", TestTagDto{Name: name}, &result, []int{http.StatusOK}...); err != nil {
+		return TestTagDto{}, err
+	}
+	return result, nil
 }
 
 // ─── Issues ───────────────────────────────────────────────────────────────────
@@ -443,7 +459,7 @@ func (c *Client) CreateTestCaseVersion(ctx context.Context, testCaseID int64, re
 
 // RestoreTestCaseVersion restores a test case to a specific version.
 func (c *Client) RestoreTestCaseVersion(ctx context.Context, versionID int64) error {
-	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testcase/version/%d/restore", versionID), nil, []int{http.StatusOK, http.StatusNoContent}...)
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testcase/version/%d/restore", versionID), nil, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
 }
 
 // ─── Attachments ─────────────────────────────────────────────────────────────
@@ -642,14 +658,26 @@ func (c *Client) DeleteTestCaseVersion(ctx context.Context, versionID int64) err
 // ─── Bulk operations (new) ────────────────────────────────────────────────────
 
 func (c *Client) bulkPost(ctx context.Context, path string, body interface{}) error {
-	return c.doRequest(ctx, http.MethodPost, path, body, []int{http.StatusOK, http.StatusNoContent, http.StatusCreated}...)
+	return c.doRequest(ctx, http.MethodPost, path, body, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent, http.StatusCreated}...)
 }
 
 // BulkAddTestCaseCustomFields adds custom field values to multiple test cases.
+//
+// Uses the v2 endpoint (/api/v2/test-case/bulk/cfv/add): the v1 endpoint
+// (/api/testcase/bulk/cfv/add), despite matching its documented request schema,
+// returns 500 on this API's backend regardless of which custom field is targeted.
+// v2 uses a flat per-value shape instead of v1's field-with-nested-values shape,
+// so each (field, value) pair is expanded into its own row.
 func (c *Client) BulkAddTestCaseCustomFields(ctx context.Context, projectID int64, testCaseIDs []int64, cfv []CustomFieldWithValuesDto) error {
-	return c.bulkPost(ctx, "/api/testcase/bulk/cfv/add", BulkCfvAddDto{
-		Selection: TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: testCaseIDs},
-		Cfv:       cfv,
+	rows := make([]CustomFieldValueWithCfV2Dto, 0, len(cfv))
+	for _, f := range cfv {
+		for _, v := range f.Values {
+			rows = append(rows, CustomFieldValueWithCfV2Dto{ID: v.ID, CustomField: f.CustomField})
+		}
+	}
+	return c.bulkPost(ctx, "/api/v2/test-case/bulk/cfv/add", TestCaseCfvBulkAddDto{
+		Selection: TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: testCaseIDs},
+		Cfv:       rows,
 	})
 }
 
@@ -767,8 +795,11 @@ func (c *Client) CreateTestCaseStep(ctx context.Context, req ScenarioStepCreateR
 	return result.CreatedStepID, nil
 }
 
+// UpdateTestCaseStep patches a scenario step. withExpectedResult=true is required even for
+// body-only edits: without it the API silently detaches expectedResultId and deletes the
+// step's expected-result child node, wiping any existing expected result.
 func (c *Client) UpdateTestCaseStep(ctx context.Context, stepID int64, req ScenarioStepPatchRequest) error {
-	return c.doRequest(ctx, http.MethodPatch, fmt.Sprintf("/api/testcase/step/%d", stepID), req, []int{http.StatusOK, http.StatusNoContent}...)
+	return c.doRequest(ctx, http.MethodPatch, fmt.Sprintf("/api/testcase/step/%d?withExpectedResult=true", stepID), req, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
 func (c *Client) DeleteTestCaseStep(ctx context.Context, stepID int64) error {
@@ -1022,20 +1053,19 @@ func (c *Client) CloneTestCase(ctx context.Context, testCaseID int64) (int64, er
 	return result.ID, nil
 }
 
-func (c *Client) CopyLaunch(ctx context.Context, launchID int64) (*LaunchResponse, error) {
-	var result LaunchResponse
-	if err := c.doJSON(ctx, http.MethodPost, fmt.Sprintf("/api/launch/%d/copy", launchID), nil, &result, []int{http.StatusOK, http.StatusCreated}...); err != nil {
-		return nil, err
-	}
-	return &result, nil
+// CopyLaunch starts an async copy of a launch. Per the API spec, this endpoint
+// responds 202 Accepted with no body — the new launch's ID is not returned
+// here; find it afterwards via ListLaunches.
+func (c *Client) CopyLaunch(ctx context.Context, launchID int64) error {
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/launch/%d/copy", launchID), map[string]any{}, []int{http.StatusOK, http.StatusAccepted, http.StatusCreated, http.StatusNoContent}...)
 }
 
 func (c *Client) ResolveTestResult(ctx context.Context, testResultID int64, status string) error {
-	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testresult/%d/resolve", testResultID), map[string]any{"status": status}, []int{http.StatusOK, http.StatusNoContent}...)
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testresult/%d/resolve", testResultID), map[string]any{"status": status}, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
 }
 
 func (c *Client) UnmuteTestResult(ctx context.Context, testResultID int64) error {
-	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testresult/%d/unmute", testResultID), nil, []int{http.StatusOK, http.StatusNoContent}...)
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testresult/%d/unmute", testResultID), nil, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
 }
 
 func (c *Client) GetLaunchEnvironment(ctx context.Context, launchID int64) (map[string]any, error) {
@@ -1258,7 +1288,7 @@ func (c *Client) MoveTestCasesToFolder(ctx context.Context, projectID int64, tes
 			"projectId":    projectID,
 			"leafsInclude": testCaseIDs,
 		},
-	}, []int{http.StatusOK, http.StatusNoContent}...)
+	}, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
 }
 
 // CreateTestCaseFolder creates a new folder (group) at the given tree path.

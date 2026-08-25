@@ -40,6 +40,25 @@ func TestSetTestCaseTags_Handler(t *testing.T) {
 	}
 }
 
+func TestCreateTestTag_Handler(t *testing.T) {
+	r := newTestRegistryWithServer(t, jsonHandler(http.StatusOK, `{"id":42,"name":"regression"}`))
+	res, err := r.createTestTag(context.Background(), createTestTagArgs{Name: "regression"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	m := res.(map[string]any)
+	if m["id"] != int64(42) || m["name"] != "regression" {
+		t.Errorf("unexpected result: %v", res)
+	}
+}
+
+func TestCreateTestTag_ValidatesInput(t *testing.T) {
+	r := newTestRegistry(t)
+	if _, err := r.createTestTag(context.Background(), createTestTagArgs{}); err == nil {
+		t.Fatal("expected error for empty name")
+	}
+}
+
 func TestGetTestCaseIssues_Handler(t *testing.T) {
 	r := newTestRegistryWithServer(t, jsonHandler(http.StatusOK, `[{"id":1,"displayName":"PROJ-1","url":"http://x","integrationId":2,"closed":true}]`))
 	res, err := r.getTestCaseIssues(context.Background(), getTestCaseIssuesArgs{TestCaseID: 1})

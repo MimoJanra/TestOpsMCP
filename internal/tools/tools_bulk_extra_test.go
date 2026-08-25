@@ -74,9 +74,9 @@ func TestBulkHandlers_HappyAndErrorPaths(t *testing.T) {
 			return r.bulkAddTestCaseCustomFields(context.Background(), bulkAddTestCaseCustomFieldsArgs{
 				ProjectID: 1, TestCaseIDs: []int64{1},
 				CustomFields: []struct {
-					CustomFieldID int64   `json:"custom_field_id"`
-					ValueIDs      []int64 `json:"value_ids"`
-				}{{CustomFieldID: 5, ValueIDs: []int64{12}}},
+					CustomFieldID int64                        `json:"custom_field_id"`
+					Values        []allure.CustomFieldValueDto `json:"values"`
+				}{{CustomFieldID: 5, Values: []allure.CustomFieldValueDto{{ID: 12, Name: "High"}}}},
 			})
 		}},
 		{"bulkRemoveTestCaseCustomFields", func(r *Registry) (any, error) {

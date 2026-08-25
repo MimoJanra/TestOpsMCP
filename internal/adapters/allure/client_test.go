@@ -338,6 +338,49 @@ func TestCreateLaunch_SendsJSONBody(t *testing.T) {
 	}
 }
 
+func TestBulkAddTestCaseCustomFields_UsesV2FlattenedShape(t *testing.T) {
+	var gotPath string
+	var gotBody map[string]any
+	c, _ := newTestServerClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/uaa/oauth/token" {
+			jwtHandler(nil)(w, r)
+			return
+		}
+		gotPath = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusOK)
+	})
+
+	err := c.BulkAddTestCaseCustomFields(context.Background(), 3, []int64{10, 11}, []CustomFieldWithValuesDto{
+		{CustomField: CustomFieldDto{ID: 5}, Values: []CustomFieldValueDto{{ID: 100}, {ID: 101}}},
+	})
+	if err != nil {
+		t.Fatalf("BulkAddTestCaseCustomFields: %v", err)
+	}
+	if gotPath != "/api/v2/test-case/bulk/cfv/add" {
+		t.Errorf("path = %q, want /api/v2/test-case/bulk/cfv/add", gotPath)
+	}
+
+	cfv, _ := gotBody["cfv"].([]any)
+	if len(cfv) != 2 {
+		t.Fatalf("cfv rows = %d, want 2 (one per value, flattened)", len(cfv))
+	}
+	row0 := cfv[0].(map[string]any)
+	if row0["id"] != float64(100) {
+		t.Errorf("row0 id = %v, want 100", row0["id"])
+	}
+	cf, _ := row0["customField"].(map[string]any)
+	if cf["id"] != float64(5) {
+		t.Errorf("row0 customField.id = %v, want 5", cf["id"])
+	}
+
+	sel, _ := gotBody["selection"].(map[string]any)
+	tcInclude, _ := sel["testCasesInclude"].([]any)
+	if len(tcInclude) != 2 {
+		t.Errorf("selection.testCasesInclude = %v, want 2 IDs", tcInclude)
+	}
+}
+
 func TestGetLaunchStatistics_AggregatesItems(t *testing.T) {
 	c, _ := newTestServerClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/uaa/oauth/token" {

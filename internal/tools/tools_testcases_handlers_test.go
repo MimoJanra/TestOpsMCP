@@ -279,6 +279,88 @@ func TestUpdateTestCaseStep_Handler(t *testing.T) {
 	}
 }
 
+func TestUpdateTestCaseStep_ExpectedResultOnlyRequiresTestCaseID(t *testing.T) {
+	r := newTestRegistry(t)
+	_, err := r.updateTestCaseStep(context.Background(), updateTestCaseStepArgs{StepID: 1, ExpectedResult: "Y"})
+	if err == nil {
+		t.Fatal("expected error: expected_result without body requires test_case_id")
+	}
+}
+
+// TestUpdateTestCaseStep_ExpectedResultRepairsPlaceholder simulates the observed
+// API quirk end to end: an expected_result-only edit must resend the current
+// body; the linked expected-result child step isn't created until a second,
+// identical PATCH; and even then it holds a placeholder until a further PATCH
+// sets the child's own body.
+func TestUpdateTestCaseStep_ExpectedResultRepairsPlaceholder(t *testing.T) {
+	var getCalls, patchStep10Calls, patchStep20Calls int
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/uaa/oauth/token", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"test-jwt","expires_in":3600}`))
+	})
+	mux.HandleFunc("/api/testcase/100/step", func(w http.ResponseWriter, _ *http.Request) {
+		getCalls++
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case getCalls == 1:
+			// Initial lookup: step 10 has body "X", no expected result yet.
+			_, _ = w.Write([]byte(`{"scenarioSteps":{"10":{"id":10,"body":"X","expectedResultId":0}}}`))
+		case getCalls == 2:
+			// First verification pass: still not created.
+			_, _ = w.Write([]byte(`{"scenarioSteps":{"10":{"id":10,"body":"X","expectedResultId":0}}}`))
+		default:
+			// After the repeat PATCH: child 20 now exists, but holds a placeholder.
+			_, _ = w.Write([]byte(`{"scenarioSteps":{
+				"10":{"id":10,"body":"X","expectedResultId":20},
+				"20":{"id":20,"body":"Expected Result"}
+			}}`))
+		}
+	})
+	mux.HandleFunc("/api/testcase/step/10", func(w http.ResponseWriter, _ *http.Request) {
+		patchStep10Calls++
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/api/testcase/step/20", func(w http.ResponseWriter, r *http.Request) {
+		patchStep20Calls++
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["body"] != "Y" {
+			t.Errorf("child step PATCH body = %v, want Y", body["body"])
+		}
+		if _, hasExpected := body["expectedResult"]; hasExpected {
+			t.Errorf("child step PATCH should not set expectedResult, got %v", body)
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	client := allure.NewClient(server.URL, "test-token", 5*time.Second)
+	r := NewRegistry(client, core.NewLogger(core.LevelError))
+
+	res, err := r.updateTestCaseStep(context.Background(), updateTestCaseStepArgs{
+		StepID: 10, TestCaseID: 100, ExpectedResult: "Y",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	m := res.(map[string]any)
+	if m["status"] != "updated" {
+		t.Errorf("status = %v, want updated", m["status"])
+	}
+	if w, ok := m["expected_result_warning"]; ok {
+		t.Errorf("unexpected expected_result_warning: %v", w)
+	}
+	if patchStep10Calls != 2 {
+		t.Errorf("PATCH step/10 called %d times, want 2 (initial + repeat to create the child)", patchStep10Calls)
+	}
+	if patchStep20Calls != 1 {
+		t.Errorf("PATCH step/20 called %d times, want 1 (setting the child's real text)", patchStep20Calls)
+	}
+}
+
 func TestUpdateTestCaseStep_RequiresAField(t *testing.T) {
 	r := newTestRegistry(t)
 	if _, err := r.updateTestCaseStep(context.Background(), updateTestCaseStepArgs{StepID: 1}); err == nil {
@@ -316,9 +398,9 @@ func TestUpdateTestCaseCustomFields_Handler(t *testing.T) {
 	r := newTestRegistryWithServer(t, jsonHandler(http.StatusOK, `{}`))
 	args := updateTestCaseCustomFieldsArgs{TestCaseID: 1}
 	args.CustomFields = append(args.CustomFields, struct {
-		CustomFieldID int64   `json:"custom_field_id"`
-		ValueIDs      []int64 `json:"value_ids"`
-	}{CustomFieldID: 1, ValueIDs: []int64{10}})
+		CustomFieldID int64                        `json:"custom_field_id"`
+		Values        []allure.CustomFieldValueDto `json:"values"`
+	}{CustomFieldID: 1, Values: []allure.CustomFieldValueDto{{ID: 10, Name: "High"}}})
 
 	res, err := r.updateTestCaseCustomFields(context.Background(), args)
 	if err != nil {
@@ -333,6 +415,40 @@ func TestUpdateTestCaseCustomFields_RequiresEntries(t *testing.T) {
 	r := newTestRegistry(t)
 	if _, err := r.updateTestCaseCustomFields(context.Background(), updateTestCaseCustomFieldsArgs{TestCaseID: 1}); err == nil {
 		t.Fatal("expected error for empty custom_fields")
+	}
+}
+
+func TestUpdateTestCaseCustomFields_RequiresValueName(t *testing.T) {
+	r := newTestRegistry(t)
+	args := updateTestCaseCustomFieldsArgs{TestCaseID: 1}
+	args.CustomFields = append(args.CustomFields, struct {
+		CustomFieldID int64                        `json:"custom_field_id"`
+		Values        []allure.CustomFieldValueDto `json:"values"`
+	}{CustomFieldID: 1, Values: []allure.CustomFieldValueDto{{ID: 10}}}) // no Name
+	if _, err := r.updateTestCaseCustomFields(context.Background(), args); err == nil {
+		t.Fatal("expected error for a value with no name — the API rejects id-only values")
+	}
+}
+
+func TestListCustomFieldValues_Handler(t *testing.T) {
+	r := newTestRegistryWithServer(t, jsonHandler(http.StatusOK, `{"content":[{"id":10,"name":"High","customField":{"id":1,"name":"Priority"}}],"totalElements":1}`))
+	res, err := r.listCustomFieldValues(context.Background(), listCustomFieldValuesArgs{ProjectID: 1, CustomFieldID: 1})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	m := res.(map[string]any)
+	if m["totalElements"] != float64(1) {
+		t.Errorf("unexpected result: %v", res)
+	}
+}
+
+func TestListCustomFieldValues_ValidatesInput(t *testing.T) {
+	r := newTestRegistry(t)
+	if _, err := r.listCustomFieldValues(context.Background(), listCustomFieldValuesArgs{}); err == nil {
+		t.Fatal("expected error for non-positive project_id")
+	}
+	if _, err := r.listCustomFieldValues(context.Background(), listCustomFieldValuesArgs{ProjectID: 1}); err == nil {
+		t.Fatal("expected error for non-positive custom_field_id")
 	}
 }
 

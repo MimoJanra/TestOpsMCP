@@ -89,7 +89,7 @@ func TestHandleMessages_Unauthorized(t *testing.T) {
 
 func TestHandleMessages_BodyTooLarge(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	sess := s.newSession(context.Background())
+	sess := s.newSession(context.Background(), newSessionID())
 	defer s.closeSession(sess)
 
 	big := strings.Repeat("a", maxMessageBody+10)
@@ -102,7 +102,7 @@ func TestHandleMessages_BodyTooLarge(t *testing.T) {
 
 func TestHandleMessages_MalformedJSONStillAccepted(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	sess := s.newSession(context.Background())
+	sess := s.newSession(context.Background(), newSessionID())
 	defer s.closeSession(sess)
 
 	w := httptest.NewRecorder()
@@ -126,7 +126,7 @@ func TestHandleMessages_MalformedJSONStillAccepted(t *testing.T) {
 
 func TestHandleMessages_InvalidJSONRPCVersion(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	sess := s.newSession(context.Background())
+	sess := s.newSession(context.Background(), newSessionID())
 	defer s.closeSession(sess)
 
 	body := `{"jsonrpc":"1.0","id":1,"method":"initialize"}`
@@ -145,7 +145,7 @@ func TestHandleMessages_InvalidJSONRPCVersion(t *testing.T) {
 
 func TestHandleMessages_HappyPathSetsAllureToken(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	sess := s.newSession(context.Background())
+	sess := s.newSession(context.Background(), newSessionID())
 	defer s.closeSession(sess)
 
 	body := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`
@@ -182,7 +182,7 @@ func TestRoute_NotificationsInitialized(t *testing.T) {
 
 func TestRoute_EmptyMethodDispatchesJSONRPCResponse_Elicit(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	sess := s.newSession(context.Background())
+	sess := s.newSession(context.Background(), newSessionID())
 	defer s.closeSession(sess)
 
 	ch := make(chan *ElicitResult, 1)
@@ -211,7 +211,7 @@ func TestRoute_EmptyMethodDispatchesJSONRPCResponse_Elicit(t *testing.T) {
 
 func TestRoute_EmptyMethodDispatchesJSONRPCResponse_Sampling(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	sess := s.newSession(context.Background())
+	sess := s.newSession(context.Background(), newSessionID())
 	defer s.closeSession(sess)
 
 	ch := make(chan *SamplingResult, 1)
@@ -238,7 +238,7 @@ func TestRoute_EmptyMethodDispatchesJSONRPCResponse_Sampling(t *testing.T) {
 
 func TestRoute_EmptyMethodNotificationDoesNotDispatch(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	sess := s.newSession(context.Background())
+	sess := s.newSession(context.Background(), newSessionID())
 	defer s.closeSession(sess)
 
 	ch := make(chan *ElicitResult, 1)
@@ -438,9 +438,9 @@ func TestHandleComplete(t *testing.T) {
 
 func TestSubscribeUnsubscribeAndPublish(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	subscribed := s.newSession(context.Background())
+	subscribed := s.newSession(context.Background(), newSessionID())
 	defer s.closeSession(subscribed)
-	other := s.newSession(context.Background())
+	other := s.newSession(context.Background(), newSessionID())
 	defer s.closeSession(other)
 
 	const uri = "allure://docs/quickstart"
@@ -506,7 +506,7 @@ func TestElicit_NoActiveSession(t *testing.T) {
 
 func TestElicit_ActiveSessionRoundTrip(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	sess := s.newSession(context.Background())
+	sess := s.newSession(context.Background(), newSessionID())
 	defer s.closeSession(sess)
 	ctx := sessctx.WithID(context.Background(), sess.id)
 
@@ -553,7 +553,7 @@ func TestElicit_ActiveSessionRoundTrip(t *testing.T) {
 
 func TestElicit_ClosedSessionReturnsCancel(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	sess := s.newSession(context.Background())
+	sess := s.newSession(context.Background(), newSessionID())
 	defer s.closeSession(sess)
 	// Fill the send buffer so the "send" case in Elicit's first select can
 	// never be ready, forcing the sess.ctx.Done() branch deterministically.
@@ -577,7 +577,7 @@ func TestElicit_ClosedSessionReturnsCancel(t *testing.T) {
 
 func TestElicit_ContextCancelled(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	sess := s.newSession(context.Background())
+	sess := s.newSession(context.Background(), newSessionID())
 	defer s.closeSession(sess)
 
 	ctx, cancel := context.WithCancel(sessctx.WithID(context.Background(), sess.id))
@@ -602,7 +602,7 @@ func TestCreateMessage_NoActiveSession(t *testing.T) {
 
 func TestCreateMessage_ActiveSessionRoundTrip(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	sess := s.newSession(context.Background())
+	sess := s.newSession(context.Background(), newSessionID())
 	defer s.closeSession(sess)
 	ctx := sessctx.WithID(context.Background(), sess.id)
 
@@ -646,7 +646,7 @@ func TestCreateMessage_ActiveSessionRoundTrip(t *testing.T) {
 
 func TestCreateMessage_ClientErrorLeavesCallerWaiting(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	sess := s.newSession(context.Background())
+	sess := s.newSession(context.Background(), newSessionID())
 	defer s.closeSession(sess)
 	ctx := sessctx.WithID(context.Background(), sess.id)
 
@@ -688,7 +688,7 @@ func TestCreateMessage_ClientErrorLeavesCallerWaiting(t *testing.T) {
 
 func TestCreateMessage_ClosedSession(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	sess := s.newSession(context.Background())
+	sess := s.newSession(context.Background(), newSessionID())
 	defer s.closeSession(sess)
 	for i := 0; i < sessionSendBuffer; i++ {
 		sess.send <- []byte("x")
