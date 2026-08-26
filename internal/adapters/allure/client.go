@@ -795,11 +795,29 @@ func (c *Client) CreateTestCaseStep(ctx context.Context, req ScenarioStepCreateR
 	return result.CreatedStepID, nil
 }
 
-// UpdateTestCaseStep patches a scenario step. withExpectedResult=true is required even for
-// body-only edits: without it the API silently detaches expectedResultId and deletes the
-// step's expected-result child node, wiping any existing expected result.
-func (c *Client) UpdateTestCaseStep(ctx context.Context, stepID int64, req ScenarioStepPatchRequest) error {
-	return c.doRequest(ctx, http.MethodPatch, fmt.Sprintf("/api/testcase/step/%d?withExpectedResult=true", stepID), req, []int{http.StatusOK, http.StatusNoContent}...)
+// UpdateTestCaseStep patches a scenario step.
+//
+// withExpectedResult controls the API's expected-result bookkeeping for this
+// call and must be chosen carefully — it is not simply "true when setting
+// expectedResult":
+//   - If false on an edit to a step that already has an expected result, the
+//     API silently detaches expectedResultId and deletes the expected-result
+//     child node, wiping it.
+//   - If true on an edit to a step that has NO expected result yet — even a
+//     body-only edit that never mentions ExpectedResult — the API spawns a new,
+//     empty "Expected Result" placeholder child node that did not previously
+//     exist and is not cleaned up (confirmed live: github.com/MimoJanra/TestOpsMCP/issues/16).
+//
+// So: pass true when this call sets ExpectedResult, or when the step is known
+// (via a prior read) to already have an expectedResultId to preserve; pass
+// false otherwise. Callers should look up the step's current state rather than
+// defaulting to true "to be safe".
+func (c *Client) UpdateTestCaseStep(ctx context.Context, stepID int64, req ScenarioStepPatchRequest, withExpectedResult bool) error {
+	url := fmt.Sprintf("/api/testcase/step/%d", stepID)
+	if withExpectedResult {
+		url += "?withExpectedResult=true"
+	}
+	return c.doRequest(ctx, http.MethodPatch, url, req, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
 func (c *Client) DeleteTestCaseStep(ctx context.Context, stepID int64) error {

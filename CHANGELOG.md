@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`update_test_case_step` was spawning spurious empty "Expected Result" placeholder child nodes on plain `body`-only edits**, not just when setting `expected_result` — the 2.2.0 fix for the opposite problem (losing an existing expected result on a body-only edit) unconditionally sent `withExpectedResult=true` on every call, which the API treats as "materialize expected-result bookkeeping for this step" regardless of whether `expected_result` was actually being set. Reported live with full repro in [#16](https://github.com/MimoJanra/TestOpsMCP/issues/16). `withExpectedResult` is now sent only when this call sets `expected_result`, or when `test_case_id` shows the step already has an expected result to preserve.
+- **`update_test_case_step` set `expected_result` text that the web UI silently never displayed.** 2.2.0's "verify and repair" logic (`ensureExpectedResultText`) also made this worse: it didn't converge, and its own repair PATCH went through the same always-on client method, recursively spawning another nested placeholder off the node it had just written — removed entirely. Root cause, confirmed live against a real Allure TestOps instance (tassta.testops.cloud project 408) by diffing the step tree before/after typing into the web UI's own Expected Result field: `expectedResultId` points to a **container** step whose own `body` the UI does not read at all — the UI instead renders a list of the container's **child** steps (Allure supports multiple expected results per step; typing in the UI appends a new child rather than editing one). `update_test_case_step` now creates a child under the container when none exists, and replaces the first existing child's text on a later call (matching "set the expected result" semantics for the tool's single string parameter) instead of writing to the container itself.
+
 ## [2.2.0] - 2026-08-25 - Fix Async Status Codes, Custom Fields, and Stdio Confirmation Dialogs
 
 ### Added

@@ -447,10 +447,12 @@ Validate AQL/RQL without executing.
 ```
 
 #### update_test_case_step
+Setting `expected_result` always requires `test_case_id` — the API models expected results as a separate linked step (not a plain field on the action step); the tool finds or creates the child entry the web UI actually displays. `test_case_id` is also recommended on a body-only edit so an existing expected result isn't wiped. See [#16](https://github.com/MimoJanra/TestOpsMCP/issues/16) for the underlying tree structure.
 ```json
 {
   "step_id": "integer (required)",
-  "name": "string (optional)",
+  "test_case_id": "integer (required when setting expected_result; recommended otherwise)",
+  "body": "string (optional)",
   "expected_result": "string (optional)"
 }
 ```

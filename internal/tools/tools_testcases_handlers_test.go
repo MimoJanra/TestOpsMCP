@@ -287,58 +287,110 @@ func TestUpdateTestCaseStep_ExpectedResultOnlyRequiresTestCaseID(t *testing.T) {
 	}
 }
 
-// TestUpdateTestCaseStep_ExpectedResultRepairsPlaceholder simulates the observed
-// API quirk end to end: an expected_result-only edit must resend the current
-// body; the linked expected-result child step isn't created until a second,
-// identical PATCH; and even then it holds a placeholder until a further PATCH
-// sets the child's own body.
-func TestUpdateTestCaseStep_ExpectedResultRepairsPlaceholder(t *testing.T) {
-	var getCalls, patchStep10Calls, patchStep20Calls int
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/uaa/oauth/token", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"access_token":"test-jwt","expires_in":3600}`))
-	})
-	mux.HandleFunc("/api/testcase/100/step", func(w http.ResponseWriter, _ *http.Request) {
-		getCalls++
-		w.Header().Set("Content-Type", "application/json")
-		switch {
-		case getCalls == 1:
-			// Initial lookup: step 10 has body "X", no expected result yet.
-			_, _ = w.Write([]byte(`{"scenarioSteps":{"10":{"id":10,"body":"X","expectedResultId":0}}}`))
-		case getCalls == 2:
-			// First verification pass: still not created.
-			_, _ = w.Write([]byte(`{"scenarioSteps":{"10":{"id":10,"body":"X","expectedResultId":0}}}`))
+// TestUpdateTestCaseStep_BodyOnlyOmitsFlagWhenNoExistingExpectedResult guards
+// against https://github.com/MimoJanra/TestOpsMCP/issues/16: sending
+// withExpectedResult=true on a body-only edit of a step with no existing
+// expected result makes the API spawn a spurious empty placeholder child.
+// A prior attempt to "verify and repair" the expected-result write made this
+// worse (recursive placeholder creation) and was removed — see the fix commit.
+func TestUpdateTestCaseStep_BodyOnlyOmitsFlagWhenNoExistingExpectedResult(t *testing.T) {
+	r := newTestRegistryWithServer(t, func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/api/testcase/100/step":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"scenarioSteps":{"10":{"id":10,"body":"old","expectedResultId":0}}}`))
+		case "/api/testcase/step/10":
+			if req.URL.Query().Get("withExpectedResult") != "" {
+				t.Errorf("body-only edit on a step with no existing expected result must not send withExpectedResult, got query %q", req.URL.RawQuery)
+			}
+			w.WriteHeader(http.StatusOK)
 		default:
-			// After the repeat PATCH: child 20 now exists, but holds a placeholder.
-			_, _ = w.Write([]byte(`{"scenarioSteps":{
-				"10":{"id":10,"body":"X","expectedResultId":20},
-				"20":{"id":20,"body":"Expected Result"}
-			}}`))
+			t.Errorf("unexpected request: %s", req.URL.Path)
 		}
-	})
-	mux.HandleFunc("/api/testcase/step/10", func(w http.ResponseWriter, _ *http.Request) {
-		patchStep10Calls++
-		w.WriteHeader(http.StatusOK)
-	})
-	mux.HandleFunc("/api/testcase/step/20", func(w http.ResponseWriter, r *http.Request) {
-		patchStep20Calls++
-		var body map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body["body"] != "Y" {
-			t.Errorf("child step PATCH body = %v, want Y", body["body"])
-		}
-		if _, hasExpected := body["expectedResult"]; hasExpected {
-			t.Errorf("child step PATCH should not set expectedResult, got %v", body)
-		}
-		w.WriteHeader(http.StatusOK)
 	})
 
-	server := httptest.NewServer(mux)
-	t.Cleanup(server.Close)
-	client := allure.NewClient(server.URL, "test-token", 5*time.Second)
-	r := NewRegistry(client, core.NewLogger(core.LevelError))
+	if _, err := r.updateTestCaseStep(context.Background(), updateTestCaseStepArgs{
+		StepID: 10, TestCaseID: 100, Body: "new",
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestUpdateTestCaseStep_BodyOnlyPreservesExistingExpectedResult verifies the
+// other side of the same fix: a body-only edit on a step that DOES already
+// have an expected result must still send withExpectedResult=true, or the API
+// silently wipes it (the original bug this whole mechanism exists to avoid).
+func TestUpdateTestCaseStep_BodyOnlyPreservesExistingExpectedResult(t *testing.T) {
+	r := newTestRegistryWithServer(t, func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/api/testcase/100/step":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"scenarioSteps":{"10":{"id":10,"body":"old","expectedResultId":20}}}`))
+		case "/api/testcase/step/10":
+			if req.URL.Query().Get("withExpectedResult") != "true" {
+				t.Errorf("body-only edit on a step with an existing expected result must send withExpectedResult=true, got query %q", req.URL.RawQuery)
+			}
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Errorf("unexpected request: %s", req.URL.Path)
+		}
+	})
+
+	if _, err := r.updateTestCaseStep(context.Background(), updateTestCaseStepArgs{
+		StepID: 10, TestCaseID: 100, Body: "new",
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestUpdateTestCaseStep_SetExpectedResult_CreatesContainerThenChild verifies
+// the fix for the model discovered in #16: the API's expectedResultId points
+// to a "container" step whose own body the web UI ignores — the UI instead
+// renders the container's child steps. When a step has no expectedResultId
+// yet, this must PATCH the action step to create the container, then create a
+// child under it holding the real text (confirmed live against a real Allure
+// TestOps instance on 2026-08-26).
+func TestUpdateTestCaseStep_SetExpectedResult_CreatesContainerThenChild(t *testing.T) {
+	var getCalls int
+	var sawPatch10, sawCreateChild bool
+
+	r := newTestRegistryWithServer(t, func(w http.ResponseWriter, req *http.Request) {
+		switch {
+		case req.URL.Path == "/api/testcase/100/step":
+			getCalls++
+			w.Header().Set("Content-Type", "application/json")
+			if getCalls == 1 {
+				_, _ = w.Write([]byte(`{"scenarioSteps":{"10":{"id":10,"body":"X","expectedResultId":0}}}`))
+			} else {
+				_, _ = w.Write([]byte(`{"scenarioSteps":{
+					"10":{"id":10,"body":"X","expectedResultId":20},
+					"20":{"id":20,"body":"Expected Result"}
+				}}`))
+			}
+		case req.URL.Path == "/api/testcase/step/10":
+			sawPatch10 = true
+			if req.URL.Query().Get("withExpectedResult") != "true" {
+				t.Errorf("container-creation PATCH must send withExpectedResult=true, got query %q", req.URL.RawQuery)
+			}
+			var body map[string]any
+			_ = json.NewDecoder(req.Body).Decode(&body)
+			if body["body"] != "X" || body["expectedResult"] != "Y" {
+				t.Errorf("container-creation PATCH body = %v, want body=X expectedResult=Y", body)
+			}
+			w.WriteHeader(http.StatusOK)
+		case req.URL.Path == "/api/testcase/step":
+			sawCreateChild = true
+			var body map[string]any
+			_ = json.NewDecoder(req.Body).Decode(&body)
+			if body["parentId"] != float64(20) || body["body"] != "Y" {
+				t.Errorf("expected-result entry create body = %v, want parentId=20 body=Y", body)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"createdStepId":30}`))
+		default:
+			t.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+	})
 
 	res, err := r.updateTestCaseStep(context.Background(), updateTestCaseStepArgs{
 		StepID: 10, TestCaseID: 100, ExpectedResult: "Y",
@@ -346,18 +398,57 @@ func TestUpdateTestCaseStep_ExpectedResultRepairsPlaceholder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	m := res.(map[string]any)
-	if m["status"] != "updated" {
-		t.Errorf("status = %v, want updated", m["status"])
+	if res.(map[string]any)["status"] != "updated" {
+		t.Errorf("unexpected result: %v", res)
 	}
-	if w, ok := m["expected_result_warning"]; ok {
-		t.Errorf("unexpected expected_result_warning: %v", w)
+	if !sawPatch10 {
+		t.Error("expected a PATCH to step 10 to create the expected-result container")
 	}
-	if patchStep10Calls != 2 {
-		t.Errorf("PATCH step/10 called %d times, want 2 (initial + repeat to create the child)", patchStep10Calls)
+	if !sawCreateChild {
+		t.Error("expected a create-step call under the container to hold the real text")
 	}
-	if patchStep20Calls != 1 {
-		t.Errorf("PATCH step/20 called %d times, want 1 (setting the child's real text)", patchStep20Calls)
+}
+
+// TestUpdateTestCaseStep_SetExpectedResult_ReplacesExistingChild verifies that
+// when the container already has a child entry, this replaces its text
+// in place (body-only, no withExpectedResult) rather than piling up another
+// entry — matching "set the expected result" semantics for the tool's single
+// expected_result string, as opposed to the web UI's own append-only behavior.
+func TestUpdateTestCaseStep_SetExpectedResult_ReplacesExistingChild(t *testing.T) {
+	var sawPatch30 bool
+
+	r := newTestRegistryWithServer(t, func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/api/testcase/100/step":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"scenarioSteps":{
+				"10":{"id":10,"body":"X","expectedResultId":20},
+				"20":{"id":20,"body":"Expected Result","children":[30]},
+				"30":{"id":30,"body":"old text"}
+			}}`))
+		case "/api/testcase/step/30":
+			sawPatch30 = true
+			if req.URL.Query().Get("withExpectedResult") != "" {
+				t.Errorf("replacing an existing expected-result entry must not send withExpectedResult, got query %q", req.URL.RawQuery)
+			}
+			var body map[string]any
+			_ = json.NewDecoder(req.Body).Decode(&body)
+			if body["body"] != "Z" {
+				t.Errorf("replace body = %v, want Z", body["body"])
+			}
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+	})
+
+	if _, err := r.updateTestCaseStep(context.Background(), updateTestCaseStepArgs{
+		StepID: 10, TestCaseID: 100, ExpectedResult: "Z",
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !sawPatch30 {
+		t.Error("expected a PATCH to the existing child entry (step 30)")
 	}
 }
 

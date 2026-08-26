@@ -305,11 +305,10 @@ func (r *Registry) registerTestCaseTools() {
 	r.register(&Tool{
 		Name: "update_test_case_step",
 		Description: "Edit a step's text (body) or expected result. Requires the step ID — get it from get_test_case_steps. " +
-			"The API rejects an expected_result-only edit with no body — pass test_case_id and this tool will look up " +
-			"and resend the step's current body for you. Setting expected_result also verifies afterwards (via " +
-			"test_case_id) that the text actually landed, and repairs it automatically if the API's own bookkeeping " +
-			"(expectedResultId creation, the linked child step's text) needed a second write to take — pass " +
-			"test_case_id whenever you set expected_result so this repair can run.",
+			"Setting expected_result always requires test_case_id: the API models expected results as a separate " +
+			"linked step (not a plain field), and this tool finds or creates the entry that the web UI actually " +
+			"displays there. Passing test_case_id on a body-only edit is also recommended so an existing expected " +
+			"result isn't wiped. See github.com/MimoJanra/TestOpsMCP/issues/16 for the underlying API structure.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -319,7 +318,7 @@ func (r *Registry) registerTestCaseTools() {
 				},
 				"test_case_id": map[string]any{
 					"type":        "integer",
-					"description": "Parent test case ID. Required when setting expected_result without body (to preserve the current body); strongly recommended whenever expected_result is set, to verify and repair it if needed.",
+					"description": "Parent test case ID. Required when setting expected_result (the API needs it to locate/create the visible entry). Recommended on a body-only edit too, so an existing expected result isn't accidentally wiped.",
 				},
 				"body": map[string]any{
 					"type":        "string",
@@ -808,86 +807,115 @@ func (r *Registry) updateTestCaseStep(ctx context.Context, args updateTestCaseSt
 		return nil, fmt.Errorf("at least one field (body or expected_result) must be provided")
 	}
 
-	body := args.Body
-	if args.ExpectedResult != "" && body == "" {
-		// The API rejects an expected_result-only PATCH (400 step.onlyonedetail) —
-		// body must be resent alongside it, so fetch and reuse the current body.
+	if args.ExpectedResult != "" {
+		// Setting expected_result needs test_case_id: the API models it as a
+		// separate "container" step (linked via expectedResultId) whose own body
+		// the web UI does not display — the UI instead renders a list of the
+		// container's child steps. See github.com/MimoJanra/TestOpsMCP/issues/16.
 		if args.TestCaseID <= 0 {
-			return nil, fmt.Errorf("test_case_id is required to set expected_result without body: the API rejects an expected_result-only edit, so the step's current body must be looked up and resent")
+			return nil, fmt.Errorf("test_case_id is required to set expected_result: needed both to resend the current body (an expected_result-only PATCH is rejected) and to find or create the entry the web UI actually displays")
 		}
+		return r.setExpectedResult(ctx, args)
+	}
+
+	// Body-only edit.
+	withExpectedResult := false
+	if args.TestCaseID > 0 {
 		tree, err := r.allure.GetTestCaseSteps(ctx, args.TestCaseID)
 		if err != nil {
-			return nil, fmt.Errorf("look up current step body: %w", err)
+			return nil, fmt.Errorf("look up current step state: %w", err)
 		}
 		node := stepNodeFromTree(tree, args.StepID)
 		if node == nil {
 			return nil, fmt.Errorf("step %d not found under test case %d", args.StepID, args.TestCaseID)
 		}
-		body = nodeString(node, "body")
-	}
-
-	req := allure.ScenarioStepPatchRequest{
-		Body:           body,
-		ExpectedResult: args.ExpectedResult,
+		// withExpectedResult=true is only safe to send when the step already has
+		// an expected result to preserve — sending it on a step with none makes
+		// the API spawn a new, empty expected-result container that never
+		// existed before. See github.com/MimoJanra/TestOpsMCP/issues/16.
+		if nodeInt64(node, "expectedResultId") > 0 {
+			withExpectedResult = true
+		}
 	}
 
 	r.logger.Info("updating test case step", map[string]any{"step_id": args.StepID})
 
-	if err := r.allure.UpdateTestCaseStep(ctx, args.StepID, req); err != nil {
+	if err := r.allure.UpdateTestCaseStep(ctx, args.StepID, allure.ScenarioStepPatchRequest{Body: args.Body}, withExpectedResult); err != nil {
 		r.logger.Error("update test case step", err, map[string]any{"step_id": args.StepID})
 		return nil, fmt.Errorf("update test case step: %w", err)
 	}
 
-	result := map[string]any{"status": "updated"}
-	if args.ExpectedResult != "" && args.TestCaseID > 0 {
-		if err := r.ensureExpectedResultText(ctx, args.TestCaseID, args.StepID, req, args.ExpectedResult); err != nil {
-			r.logger.Warn("expected result verification/repair failed", map[string]any{"step_id": args.StepID, "error": err.Error()})
-			result["expected_result_warning"] = err.Error()
-		}
-	}
-	return result, nil
+	return map[string]any{"status": "updated"}, nil
 }
 
-// ensureExpectedResultText works around an API quirk: PATCHing a step's
-// expectedResult does not always create the linked expected-result child step
-// node on the first call — a second, identical PATCH is sometimes needed — and
-// even once created, the child node initially holds a placeholder ("Expected
-// Result") rather than the real text, which must be set with a further PATCH
-// targeting the child's own step ID. This verifies the outcome and repairs it.
-func (r *Registry) ensureExpectedResultText(ctx context.Context, testCaseID, stepID int64, req allure.ScenarioStepPatchRequest, wantText string) error {
-	const maxCreateAttempts = 2
+// setExpectedResult sets a step's single visible expected-result entry.
+//
+// The API represents expected results as a separate "container" step, linked
+// from the action step via expectedResultId. The container's own body is NOT
+// what the web UI displays; the UI instead shows every one of the container's
+// child steps as a separate visible expected-result entry (Allure supports
+// multiple expected results per step). Verified live on 2026-08-26 against
+// tassta.testops.cloud project 408: typing into the UI's Expected Result field
+// added a new child under the container rather than editing the container or
+// any existing child — see github.com/MimoJanra/TestOpsMCP/issues/16.
+//
+// To behave like "set the expected result" (one value, replaceable) rather
+// than "append another one", this replaces the first existing child's text if
+// the container already has children, and creates exactly one child otherwise.
+func (r *Registry) setExpectedResult(ctx context.Context, args updateTestCaseStepArgs) (any, error) {
+	tree, err := r.allure.GetTestCaseSteps(ctx, args.TestCaseID)
+	if err != nil {
+		return nil, fmt.Errorf("look up current step state: %w", err)
+	}
+	node := stepNodeFromTree(tree, args.StepID)
+	if node == nil {
+		return nil, fmt.Errorf("step %d not found under test case %d", args.StepID, args.TestCaseID)
+	}
 
-	var childID int64
-	for attempt := 0; attempt < maxCreateAttempts; attempt++ {
-		tree, err := r.allure.GetTestCaseSteps(ctx, testCaseID)
+	body := args.Body
+	if body == "" {
+		body = nodeString(node, "body")
+	}
+
+	containerID := nodeInt64(node, "expectedResultId")
+	if containerID <= 0 {
+		// First expected result on this step: create the container.
+		if err := r.allure.UpdateTestCaseStep(ctx, args.StepID, allure.ScenarioStepPatchRequest{
+			Body:           body,
+			ExpectedResult: args.ExpectedResult,
+		}, true); err != nil {
+			return nil, fmt.Errorf("create expected-result container: %w", err)
+		}
+		tree, err = r.allure.GetTestCaseSteps(ctx, args.TestCaseID)
 		if err != nil {
-			return fmt.Errorf("re-fetch steps: %w", err)
+			return nil, fmt.Errorf("re-fetch after creating expected-result container: %w", err)
 		}
-		node := stepNodeFromTree(tree, stepID)
+		node = stepNodeFromTree(tree, args.StepID)
 		if node == nil {
-			return fmt.Errorf("step %d not found under test case %d", stepID, testCaseID)
+			return nil, fmt.Errorf("step %d disappeared after update", args.StepID)
 		}
-		childID = nodeInt64(node, "expectedResultId")
-		if childID > 0 {
-			if childNode := stepNodeFromTree(tree, childID); childNode != nil && nodeString(childNode, "body") == wantText {
-				return nil // already correct
-			}
-			break
+		containerID = nodeInt64(node, "expectedResultId")
+		if containerID <= 0 {
+			return nil, fmt.Errorf("expected-result container was not created")
 		}
-		// expectedResultId not created yet — a repeat of the same PATCH creates it.
-		if err := r.allure.UpdateTestCaseStep(ctx, stepID, req); err != nil {
-			return fmt.Errorf("retry patch to create expected-result node: %w", err)
-		}
-	}
-	if childID <= 0 {
-		return fmt.Errorf("expectedResultId was never created after %d attempts", maxCreateAttempts)
 	}
 
-	// The child node exists but doesn't hold the real text yet — set it directly.
-	if err := r.allure.UpdateTestCaseStep(ctx, childID, allure.ScenarioStepPatchRequest{Body: wantText}); err != nil {
-		return fmt.Errorf("set expected-result child step body: %w", err)
+	children := nodeInt64Array(stepNodeFromTree(tree, containerID), "children")
+	if len(children) == 0 {
+		if _, err := r.allure.CreateTestCaseStep(ctx, allure.ScenarioStepCreateRequest{
+			TestCaseID: args.TestCaseID,
+			Body:       args.ExpectedResult,
+			ParentID:   containerID,
+		}, 0); err != nil {
+			return nil, fmt.Errorf("create expected-result entry: %w", err)
+		}
+	} else {
+		if err := r.allure.UpdateTestCaseStep(ctx, children[0], allure.ScenarioStepPatchRequest{Body: args.ExpectedResult}, false); err != nil {
+			return nil, fmt.Errorf("update expected-result entry: %w", err)
+		}
 	}
-	return nil
+
+	return map[string]any{"status": "updated"}, nil
 }
 
 // stepNodeFromTree looks up a step node by ID in a NormalizedScenarioDto tree
@@ -913,6 +941,20 @@ func nodeFloat(node map[string]any, field string) float64 {
 
 func nodeInt64(node map[string]any, field string) int64 {
 	return int64(nodeFloat(node, field))
+}
+
+func nodeInt64Array(node map[string]any, field string) []int64 {
+	if node == nil {
+		return nil
+	}
+	arr, _ := node[field].([]any)
+	out := make([]int64, 0, len(arr))
+	for _, v := range arr {
+		if f, ok := v.(float64); ok {
+			out = append(out, int64(f))
+		}
+	}
+	return out
 }
 
 func nodeString(node map[string]any, field string) string {
