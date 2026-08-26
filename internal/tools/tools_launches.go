@@ -569,16 +569,16 @@ func (r *Registry) copyLaunch(ctx context.Context, args copyLaunchArgs) (any, er
 
 	task, taskCtx := r.taskStore.Create("copy_launch", ctx)
 	r.taskStore.Run(task.ID, taskCtx, func(taskCtx context.Context) {
-		launch, err := r.allure.CopyLaunch(taskCtx, args.LaunchID)
-		if err != nil {
+		if err := r.allure.CopyLaunch(taskCtx, args.LaunchID); err != nil {
 			r.logger.Error("copy launch", err, map[string]any{"launch_id": args.LaunchID})
 			r.taskStore.Update(task.ID, tasks.StatusFailed, "", nil, err)
 			return
 		}
+		// The API returns 202 Accepted with no body — the new launch's ID isn't
+		// known here; the caller can find it via list_launches.
 		r.taskStore.Update(task.ID, tasks.StatusSucceeded, "", map[string]any{
-			"launch_id": launch.ID,
-			"name":      launch.Name,
-			"status":    "copied",
+			"status":  "copied",
+			"message": "Copy accepted. The new launch isn't returned by this endpoint — use list_launches to find it.",
 		}, nil)
 	})
 

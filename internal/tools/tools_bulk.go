@@ -43,8 +43,10 @@ func (r *Registry) registerBulkTools() {
 	})
 
 	r.register(&Tool{
-		Name:        "bulk_add_test_case_tags",
-		Description: "Bulk add tags to test cases",
+		Name: "bulk_add_test_case_tags",
+		Description: "Bulk add tags to test cases. Each tag needs an existing id — the API rejects a name-only " +
+			"entry for a tag that doesn't exist yet with 409 (field 'id' must not be null or empty). Use " +
+			"create_test_tag first to create a new tag and get its id.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -274,15 +276,28 @@ func (r *Registry) registerBulkTools() {
 	// ── Test case bulk: custom fields ─────────────────────────────────────────
 
 	r.register(&Tool{
-		Name:        "bulk_add_test_case_custom_fields",
-		Description: "Bulk add custom field values to multiple test cases",
+		Name: "bulk_add_test_case_custom_fields",
+		Description: "Bulk add custom field values to multiple test cases. Each value needs both id and name " +
+			"(the API errors with a not-null constraint on the value's name if only id is sent) — get both via " +
+			"list_custom_field_values or get_test_case_custom_fields on any test case that already has the field set.",
 		InputSchema: bulkTCSchema("custom_fields", "array", "Custom field values to add", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"custom_field_id": map[string]any{"type": "integer", "description": "Custom field ID"},
-				"value_ids":       map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "Value IDs to assign"},
+				"values": map[string]any{
+					"type":        "array",
+					"description": "Values to assign — each needs both id and name",
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"id":   map[string]any{"type": "integer"},
+							"name": map[string]any{"type": "string"},
+						},
+						"required": []string{"id", "name"},
+					},
+				},
 			},
-			"required": []string{"custom_field_id", "value_ids"},
+			"required": []string{"custom_field_id", "values"},
 		}),
 		Handler: Typed(r.bulkAddTestCaseCustomFields),
 	})
@@ -519,8 +534,8 @@ type bulkAddTestCaseCustomFieldsArgs struct {
 	ProjectID   int64   `json:"project_id"`
 	TestCaseIDs []int64 `json:"test_case_ids"`
 	CustomFields []struct {
-		CustomFieldID int64   `json:"custom_field_id"`
-		ValueIDs      []int64 `json:"value_ids"`
+		CustomFieldID int64                      `json:"custom_field_id"`
+		Values        []allure.CustomFieldValueDto `json:"values"`
 	} `json:"custom_fields"`
 }
 
@@ -536,13 +551,14 @@ func (r *Registry) bulkAddTestCaseCustomFields(ctx context.Context, args bulkAdd
 	}
 	cfv := make([]allure.CustomFieldWithValuesDto, len(args.CustomFields))
 	for i, cf := range args.CustomFields {
-		vals := make([]allure.CustomFieldValueDto, len(cf.ValueIDs))
-		for j, vid := range cf.ValueIDs {
-			vals[j] = allure.CustomFieldValueDto{ID: vid}
+		for _, v := range cf.Values {
+			if v.Name == "" {
+				return nil, fmt.Errorf("custom_fields[%d].values: name must be set for value id %d (the API rejects id-only values) — get it via list_custom_field_values", i, v.ID)
+			}
 		}
 		cfv[i] = allure.CustomFieldWithValuesDto{
 			CustomField: allure.CustomFieldDto{ID: cf.CustomFieldID},
-			Values:      vals,
+			Values:      cf.Values,
 		}
 	}
 	if err := r.allure.BulkAddTestCaseCustomFields(ctx, args.ProjectID, args.TestCaseIDs, cfv); err != nil {
@@ -832,8 +848,8 @@ func (r *Registry) bulkSetTestCaseStatus(ctx context.Context, args bulkSetTestCa
 	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
-	if args.StatusID <= 0 {
-		return nil, fmt.Errorf("status_id must be positive")
+	if args.StatusID == 0 {
+		return nil, fmt.Errorf("status_id must be set")
 	}
 	if args.WorkflowID <= 0 {
 		return nil, fmt.Errorf("workflow_id must be positive")

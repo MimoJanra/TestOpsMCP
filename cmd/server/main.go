@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -22,7 +23,13 @@ const shutdownTimeout = 10 * time.Second
 
 func main() {
 	httpMode := flag.Bool("http", false, "run in HTTP mode (default: stdio)")
+	versionFlag := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Printf("testops-mcp %s (MCP protocol %s)\n", mcp.Version, mcp.ProtocolVersion)
+		return
+	}
 
 	bootLogger := core.NewLogger(core.LevelInfo)
 

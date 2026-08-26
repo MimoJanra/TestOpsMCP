@@ -6,7 +6,7 @@ Integrate **Allure TestOps** with Claude using the Model Context Protocol. Launc
 
 [![GitHub Release](https://img.shields.io/github/v/release/MimoJanra/TestOpsMCP?include_prereleases&label=Latest%20Release)](https://github.com/MimoJanra/TestOpsMCP/releases)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Go Version](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go)](https://golang.org)
+[![Go Version](https://img.shields.io/badge/Go-1.27%2B-00ADD8?logo=go)](https://golang.org)
 [![MCP Badge](https://lobehub.com/badge/mcp/mimojanra-testopsmcp?style=plastic)](https://lobehub.com/mcp/mimojanra-testopsmcp)
 ## Why TestOps MCP?
 
@@ -26,7 +26,7 @@ Integrate **Allure TestOps** with Claude using the Model Context Protocol. Launc
 - Works with Claude Desktop, Claude Web, and custom MCP clients
 
 ### 🏭 Production-Grade
-- **114 tools** — complete Allure TestOps test case API coverage + full OpenAPI fallback (600+ endpoints)
+- **117 tools** — complete Allure TestOps test case API coverage + full OpenAPI fallback (600+ endpoints)
 - **MCP Prompts** — built-in templates (`analyze-test-failures`, `launch-report-summary`) for one-click workflows
 - **MCP Resources** — attach `allure://docs/quickstart` as context; widget resources for visual dashboards
 - **AI analysis** — `analyze_launch_failures` asks Claude to find root causes via MCP sampling
@@ -314,7 +314,7 @@ If you prefer running without Docker:
 
 ---
 
-## 🛠️ 104 Tools
+## 🛠️ 117 Tools
 
 ### Universal Tools
 - **`search_testops_operations`** — Search for any API operation by keyword
@@ -338,7 +338,7 @@ If you prefer running without Docker:
 `create_test_case_step` • `update_test_case_step` • `delete_test_case_step` • `move_test_case_step` • `copy_test_case_step` • `delete_test_case_scenario` • `get_test_case_scenario_from_run` • `detach_test_case_automation`
 
 ### Test Cases — Metadata
-`get_test_case_tags` • `set_test_case_tags` • `get_test_case_issues` • `set_test_case_issues` • `get_test_case_examples` • `set_test_case_examples` • `get_test_case_custom_fields` • `update_test_case_custom_fields` • `get_test_case_keys` • `set_test_case_keys` • `get_test_case_relations` • `set_test_case_relations` • `get_test_case_workflow`
+`get_test_case_tags` • `set_test_case_tags` • `create_test_tag` • `get_test_case_issues` • `set_test_case_issues` • `get_test_case_examples` • `set_test_case_examples` • `get_test_case_custom_fields` • `update_test_case_custom_fields` • `list_custom_field_values` • `get_test_case_keys` • `set_test_case_keys` • `get_test_case_relations` • `set_test_case_relations` • `get_test_case_workflow`
 
 ### Test Cases — Members & Links
 `get_test_case_members` • `add_test_case_members` • `remove_test_case_members` • `get_test_case_external_links` • `add_test_case_external_link` • `delete_test_case_external_link`
@@ -503,7 +503,7 @@ make build
 ```
 
 **Requirements:**
-- Go 1.26+ — [Download](https://golang.org/dl/)
+- Go 1.27+ — [Download](https://golang.org/dl/)
 - `make` — Usually pre-installed on macOS/Linux
 
 **Development commands:**

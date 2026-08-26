@@ -1,3 +1,3 @@
 module github.com/MimoJanra/TestOpsMCP
 
-go 1.26
+go 1.27

@@ -25,7 +25,7 @@ type Client struct {
 	httpClient *http.Client
 
 	mu              sync.Mutex
-	jwtCache        map[string]jwtEntry    // keyed by API token — each user's JWT is stored separately
+	jwtCache        map[string]jwtEntry // keyed by API token — each user's JWT is stored separately
 	getSessionToken func(ctx context.Context) string
 }
 
@@ -141,61 +141,22 @@ func (c *Client) fetchJWT(ctx context.Context, apiToken string) (string, int, er
 }
 
 func (c *Client) CreateLaunch(ctx context.Context, projectID int64, launchName string) (*LaunchResponse, error) {
-	body, err := json.Marshal(LaunchCreateRequest{
+	var result LaunchResponse
+	if err := c.doJSON(ctx, http.MethodPost, "/api/rs/launch", LaunchCreateRequest{
 		Name:      launchName,
 		ProjectID: projectID,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
+	}, &result, []int{http.StatusOK, http.StatusCreated}...); err != nil {
+		return nil, err
 	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/rs/launch"), bytes.NewBuffer(body))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, errFromResponse(resp)
-	}
-
-	var result LaunchResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
-	}
-
 	return &result, nil
 }
 
 func (c *Client) GetLaunchStatus(ctx context.Context, launchID int64) (interface{}, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/rs/launch/%d", launchID)), nil)
+	resp, err := c.doRaw(ctx, http.MethodGet, fmt.Sprintf("/api/rs/launch/%d", launchID), nil, []int{http.StatusOK}...)
 	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
 
 	var result LaunchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -206,24 +167,11 @@ func (c *Client) GetLaunchStatus(ctx context.Context, launchID int64) (interface
 }
 
 func (c *Client) GetLaunchStatistics(ctx context.Context, launchID int64) (*StatisticsResponse, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/rs/launch/%d/statistic", launchID)), nil)
+	resp, err := c.doRaw(ctx, http.MethodGet, fmt.Sprintf("/api/rs/launch/%d/statistic", launchID), nil, []int{http.StatusOK}...)
 	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
 
 	// The API returns a JSON array of {status, count} items.
 	var items []StatisticItem
@@ -252,105 +200,27 @@ func (c *Client) GetLaunchStatistics(ctx context.Context, launchID int64) (*Stat
 }
 
 func (c *Client) CloseLaunch(ctx context.Context, launchID int64) error {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/launch/%d/close", launchID)), nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-
-	return nil
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/launch/%d/close", launchID), nil, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
 func (c *Client) ReopenLaunch(ctx context.Context, launchID int64) error {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/launch/%d/reopen", launchID)), nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-
-	return nil
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/launch/%d/reopen", launchID), nil, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
 func (c *Client) ListLaunches(ctx context.Context, projectID int64, page, size int) (*LaunchListResponse, error) {
 	url := fmt.Sprintf("/api/launch?projectId=%d&page=%d&size=%d", projectID, page, size)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(url), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
-
 	var result LaunchListResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, url, nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
-
 	return &result, nil
 }
 
 func (c *Client) GetLaunchDetails(ctx context.Context, launchID int64) (*LaunchDetailsResponse, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/launch/%d", launchID)), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
-
 	var result LaunchDetailsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/launch/%d", launchID), nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
-
 	return &result, nil
 }
 
@@ -360,780 +230,236 @@ func (c *Client) ListTestResults(ctx context.Context, launchID int64, status str
 		url += fmt.Sprintf("&status=%s", status)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(url), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
-
 	var result TestResultListResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, url, nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
-
 	return &result, nil
 }
 
 func (c *Client) GetTestResult(ctx context.Context, testResultID int64) (*TestResultDetailsResponse, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testresult/%d", testResultID)), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
-
 	var result TestResultDetailsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/testresult/%d", testResultID), nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
-
 	return &result, nil
 }
 
 func (c *Client) AssignTestResult(ctx context.Context, testResultID int64, username string) error {
-	body, err := json.Marshal(AssignTestResultRequest{Username: username})
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testresult/%d/assign", testResultID)), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-
-	return nil
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testresult/%d/assign", testResultID), AssignTestResultRequest{Username: username}, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
 }
 
 func (c *Client) MuteTestResult(ctx context.Context, testResultID int64, reason string) error {
-	body, err := json.Marshal(MuteTestResultRequest{Reason: reason})
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testresult/%d/mute", testResultID)), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-
-	return nil
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testresult/%d/mute", testResultID), MuteTestResultRequest{Reason: reason}, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
 }
 
 func (c *Client) ListTestCases(ctx context.Context, projectID int64, page, size int) (*TestCaseListResponse, error) {
 	url := fmt.Sprintf("/api/testcase?projectId=%d&page=%d&size=%d", projectID, page, size)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(url), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
-
 	var result TestCaseListResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, url, nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
-
 	return &result, nil
 }
 
 func (c *Client) GetTestCase(ctx context.Context, testCaseID int64) (*TestCaseDetailsResponse, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d", testCaseID)), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
-
 	var result TestCaseDetailsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/testcase/%d", testCaseID), nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
-
 	return &result, nil
 }
 
 func (c *Client) GetTestCaseOverview(ctx context.Context, testCaseID int64) (map[string]any, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/overview", testCaseID)), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
-
 	var result map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/testcase/%d/overview", testCaseID), nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
-
-	return result, nil
-}
-
-func (c *Client) GetTestCaseScenario(ctx context.Context, testCaseID int64) (map[string]any, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/scenario", testCaseID)), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
-
-	var result map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
-	}
-
 	return result, nil
 }
 
 func (c *Client) RunTestCase(ctx context.Context, testCaseID, launchID int64) error {
-	body, err := json.Marshal(RunTestCaseRequest{
+	return c.doRequest(ctx, http.MethodPost, "/api/testcase/bulk/run/existing", RunTestCaseRequest{
 		TestCaseIds: []int64{testCaseID},
 		LaunchId:    launchID,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/testcase/bulk/run/existing"), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		return errFromResponse(resp)
-	}
-
-	return nil
+	}, []int{http.StatusOK, http.StatusAccepted}...)
 }
 
 func (c *Client) ListProjects(ctx context.Context, page, size int) (*ProjectListResponse, error) {
 	url := fmt.Sprintf("/api/project?page=%d&size=%d", page, size)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(url), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
-
 	var result ProjectListResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, url, nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
-
 	return &result, nil
 }
 
 func (c *Client) GetProject(ctx context.Context, projectID int64) (*ProjectDetailsResponse, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/project/%d", projectID)), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
-
 	var result ProjectDetailsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/project/%d", projectID), nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
-
 	return &result, nil
 }
 
 func (c *Client) GetProjectStats(ctx context.Context, projectID int64) (*ProjectStatsResponse, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/project/%d/stats", projectID)), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
-
 	var result ProjectStatsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/project/%d/stats", projectID), nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
-
 	return &result, nil
 }
 
 func (c *Client) GetLaunchTrendAnalytics(ctx context.Context, projectID int64) ([]TrendData, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/analytic/%d/statistic_trend", projectID)), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
-
 	var result []TrendData
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/analytic/%d/statistic_trend", projectID), nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
-
 	return result, nil
 }
 
 func (c *Client) GetLaunchDurationAnalytics(ctx context.Context, projectID int64) (interface{}, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/analytic/%d/launch_duration_histogram", projectID)), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
-
 	var result interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/analytic/%d/launch_duration_histogram", projectID), nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
-
 	return result, nil
 }
 
 func (c *Client) GetTestSuccessRateAnalytics(ctx context.Context, projectID int64) (interface{}, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/analytic/%d/tc_success_rate", projectID)), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
-
 	var result interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/analytic/%d/tc_success_rate", projectID), nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
-
 	return result, nil
 }
 
 func (c *Client) CreateTestCase(ctx context.Context, projectID int64, name, description string) (*TestCaseDetailsResponse, error) {
-	body, err := json.Marshal(CreateTestCaseRequest{
+	var result TestCaseDetailsResponse
+	if err := c.doJSON(ctx, http.MethodPost, "/api/testcase", CreateTestCaseRequest{
 		Name:        name,
 		ProjectID:   projectID,
 		Description: description,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
+	}, &result, []int{http.StatusOK, http.StatusCreated}...); err != nil {
+		return nil, err
 	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/testcase"), bytes.NewBuffer(body))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, errFromResponse(resp)
-	}
-
-	var result TestCaseDetailsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
-	}
-
 	return &result, nil
 }
 
 func (c *Client) UpdateTestCase(ctx context.Context, testCaseID int64, req UpdateTestCaseRequest) error {
 	req.ID = testCaseID
-	body, err := json.Marshal(req)
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPatch, c.url(fmt.Sprintf("/api/testcase/%d", testCaseID)), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-
-	return nil
+	return c.doRequest(ctx, http.MethodPatch, fmt.Sprintf("/api/testcase/%d", testCaseID), req, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
 // GetTestCaseCustomFields returns all custom field values for a test case.
 func (c *Client) GetTestCaseCustomFields(ctx context.Context, testCaseID int64) ([]CustomFieldWithValuesDto, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/cfv", testCaseID)), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
-
 	var result []CustomFieldWithValuesDto
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/testcase/%d/cfv", testCaseID), nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
-
 	return result, nil
 }
 
 // UpdateTestCaseCustomFields updates custom field values for a test case via PATCH /api/testcase/{id}/cfv.
 func (c *Client) UpdateTestCaseCustomFields(ctx context.Context, testCaseID int64, fields []CustomFieldWithValuesDto) error {
-	body, err := json.Marshal(fields)
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
+	return c.doRequest(ctx, http.MethodPatch, fmt.Sprintf("/api/testcase/%d/cfv", testCaseID), fields, []int{http.StatusOK, http.StatusNoContent}...)
+}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPatch, c.url(fmt.Sprintf("/api/testcase/%d/cfv", testCaseID)), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
+// ListCustomFieldValues lists the valid values defined for a custom field within a project
+// (e.g. the allowed Priority or Section options), so callers can pick a real value ID
+// instead of guessing one.
+func (c *Client) ListCustomFieldValues(ctx context.Context, projectID, customFieldID int64, query string, page, size int) (map[string]any, error) {
+	u := fmt.Sprintf("/api/project/%d/cfv?customFieldId=%d&page=%d&size=%d", projectID, customFieldID, page, size)
+	if query != "" {
+		u += "&query=" + url.QueryEscape(query)
 	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
+	var result map[string]any
+	if err := c.doJSON(ctx, http.MethodGet, u, nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-
-	return nil
+	return result, nil
 }
 
 // ─── Tags ────────────────────────────────────────────────────────────────────
 
 // GetTestCaseTags returns the tags of a test case.
 func (c *Client) GetTestCaseTags(ctx context.Context, testCaseID int64) ([]TestTagDto, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/tag", testCaseID)), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
 	var result []TestTagDto
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/testcase/%d/tag", testCaseID), nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
 
 // SetTestCaseTags replaces all tags on a test case.
 func (c *Client) SetTestCaseTags(ctx context.Context, testCaseID int64, tags []TestTagDto) error {
-	body, err := json.Marshal(tags)
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testcase/%d/tag", testCaseID), tags, []int{http.StatusOK, http.StatusNoContent}...)
+}
+
+// CreateTestTag creates a new project-wide tag via POST /api/tag and returns it (with its new ID).
+func (c *Client) CreateTestTag(ctx context.Context, name string) (TestTagDto, error) {
+	var result TestTagDto
+	if err := c.doJSON(ctx, http.MethodPost, "/api/tag", TestTagDto{Name: name}, &result, []int{http.StatusOK}...); err != nil {
+		return TestTagDto{}, err
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/%d/tag", testCaseID)), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-	return nil
+	return result, nil
 }
 
 // ─── Issues ───────────────────────────────────────────────────────────────────
 
 // GetTestCaseIssues returns the issues linked to a test case.
 func (c *Client) GetTestCaseIssues(ctx context.Context, testCaseID int64) ([]IssueDto, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/issue", testCaseID)), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
 	var result []IssueDto
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/testcase/%d/issue", testCaseID), nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
 
 // SetTestCaseIssues replaces all issues linked to a test case.
 func (c *Client) SetTestCaseIssues(ctx context.Context, testCaseID int64, issues []IssueDto) error {
-	body, err := json.Marshal(issues)
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/%d/issue", testCaseID)), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-	return nil
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testcase/%d/issue", testCaseID), issues, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
 // ─── Examples (parametrized) ──────────────────────────────────────────────────
 
 // GetTestCaseExamples returns the parametrized examples of a test case.
 func (c *Client) GetTestCaseExamples(ctx context.Context, testCaseID int64) ([][]TestCaseExampleParam, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/example", testCaseID)), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
 	var result [][]TestCaseExampleParam
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/testcase/%d/example", testCaseID), nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
 
 // SetTestCaseExamples replaces the parametrized examples of a test case.
 func (c *Client) SetTestCaseExamples(ctx context.Context, testCaseID int64, examples [][]TestCaseExampleParam) error {
-	body, err := json.Marshal(examples)
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/%d/example", testCaseID)), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-	return nil
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testcase/%d/example", testCaseID), examples, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
 // ─── Versions ─────────────────────────────────────────────────────────────────
 
 // ListTestCaseVersions returns all versions of a test case.
 func (c *Client) ListTestCaseVersions(ctx context.Context, testCaseID int64) ([]TestCaseVersionDto, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/version", testCaseID)), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
 	var result []TestCaseVersionDto
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/testcase/%d/version", testCaseID), nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
 
 // CreateTestCaseVersion creates a named version snapshot of a test case.
 func (c *Client) CreateTestCaseVersion(ctx context.Context, testCaseID int64, req TestCaseVersionCreateRequest) (*TestCaseVersionDto, error) {
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/%d/version", testCaseID)), bytes.NewBuffer(body))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, errFromResponse(resp)
-	}
 	var result TestCaseVersionDto
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodPost, fmt.Sprintf("/api/testcase/%d/version", testCaseID), req, &result, []int{http.StatusOK, http.StatusCreated}...); err != nil {
+		return nil, err
 	}
 	return &result, nil
 }
 
 // RestoreTestCaseVersion restores a test case to a specific version.
 func (c *Client) RestoreTestCaseVersion(ctx context.Context, versionID int64) error {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/version/%d/restore", versionID)), nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-	return nil
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testcase/version/%d/restore", versionID), nil, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
 }
 
 // ─── Attachments ─────────────────────────────────────────────────────────────
@@ -1141,46 +467,16 @@ func (c *Client) RestoreTestCaseVersion(ctx context.Context, versionID int64) er
 // GetTestCaseAttachments returns the attachments of a test case.
 func (c *Client) GetTestCaseAttachments(ctx context.Context, testCaseID int64, page, size int) (*TestCaseAttachmentListResponse, error) {
 	u := fmt.Sprintf("/api/testcase/attachment?testCaseId=%d&page=%d&size=%d", testCaseID, page, size)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(u), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
 	var result TestCaseAttachmentListResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, u, nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
 	return &result, nil
 }
 
 // DeleteTestCaseAttachment deletes a test case attachment by ID.
 func (c *Client) DeleteTestCaseAttachment(ctx context.Context, attachmentID int64) error {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.url(fmt.Sprintf("/api/testcase/attachment/%d", attachmentID)), nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-	return nil
+	return c.doRequest(ctx, http.MethodDelete, fmt.Sprintf("/api/testcase/attachment/%d", attachmentID), nil, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
 // ─── Search & filtered lists ─────────────────────────────────────────────────
@@ -1189,24 +485,9 @@ func (c *Client) DeleteTestCaseAttachment(ctx context.Context, attachmentID int6
 func (c *Client) SearchTestCases(ctx context.Context, projectID int64, rql string, page, size int) (*TestCaseListResponse, error) {
 	u := fmt.Sprintf("/api/testcase/__search?projectId=%d&rql=%s&page=%d&size=%d",
 		projectID, url.QueryEscape(rql), page, size)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(u), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
 	var result TestCaseListResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, u, nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
 	return &result, nil
 }
@@ -1214,24 +495,9 @@ func (c *Client) SearchTestCases(ctx context.Context, projectID int64, rql strin
 // ListDeletedTestCases returns deleted test cases for a project.
 func (c *Client) ListDeletedTestCases(ctx context.Context, projectID int64, page, size int) (*TestCaseListResponse, error) {
 	u := fmt.Sprintf("/api/testcase/deleted?projectId=%d&page=%d&size=%d", projectID, page, size)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(u), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
 	var result TestCaseListResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, u, nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
 	return &result, nil
 }
@@ -1240,147 +506,42 @@ func (c *Client) ListDeletedTestCases(ctx context.Context, projectID int64, page
 
 // DeleteTestCaseScenario removes the entire scenario from a test case.
 func (c *Client) DeleteTestCaseScenario(ctx context.Context, testCaseID int64) error {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.url(fmt.Sprintf("/api/testcase/%d/scenario", testCaseID)), nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-	return nil
+	return c.doRequest(ctx, http.MethodDelete, fmt.Sprintf("/api/testcase/%d/scenario", testCaseID), nil, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
 // GetTestCaseSteps returns the normalized step list for a test case.
 func (c *Client) GetTestCaseSteps(ctx context.Context, testCaseID int64) (map[string]any, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/step", testCaseID)), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
 	var result map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/testcase/%d/step", testCaseID), nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
 
 // MoveTestCaseStep moves a scenario step to a new position.
 func (c *Client) MoveTestCaseStep(ctx context.Context, stepID int64, pos StepPositionDto) error {
-	body, err := json.Marshal(pos)
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/step/%d/move", stepID)), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-	return nil
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testcase/step/%d/move", stepID), pos, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
 // CopyTestCaseStep copies a scenario step to a new position.
 func (c *Client) CopyTestCaseStep(ctx context.Context, stepID int64, pos StepPositionDto) error {
-	body, err := json.Marshal(pos)
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/step/%d/copy", stepID)), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-	return nil
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testcase/step/%d/copy", stepID), pos, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
 // ─── Relations ────────────────────────────────────────────────────────────────
 
 // GetTestCaseRelations returns test-case-to-test-case relations.
 func (c *Client) GetTestCaseRelations(ctx context.Context, testCaseID int64) ([]RelationDto, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/relation", testCaseID)), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
 	var result []RelationDto
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/testcase/%d/relation", testCaseID), nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
 
 // SetTestCaseRelations replaces all test-case-to-test-case relations.
 func (c *Client) SetTestCaseRelations(ctx context.Context, testCaseID int64, relations []RelationDto) error {
-	body, err := json.Marshal(relations)
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/%d/relation", testCaseID)), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-	return nil
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testcase/%d/relation", testCaseID), relations, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
 // ─── Muted test cases ─────────────────────────────────────────────────────────
@@ -1388,24 +549,9 @@ func (c *Client) SetTestCaseRelations(ctx context.Context, testCaseID int64, rel
 // ListMutedTestCases returns muted test cases for a project.
 func (c *Client) ListMutedTestCases(ctx context.Context, projectID int64, page, size int) (*TestCaseListResponse, error) {
 	u := fmt.Sprintf("/api/testcase/muted?projectId=%d&page=%d&size=%d", projectID, page, size)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(u), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
 	var result TestCaseListResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, u, nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
 	return &result, nil
 }
@@ -1415,24 +561,9 @@ func (c *Client) ListMutedTestCases(ctx context.Context, projectID int64, page, 
 // GetTestCaseAudit returns audit log entries for a test case.
 func (c *Client) GetTestCaseAudit(ctx context.Context, testCaseID int64, page, size int) (*TestCaseAuditListResponse, error) {
 	u := fmt.Sprintf("/api/testcase/audit?testCaseId=%d&page=%d&size=%d", testCaseID, page, size)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(u), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
 	var result TestCaseAuditListResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, u, nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
 	return &result, nil
 }
@@ -1442,24 +573,9 @@ func (c *Client) GetTestCaseAudit(ctx context.Context, testCaseID int64, page, s
 // ValidateTestCaseQuery validates an AQL query without running it.
 func (c *Client) ValidateTestCaseQuery(ctx context.Context, projectID int64, rql string) (map[string]any, error) {
 	u := fmt.Sprintf("/api/testcase/query/validate?projectId=%d&rql=%s", projectID, url.QueryEscape(rql))
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(u), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
 	var result map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, u, nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
@@ -1468,24 +584,9 @@ func (c *Client) ValidateTestCaseQuery(ctx context.Context, projectID int64, rql
 func (c *Client) SuggestTestCases(ctx context.Context, projectID int64, query string, page, size int) (map[string]any, error) {
 	u := fmt.Sprintf("/api/testcase/suggest?projectId=%d&query=%s&page=%d&size=%d",
 		projectID, url.QueryEscape(query), page, size)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(u), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
 	var result map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, u, nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
@@ -1494,24 +595,9 @@ func (c *Client) SuggestTestCases(ctx context.Context, projectID int64, query st
 
 // GetTestCaseWorkflow returns the workflow for a test case.
 func (c *Client) GetTestCaseWorkflow(ctx context.Context, testCaseID int64) (map[string]any, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/workflow", testCaseID)), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
 	var result map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/testcase/%d/workflow", testCaseID), nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
@@ -1520,75 +606,25 @@ func (c *Client) GetTestCaseWorkflow(ctx context.Context, testCaseID int64) (map
 
 // GetTestCaseKeys returns the integration test keys for a test case.
 func (c *Client) GetTestCaseKeys(ctx context.Context, testCaseID int64) ([]TestKeyDto, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/testkey", testCaseID)), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
 	var result []TestKeyDto
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/testcase/%d/testkey", testCaseID), nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
 
 // SetTestCaseKeys replaces all test keys for a test case.
 func (c *Client) SetTestCaseKeys(ctx context.Context, testCaseID int64, keys []TestKeyDto) error {
-	body, err := json.Marshal(keys)
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/%d/testkey", testCaseID)), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-	return nil
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testcase/%d/testkey", testCaseID), keys, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
 // ─── Scenario from run ────────────────────────────────────────────────────────
 
 // GetTestCaseScenarioFromRun returns the scenario from the last test run for a test case.
 func (c *Client) GetTestCaseScenarioFromRun(ctx context.Context, testCaseID int64) (map[string]any, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/scenariofromrun", testCaseID)), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
 	var result map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/testcase/%d/scenariofromrun", testCaseID), nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
@@ -1597,109 +633,51 @@ func (c *Client) GetTestCaseScenarioFromRun(ctx context.Context, testCaseID int6
 
 // DetachTestCaseAutomation detaches automation from a test case.
 func (c *Client) DetachTestCaseAutomation(ctx context.Context, testCaseID int64, statusID, workflowID int64) error {
-	body, err := json.Marshal(map[string]any{
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testcase/%d/detachautomation", testCaseID), map[string]any{
 		"statusId":   statusID,
 		"workflowId": workflowID,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/%d/detachautomation", testCaseID)), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-	return nil
+	}, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
 // ─── Version extras ───────────────────────────────────────────────────────────
 
 // GetTestCaseVersionData returns the test case overview data for a specific version.
 func (c *Client) GetTestCaseVersionData(ctx context.Context, versionID int64) (map[string]any, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/version/%d/data", versionID)), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
 	var result map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/testcase/version/%d/data", versionID), nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
 
 // DeleteTestCaseVersion deletes a specific version of a test case.
 func (c *Client) DeleteTestCaseVersion(ctx context.Context, versionID int64) error {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.url(fmt.Sprintf("/api/testcase/version/%d", versionID)), nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-	return nil
+	return c.doRequest(ctx, http.MethodDelete, fmt.Sprintf("/api/testcase/version/%d", versionID), nil, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
 // ─── Bulk operations (new) ────────────────────────────────────────────────────
 
 func (c *Client) bulkPost(ctx context.Context, path string, body interface{}) error {
-	b, err := json.Marshal(body)
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(path), bytes.NewBuffer(b))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusCreated {
-		return errFromResponse(resp)
-	}
-	return nil
+	return c.doRequest(ctx, http.MethodPost, path, body, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent, http.StatusCreated}...)
 }
 
 // BulkAddTestCaseCustomFields adds custom field values to multiple test cases.
+//
+// Uses the v2 endpoint (/api/v2/test-case/bulk/cfv/add): the v1 endpoint
+// (/api/testcase/bulk/cfv/add), despite matching its documented request schema,
+// returns 500 on this API's backend regardless of which custom field is targeted.
+// v2 uses a flat per-value shape instead of v1's field-with-nested-values shape,
+// so each (field, value) pair is expanded into its own row.
 func (c *Client) BulkAddTestCaseCustomFields(ctx context.Context, projectID int64, testCaseIDs []int64, cfv []CustomFieldWithValuesDto) error {
-	return c.bulkPost(ctx, "/api/testcase/bulk/cfv/add", BulkCfvAddDto{
-		Selection: TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: testCaseIDs},
-		Cfv:       cfv,
+	rows := make([]CustomFieldValueWithCfV2Dto, 0, len(cfv))
+	for _, f := range cfv {
+		for _, v := range f.Values {
+			rows = append(rows, CustomFieldValueWithCfV2Dto{ID: v.ID, CustomField: f.CustomField})
+		}
+	}
+	return c.bulkPost(ctx, "/api/v2/test-case/bulk/cfv/add", TestCaseCfvBulkAddDto{
+		Selection: TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: testCaseIDs},
+		Cfv:       rows,
 	})
 }
 
@@ -1794,56 +772,20 @@ func (c *Client) BulkMuteTestCases(ctx context.Context, projectID int64, testCas
 // ─────────────────────────────────────────────────────────────────────────────
 
 func (c *Client) DeleteTestCase(ctx context.Context, testCaseID int64) error {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.url(fmt.Sprintf("/api/testcase/%d", testCaseID)), nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-
-	return nil
+	return c.doRequest(ctx, http.MethodDelete, fmt.Sprintf("/api/testcase/%d", testCaseID), nil, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
 func (c *Client) CreateTestCaseStep(ctx context.Context, req ScenarioStepCreateRequest, afterID int64) (int64, error) {
-	body, err := json.Marshal(req)
-	if err != nil {
-		return 0, fmt.Errorf("marshal request: %w", err)
-	}
-
 	url := "/api/testcase/step"
 	if afterID > 0 {
 		url += fmt.Sprintf("?afterId=%d", afterID)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(url), bytes.NewBuffer(body))
+	resp, err := c.doRaw(ctx, http.MethodPost, url, req, []int{http.StatusOK}...)
 	if err != nil {
-		return 0, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return 0, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return 0, fmt.Errorf("http request: %w", err)
+		return 0, err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return 0, errFromResponse(resp)
-	}
 
 	var result ScenarioStepCreatedResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -1853,54 +795,15 @@ func (c *Client) CreateTestCaseStep(ctx context.Context, req ScenarioStepCreateR
 	return result.CreatedStepID, nil
 }
 
+// UpdateTestCaseStep patches a scenario step. withExpectedResult=true is required even for
+// body-only edits: without it the API silently detaches expectedResultId and deletes the
+// step's expected-result child node, wiping any existing expected result.
 func (c *Client) UpdateTestCaseStep(ctx context.Context, stepID int64, req ScenarioStepPatchRequest) error {
-	body, err := json.Marshal(req)
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPatch, c.url(fmt.Sprintf("/api/testcase/step/%d", stepID)), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-
-	return nil
+	return c.doRequest(ctx, http.MethodPatch, fmt.Sprintf("/api/testcase/step/%d?withExpectedResult=true", stepID), req, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
 func (c *Client) DeleteTestCaseStep(ctx context.Context, stepID int64) error {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.url(fmt.Sprintf("/api/testcase/step/%d", stepID)), nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-
-	return nil
+	return c.doRequest(ctx, http.MethodDelete, fmt.Sprintf("/api/testcase/step/%d", stepID), nil, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
 func (c *Client) BulkSetTestCaseStatus(ctx context.Context, projectID, statusID, workflowID int64, testCaseIDs []int64) error {
@@ -1908,34 +811,11 @@ func (c *Client) BulkSetTestCaseStatus(ctx context.Context, projectID, statusID,
 		ProjectID:    projectID,
 		LeafsInclude: testCaseIDs,
 	}
-	body, err := json.Marshal(TestCaseBulkStatusDto{
+	return c.doRequest(ctx, http.MethodPost, "/api/testcase/bulk/status/set", TestCaseBulkStatusDto{
 		Selection:  selection,
 		StatusID:   statusID,
 		WorkflowID: workflowID,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/testcase/bulk/status/set"), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		return errFromResponse(resp)
-	}
-	return nil
+	}, []int{http.StatusNoContent, http.StatusOK}...)
 }
 
 func (c *Client) BulkAddTestCaseTags(ctx context.Context, projectID int64, testCaseIDs []int64, tags []TestTagDto) error {
@@ -1943,33 +823,10 @@ func (c *Client) BulkAddTestCaseTags(ctx context.Context, projectID int64, testC
 		ProjectID:    projectID,
 		LeafsInclude: testCaseIDs,
 	}
-	body, err := json.Marshal(TestCaseBulkTagDto{
+	return c.doRequest(ctx, http.MethodPost, "/api/testcase/bulk/tag/add", TestCaseBulkTagDto{
 		Selection: selection,
 		Tags:      tags,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/testcase/bulk/tag/add"), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		return errFromResponse(resp)
-	}
-	return nil
+	}, []int{http.StatusNoContent, http.StatusOK, http.StatusAccepted}...)
 }
 
 func (c *Client) BulkRemoveTestCaseTags(ctx context.Context, projectID int64, testCaseIDs []int64, tags []TestTagDto) error {
@@ -1977,33 +834,10 @@ func (c *Client) BulkRemoveTestCaseTags(ctx context.Context, projectID int64, te
 		ProjectID:    projectID,
 		LeafsInclude: testCaseIDs,
 	}
-	body, err := json.Marshal(TestCaseBulkTagDto{
+	return c.doRequest(ctx, http.MethodPost, "/api/testcase/bulk/tag/remove", TestCaseBulkTagDto{
 		Selection: selection,
 		Tags:      tags,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/testcase/bulk/tag/remove"), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		return errFromResponse(resp)
-	}
-	return nil
+	}, []int{http.StatusNoContent, http.StatusOK, http.StatusAccepted}...)
 }
 
 func (c *Client) BulkAddTestCaseMembers(ctx context.Context, projectID int64, testCaseIDs []int64, members []MemberDto) error {
@@ -2011,33 +845,10 @@ func (c *Client) BulkAddTestCaseMembers(ctx context.Context, projectID int64, te
 		ProjectID:    projectID,
 		LeafsInclude: testCaseIDs,
 	}
-	body, err := json.Marshal(TestCaseBulkMemberDto{
+	return c.doRequest(ctx, http.MethodPost, "/api/testcase/bulk/member/add", TestCaseBulkMemberDto{
 		Selection: selection,
 		Members:   members,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/testcase/bulk/member/add"), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		return errFromResponse(resp)
-	}
-	return nil
+	}, []int{http.StatusNoContent, http.StatusOK, http.StatusAccepted}...)
 }
 
 func (c *Client) BulkRemoveTestCaseMembers(ctx context.Context, projectID int64, testCaseIDs []int64, members []MemberDto) error {
@@ -2045,33 +856,10 @@ func (c *Client) BulkRemoveTestCaseMembers(ctx context.Context, projectID int64,
 		ProjectID:    projectID,
 		LeafsInclude: testCaseIDs,
 	}
-	body, err := json.Marshal(TestCaseBulkMemberDto{
+	return c.doRequest(ctx, http.MethodPost, "/api/testcase/bulk/member/remove", TestCaseBulkMemberDto{
 		Selection: selection,
 		Members:   members,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/testcase/bulk/member/remove"), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		return errFromResponse(resp)
-	}
-	return nil
+	}, []int{http.StatusNoContent, http.StatusOK, http.StatusAccepted}...)
 }
 
 func (c *Client) BulkAssignTestResults(ctx context.Context, launchID int64, testResultIDs []int64, assignees []string) error {
@@ -2079,91 +867,28 @@ func (c *Client) BulkAssignTestResults(ctx context.Context, launchID int64, test
 		LaunchID:     launchID,
 		LeafsInclude: testResultIDs,
 	}
-	body, err := json.Marshal(TestResultBulkAssignDto{
+	return c.doRequest(ctx, http.MethodPost, "/api/testresult/bulk/assign", TestResultBulkAssignDto{
 		Selection: selection,
 		Assignees: assignees,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/testresult/bulk/assign"), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		return errFromResponse(resp)
-	}
-	return nil
+	}, []int{http.StatusNoContent, http.StatusOK, http.StatusAccepted}...)
 }
 
 // DeleteTestResult permanently deletes a single test result by ID, removing it
 // (and the test case it represents) from the launch it belongs to.
 func (c *Client) DeleteTestResult(ctx context.Context, testResultID int64) error {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.url(fmt.Sprintf("/api/testresult/%d", testResultID)), nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-	return nil
+	return c.doRequest(ctx, http.MethodDelete, fmt.Sprintf("/api/testresult/%d", testResultID), nil, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
 // BulkHideTestResults hides the given test results in a launch
 // (POST /api/testresult/bulk/hide). Hidden results stay in the launch data but
 // are excluded from the report; unlike DeleteTestResult this is non-destructive.
 func (c *Client) BulkHideTestResults(ctx context.Context, launchID int64, testResultIDs []int64) error {
-	body, err := json.Marshal(TestResultBulkDto{
+	return c.doRequest(ctx, http.MethodPost, "/api/testresult/bulk/hide", TestResultBulkDto{
 		Selection: TestResultTreeSelectionDto{
 			LaunchID:     launchID,
 			LeafsInclude: testResultIDs,
 		},
-	})
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/testresult/bulk/hide"), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		return errFromResponse(resp)
-	}
-	return nil
+	}, []int{http.StatusNoContent, http.StatusOK, http.StatusAccepted}...)
 }
 
 func (c *Client) BulkMuteTestResults(ctx context.Context, launchID int64, testResultIDs []int64, reason string) error {
@@ -2171,33 +896,10 @@ func (c *Client) BulkMuteTestResults(ctx context.Context, launchID int64, testRe
 		LaunchID:     launchID,
 		LeafsInclude: testResultIDs,
 	}
-	body, err := json.Marshal(TestResultBulkMuteDto{
+	return c.doRequest(ctx, http.MethodPost, "/api/testresult/bulk/mute", TestResultBulkMuteDto{
 		Selection: selection,
 		Reason:    reason,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/testresult/bulk/mute"), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		return errFromResponse(resp)
-	}
-	return nil
+	}, []int{http.StatusNoContent, http.StatusOK, http.StatusAccepted}...)
 }
 
 func (c *Client) BulkUnmuteTestResults(ctx context.Context, launchID int64, testResultIDs []int64) error {
@@ -2205,32 +907,9 @@ func (c *Client) BulkUnmuteTestResults(ctx context.Context, launchID int64, test
 		LaunchID:     launchID,
 		LeafsInclude: testResultIDs,
 	}
-	body, err := json.Marshal(map[string]interface{}{
+	return c.doRequest(ctx, http.MethodPost, "/api/testresult/bulk/unmute", map[string]interface{}{
 		"selection": selection,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/testresult/bulk/unmute"), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		return errFromResponse(resp)
-	}
-	return nil
+	}, []int{http.StatusNoContent, http.StatusOK, http.StatusAccepted}...)
 }
 
 func (c *Client) BulkResolveTestResults(ctx context.Context, launchID int64, testResultIDs []int64, status string) error {
@@ -2238,33 +917,10 @@ func (c *Client) BulkResolveTestResults(ctx context.Context, launchID int64, tes
 		LaunchID:     launchID,
 		LeafsInclude: testResultIDs,
 	}
-	body, err := json.Marshal(TestResultBulkResolveDto{
+	return c.doRequest(ctx, http.MethodPost, "/api/testresult/bulk/resolve", TestResultBulkResolveDto{
 		Selection: selection,
 		Status:    status,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/testresult/bulk/resolve"), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		return errFromResponse(resp)
-	}
-	return nil
+	}, []int{http.StatusNoContent, http.StatusOK, http.StatusAccepted}...)
 }
 
 func (c *Client) AddTestCasesToLaunch(ctx context.Context, launchID int64, projectID int64, testCaseIDs []int64, assignees []string) error {
@@ -2272,62 +928,16 @@ func (c *Client) AddTestCasesToLaunch(ctx context.Context, launchID int64, proje
 		ProjectID:    projectID,
 		LeafsInclude: testCaseIDs,
 	}
-	body, err := json.Marshal(LaunchTestCasesAddDto{
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/launch/%d/testcase/add", launchID), LaunchTestCasesAddDto{
 		Selection: selection,
 		Assignees: assignees,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/launch/%d/testcase/add", launchID)), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-	return nil
+	}, []int{http.StatusAccepted, http.StatusOK, http.StatusNoContent}...)
 }
 
 func (c *Client) AddTestPlanToLaunch(ctx context.Context, launchID int64, testPlanID int64) error {
-	body, err := json.Marshal(LaunchTestPlanAddDto{
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/launch/%d/testplan/add", launchID), LaunchTestPlanAddDto{
 		TestPlanID: testPlanID,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/launch/%d/testplan/add", launchID)), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-	return nil
+	}, []int{http.StatusAccepted, http.StatusOK, http.StatusNoContent}...)
 }
 
 func (c *Client) url(path string) string {
@@ -2356,24 +966,82 @@ func (c *Client) setAuthHeader(ctx context.Context, req *http.Request) error {
 	return nil
 }
 
-func (c *Client) CloneTestCase(ctx context.Context, testCaseID int64) (int64, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/%d/clone", testCaseID)), nil)
+// doRaw performs the request/auth/send/status-check steps shared by every Allure
+// API call and returns the response for the caller to read and close. reqBody,
+// when non-nil, is marshaled as the JSON request body. okStatuses lists the
+// response codes treated as success (defaults to 200 OK); any other status is
+// converted to an *APIError via errFromResponse, and the response body is
+// closed before returning.
+func (c *Client) doRaw(ctx context.Context, method, path string, reqBody any, okStatuses ...int) (*http.Response, error) {
+	var reader io.Reader
+	if reqBody != nil {
+		data, err := json.Marshal(reqBody)
+		if err != nil {
+			return nil, fmt.Errorf("marshal request: %w", err)
+		}
+		reader = bytes.NewBuffer(data)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, method, c.url(path), reader)
 	if err != nil {
-		return 0, fmt.Errorf("create request: %w", err)
+		return nil, fmt.Errorf("create request: %w", err)
 	}
 	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return 0, fmt.Errorf("set auth: %w", err)
+		return nil, fmt.Errorf("set auth: %w", err)
 	}
+	if reqBody != nil {
+		httpReq.Header.Set("Content-Type", "application/json")
+	}
+	httpReq.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return 0, fmt.Errorf("http request: %w", err)
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+
+	if len(okStatuses) == 0 {
+		okStatuses = []int{http.StatusOK}
+	}
+	ok := false
+	for _, s := range okStatuses {
+		if resp.StatusCode == s {
+			ok = true
+			break
+		}
+	}
+	if !ok {
+		defer resp.Body.Close()
+		return nil, errFromResponse(resp)
+	}
+	return resp, nil
+}
+
+// doJSON performs doRaw and, when out is non-nil, decodes the JSON response body into it.
+func (c *Client) doJSON(ctx context.Context, method, path string, reqBody, out any, okStatuses ...int) error {
+	resp, err := c.doRaw(ctx, method, path, reqBody, okStatuses...)
+	if err != nil {
+		return err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return 0, errFromResponse(resp)
+	if out != nil {
+		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+			return fmt.Errorf("decode response: %w", err)
+		}
 	}
+	return nil
+}
+
+// doRequest is doJSON without a response body to decode.
+func (c *Client) doRequest(ctx context.Context, method, path string, reqBody any, okStatuses ...int) error {
+	return c.doJSON(ctx, method, path, reqBody, nil, okStatuses...)
+}
+
+func (c *Client) CloneTestCase(ctx context.Context, testCaseID int64) (int64, error) {
+	resp, err := c.doRaw(ctx, http.MethodPost, fmt.Sprintf("/api/testcase/%d/clone", testCaseID), nil, []int{http.StatusOK, http.StatusCreated}...)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
 
 	var result struct {
 		ID int64 `json:"id"`
@@ -2385,227 +1053,65 @@ func (c *Client) CloneTestCase(ctx context.Context, testCaseID int64) (int64, er
 	return result.ID, nil
 }
 
-func (c *Client) CopyLaunch(ctx context.Context, launchID int64) (*LaunchResponse, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/launch/%d/copy", launchID)), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, errFromResponse(resp)
-	}
-
-	var result LaunchResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
-	}
-
-	return &result, nil
+// CopyLaunch starts an async copy of a launch. Per the API spec, this endpoint
+// responds 202 Accepted with no body — the new launch's ID is not returned
+// here; find it afterwards via ListLaunches.
+func (c *Client) CopyLaunch(ctx context.Context, launchID int64) error {
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/launch/%d/copy", launchID), map[string]any{}, []int{http.StatusOK, http.StatusAccepted, http.StatusCreated, http.StatusNoContent}...)
 }
 
 func (c *Client) ResolveTestResult(ctx context.Context, testResultID int64, status string) error {
-	body, err := json.Marshal(map[string]any{"status": status})
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testresult/%d/resolve", testResultID)), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-
-	return nil
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testresult/%d/resolve", testResultID), map[string]any{"status": status}, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
 }
 
 func (c *Client) UnmuteTestResult(ctx context.Context, testResultID int64) error {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testresult/%d/unmute", testResultID)), nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-
-	return nil
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testresult/%d/unmute", testResultID), nil, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
 }
 
 func (c *Client) GetLaunchEnvironment(ctx context.Context, launchID int64) (map[string]any, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/launch/%d/env", launchID)), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
-
 	var result map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/launch/%d/env", launchID), nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
-
 	return result, nil
 }
 
 func (c *Client) GetTestCaseHistory(ctx context.Context, testCaseID int64, page, size int) (map[string]any, error) {
 	url := fmt.Sprintf("/api/testcase/%d/history?page=%d&size=%d", testCaseID, page, size)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(url), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
-
 	var result map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, url, nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
-
 	return result, nil
 }
 
 func (c *Client) GetLaunchDefects(ctx context.Context, launchID int64, page, size int) (map[string]any, error) {
 	url := fmt.Sprintf("/api/launch/%d/defect?page=%d&size=%d", launchID, page, size)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(url), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
-
 	var result map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, url, nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
-
 	return result, nil
 }
 
 func (c *Client) GetTestCaseDefects(ctx context.Context, testCaseID int64, page, size int) (map[string]any, error) {
 	url := fmt.Sprintf("/api/testcase/%d/defect?page=%d&size=%d", testCaseID, page, size)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(url), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
-
 	var result map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, url, nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
-
 	return result, nil
 }
 
 func (c *Client) MergeLaunches(ctx context.Context, launchIDs []int64, launchName string) (int64, error) {
-	body, err := json.Marshal(map[string]any{
+	resp, err := c.doRaw(ctx, http.MethodPost, "/api/launch/merge", map[string]any{
 		"launchIds": launchIDs,
 		"name":      launchName,
-	})
+	}, []int{http.StatusOK, http.StatusCreated}...)
 	if err != nil {
-		return 0, fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/launch/merge"), bytes.NewBuffer(body))
-	if err != nil {
-		return 0, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return 0, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return 0, fmt.Errorf("http request: %w", err)
+		return 0, err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return 0, errFromResponse(resp)
-	}
 
 	var result struct {
 		ID int64 `json:"id"`
@@ -2618,103 +1124,23 @@ func (c *Client) MergeLaunches(ctx context.Context, launchIDs []int64, launchNam
 }
 
 func (c *Client) AddTestCaseDefect(ctx context.Context, testCaseID, defectID int64) error {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/%d/defect/%d", testCaseID, defectID)), nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-
-	return nil
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testcase/%d/defect/%d", testCaseID, defectID), nil, []int{http.StatusOK, http.StatusCreated, http.StatusNoContent}...)
 }
 
 func (c *Client) RemoveTestCaseDefect(ctx context.Context, testCaseID, defectID int64) error {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.url(fmt.Sprintf("/api/testcase/%d/defect/%d", testCaseID, defectID)), nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-
-	return nil
+	return c.doRequest(ctx, http.MethodDelete, fmt.Sprintf("/api/testcase/%d/defect/%d", testCaseID, defectID), nil, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
 func (c *Client) GetTestCaseMembers(ctx context.Context, testCaseID int64) ([]MemberDto, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/members", testCaseID)), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
-
 	var result []MemberDto
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/testcase/%d/members", testCaseID), nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
-
 	return result, nil
 }
 
 func (c *Client) AddTestCaseMembers(ctx context.Context, testCaseID int64, members []MemberDto) error {
-	body, err := json.Marshal(members)
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/%d/members", testCaseID)), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-
-	return nil
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testcase/%d/members", testCaseID), members, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
 func (c *Client) RemoveTestCaseMembers(ctx context.Context, projectID, testCaseID int64, memberIDs []int64) error {
@@ -2731,24 +1157,11 @@ func (c *Client) RemoveTestCaseMembers(ctx context.Context, projectID, testCaseI
 // The spec exposes these only via GET /api/testcase/{id}/overview (field "links").
 // The /relation endpoint returns test-case-to-test-case relations (different schema).
 func (c *Client) GetTestCaseExternalLinks(ctx context.Context, testCaseID int64) ([]ExternalLinkDto, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/%d/overview", testCaseID)), nil)
+	resp, err := c.doRaw(ctx, http.MethodGet, fmt.Sprintf("/api/testcase/%d/overview", testCaseID), nil, []int{http.StatusOK}...)
 	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
 
 	// Decode only the "links" field to avoid pulling the full overview into memory.
 	var overview struct {
@@ -2800,25 +1213,7 @@ func (c *Client) DeleteTestCaseExternalLink(ctx context.Context, testCaseID int6
 }
 
 func (c *Client) RestoreTestCase(ctx context.Context, testCaseID int64) error {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/%d/restore", testCaseID)), nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-
-	return nil
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testcase/%d/restore", testCaseID), nil, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
 func (c *Client) BulkCloneTestCases(ctx context.Context, projectID int64, testCaseIDs []int64) error {
@@ -2826,33 +1221,9 @@ func (c *Client) BulkCloneTestCases(ctx context.Context, projectID int64, testCa
 		ProjectID:    projectID,
 		LeafsInclude: testCaseIDs,
 	}
-	body, err := json.Marshal(map[string]any{
+	return c.doRequest(ctx, http.MethodPost, "/api/testcase/bulk/clone", map[string]any{
 		"selection": selection,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/testcase/bulk/clone"), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, httpReq); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-
-	return nil
+	}, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
 }
 
 // Public methods for OpenAPI execution
@@ -2888,24 +1259,9 @@ func (c *Client) BrowseTestCaseTree(ctx context.Context, projectID int64, path [
 	for _, p := range path {
 		q += fmt.Sprintf("&path=%d", p)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(q), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, req); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
 	var result map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, q, nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
@@ -2916,24 +1272,9 @@ func (c *Client) GetTestCaseTreeGroups(ctx context.Context, projectID int64, pat
 	for _, p := range path {
 		q += fmt.Sprintf("&path=%d", p)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(q), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, req); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, errFromResponse(resp)
-	}
 	var result map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, q, nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
@@ -2941,33 +1282,13 @@ func (c *Client) GetTestCaseTreeGroups(ctx context.Context, projectID int64, pat
 // MoveTestCasesToFolder moves the given test cases to the destination tree path
 // (drag-and-drop reordering / folder assignment in the tree).
 func (c *Client) MoveTestCasesToFolder(ctx context.Context, projectID int64, testCaseIDs []int64, destPath []int64) error {
-	body, err := json.Marshal(map[string]any{
+	return c.doRequest(ctx, http.MethodPost, "/api/testcase/bulk/draganddrop", map[string]any{
 		"path": destPath,
 		"selection": map[string]any{
 			"projectId":    projectID,
 			"leafsInclude": testCaseIDs,
 		},
-	})
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/testcase/bulk/draganddrop"), bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, req); err != nil {
-		return fmt.Errorf("set auth: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return errFromResponse(resp)
-	}
-	return nil
+	}, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
 }
 
 // CreateTestCaseFolder creates a new folder (group) at the given tree path.
@@ -2976,29 +1297,9 @@ func (c *Client) CreateTestCaseFolder(ctx context.Context, projectID int64, pare
 	for _, p := range parentPath {
 		q += fmt.Sprintf("&path=%d", p)
 	}
-	body, err := json.Marshal(map[string]any{"name": name})
-	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(q), bytes.NewBuffer(body))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if err := c.setAuthHeader(ctx, req); err != nil {
-		return nil, fmt.Errorf("set auth: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, errFromResponse(resp)
-	}
 	var result map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodPost, q, map[string]any{"name": name}, &result, []int{http.StatusOK, http.StatusCreated}...); err != nil {
+		return nil, err
 	}
 	return result, nil
 }

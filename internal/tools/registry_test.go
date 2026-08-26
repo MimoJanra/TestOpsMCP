@@ -151,10 +151,14 @@ func TestRegistry_HasExpectedTools(t *testing.T) {
 	has_search := r.GetTool("search_testops_operations") != nil
 	has_execute := r.GetTool("execute_testops_operation") != nil
 
-	// Expected count: 111 base tools + 2 OpenAPI tools (if spec found)
-	expected_count := 111
+	// newTestRegistry uses a nil Allure client, so the 2 tools gated on r.allure
+	// != nil (configure_allure_token, get_launch_dashboard) never register here
+	// regardless of this count — see TestDocsToolCountMatchesRegistry for the
+	// fully-configured count (117) that end users actually see.
+	// Expected count: 113 base tools + 2 OpenAPI tools (if spec found)
+	expected_count := 113
 	if has_search && has_execute {
-		expected_count = 114
+		expected_count = 115
 	}
 
 	if got := len(r.ListTools()); got != expected_count {

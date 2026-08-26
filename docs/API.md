@@ -14,7 +14,7 @@ Complete reference for Allure MCP Server tools and endpoints.
 
 ## Tools
 
-The server exposes **104 tools** across multiple categories covering launches, test results, test cases, bulk operations, analytics, async tasks, and AI analysis. See [llms-full.txt](../llms-full.txt) for the complete reference.
+The server exposes **117 tools** across multiple categories covering launches, test results, test cases, bulk operations, analytics, async tasks, and AI analysis. See [llms-full.txt](../llms-full.txt) for the complete reference.
 
 ---
 

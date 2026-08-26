@@ -60,7 +60,7 @@ fmt:
 info:
 	@echo "Project: Allure MCP Server"
 	@echo "Module: github.com/MimoJanra/TestOpsMCP"
-	@echo "Go version required: 1.22+"
+	@echo "Go version required: 1.27+"
 	@echo ""
 	@echo "Commands:"
 	@echo "  make build       - Build the server binary"

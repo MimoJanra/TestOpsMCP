@@ -395,7 +395,7 @@ Send logs to centralized system:
   - [ ] Backups documented (if applicable)
 
 - [ ] **Updates**
-  - [ ] Go version is 1.26+
+  - [ ] Go version is 1.27+
   - [ ] Dependencies up-to-date (`go mod tidy`)
   - [ ] Security advisories checked (`go list -u -m all`)
   - [ ] Update process documented

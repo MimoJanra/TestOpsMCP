@@ -225,6 +225,9 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 				"For operations that require an array or a specific body structure, pass the value under the special key \"body\" " +
 				"(e.g. {\"testCaseId\": 1, \"body\": [{\"customField\": {\"id\": 5}, \"values\": [{\"id\": 12}]}]}). " +
 				"Named path/query parameters are matched by name from the spec; everything else is sent as the request body. " +
+				"Operations that resolve to DELETE, PUT, or PATCH are destructive and are refused unless \"parameters\" also " +
+				"includes \"confirm\": true — call once without it to see the confirmation error, then re-call with confirm " +
+				"once you're sure. " +
 				"Renders result in an interactive widget.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -236,7 +239,8 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 					"parameters": map[string]any{
 						"type": "object",
 						"description": "Parameters for the operation. Named path/query params are matched automatically. " +
-							"Use the special key \"body\" to pass an array or exact body object.",
+							"Use the special key \"body\" to pass an array or exact body object. " +
+							"Use the special key \"confirm\": true to allow a DELETE/PUT/PATCH operation to run.",
 					},
 				},
 				"required": []string{"operation_id"},

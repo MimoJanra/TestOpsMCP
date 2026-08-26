@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"github.com/MimoJanra/TestOpsMCP/internal/adapters/allure"
 	"github.com/MimoJanra/TestOpsMCP/internal/session"
@@ -53,8 +54,10 @@ func (r *Registry) registerTestCaseTools() {
 	})
 
 	r.register(&Tool{
-		Name:        "run_test_case",
-		Description: "Run a single test case within an existing launch. Both test_case_id and launch_id are required.",
+		Name: "run_test_case",
+		Description: "Run a single test case within an existing launch. Both test_case_id and launch_id are required. " +
+			"The test case must already be in the launch — call add_test_cases_to_launch first, or this fails with " +
+			"409 (field 'selection' must not be null).",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -101,9 +104,11 @@ func (r *Registry) registerTestCaseTools() {
 		Description: "Update any fields of an existing test case: name, description, precondition, " +
 			"expected_result, status, tags, members, links, or test layer. " +
 			"All fields are optional — only the ones you pass are changed. " +
-			"To set the manual test steps (scenario), pass manual_scenario with a steps array — " +
-			"each step must have a 'body' field (the step text) and optionally 'expectedResult'. " +
-			"manual_scenario REPLACES all existing steps; use create_test_case_step to append a single step.",
+			"WARNING: writing manual_scenario here has been observed to silently corrupt step text — the call " +
+			"reports success but every step body is stored as the literal string \"<empty>\" instead of the text " +
+			"you sent, with no error. Prefer building the scenario step by step instead: create_test_case_step " +
+			"(and update_test_case_step to set each step's expected_result) reliably persists real text. " +
+			"Only use manual_scenario here if you verify the result afterwards with get_test_case_steps.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -298,14 +303,23 @@ func (r *Registry) registerTestCaseTools() {
 	})
 
 	r.register(&Tool{
-		Name:        "update_test_case_step",
-		Description: "Edit a step's text (body) or expected result. Requires the step ID — get it from get_test_case_steps.",
+		Name: "update_test_case_step",
+		Description: "Edit a step's text (body) or expected result. Requires the step ID — get it from get_test_case_steps. " +
+			"The API rejects an expected_result-only edit with no body — pass test_case_id and this tool will look up " +
+			"and resend the step's current body for you. Setting expected_result also verifies afterwards (via " +
+			"test_case_id) that the text actually landed, and repairs it automatically if the API's own bookkeeping " +
+			"(expectedResultId creation, the linked child step's text) needed a second write to take — pass " +
+			"test_case_id whenever you set expected_result so this repair can run.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"step_id": map[string]any{
 					"type":        "integer",
 					"description": "Step ID",
+				},
+				"test_case_id": map[string]any{
+					"type":        "integer",
+					"description": "Parent test case ID. Required when setting expected_result without body (to preserve the current body); strongly recommended whenever expected_result is set, to verify and repair it if needed.",
 				},
 				"body": map[string]any{
 					"type":        "string",
@@ -356,8 +370,11 @@ func (r *Registry) registerTestCaseTools() {
 	r.register(&Tool{
 		Name: "update_test_case_custom_fields",
 		Description: "Update custom field values for a test case. " +
-			"Each item must specify the custom field ID and the list of value IDs to set. " +
-			"Use get_test_case_custom_fields first to discover available fields and their current values.",
+			"Each item must specify the custom field ID and the values to set — each value needs both id and " +
+			"name (the API rejects id-only values with a not-null constraint on the value's name). " +
+			"Use get_test_case_custom_fields first to discover available fields and their current values, " +
+			"and list_custom_field_values to discover valid values (with id and name) for a field (e.g. Priority, Section) " +
+			"before setting one, rather than guessing an ID.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -375,21 +392,60 @@ func (r *Registry) registerTestCaseTools() {
 								"type":        "integer",
 								"description": "Custom field ID",
 							},
-							"value_ids": map[string]any{
+							"values": map[string]any{
 								"type":        "array",
-								"description": "List of value IDs to assign to this custom field",
+								"description": "Values to assign — each needs both id and name",
 								"items": map[string]any{
-									"type": "integer",
+									"type": "object",
+									"properties": map[string]any{
+										"id":   map[string]any{"type": "integer"},
+										"name": map[string]any{"type": "string"},
+									},
+									"required": []string{"id", "name"},
 								},
 							},
 						},
-						"required": []string{"custom_field_id", "value_ids"},
+						"required": []string{"custom_field_id", "values"},
 					},
 				},
 			},
 			"required": []string{"test_case_id", "custom_fields"},
 		},
 		Handler: Typed(r.updateTestCaseCustomFields),
+	})
+
+	r.register(&Tool{
+		Name: "list_custom_field_values",
+		Description: "List the valid values defined for a custom field within a project (e.g. the allowed " +
+			"Priority or Section options), so you can pick a real value ID instead of guessing one. " +
+			"Get the custom_field_id from get_test_case_custom_fields on any test case in the project.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"project_id": map[string]any{
+					"type":        "integer",
+					"description": "Allure project ID",
+				},
+				"custom_field_id": map[string]any{
+					"type":        "integer",
+					"description": "Custom field ID",
+				},
+				"query": map[string]any{
+					"type":        "string",
+					"description": "Optional filter on value name",
+				},
+				"page": map[string]any{
+					"type":        "integer",
+					"description": "Zero-based page index (default 0)",
+				},
+				"size": map[string]any{
+					"type":        "integer",
+					"description": "Page size (default 10)",
+				},
+			},
+			"required": []string{"project_id", "custom_field_id"},
+		},
+		Handler: Typed(r.listCustomFieldValues),
 	})
 
 	r.register(&Tool{
@@ -486,7 +542,10 @@ func (r *Registry) getTestCase(ctx context.Context, args getTestCaseArgs) (any, 
 		return nil, fmt.Errorf("get test case: %w", err)
 	}
 
-	scenario, err := r.allure.GetTestCaseScenario(ctx, args.TestCaseID)
+	// Uses the same normalized-step endpoint as get_test_case_steps. The old
+	// dedicated scenario endpoint (GET /api/testcase/{id}/scenario) is marked
+	// deprecated in the API spec and always returns an empty step list.
+	scenario, err := r.allure.GetTestCaseSteps(ctx, args.TestCaseID)
 	if err != nil {
 		r.logger.Info("scenario not available", map[string]any{"test_case_id": args.TestCaseID})
 	} else if scenario != nil {
@@ -736,6 +795,7 @@ func (r *Registry) createTestCaseStep(ctx context.Context, args createTestCaseSt
 
 type updateTestCaseStepArgs struct {
 	StepID         int64  `json:"step_id"`
+	TestCaseID     int64  `json:"test_case_id"`
 	Body           string `json:"body"`
 	ExpectedResult string `json:"expected_result"`
 }
@@ -748,8 +808,26 @@ func (r *Registry) updateTestCaseStep(ctx context.Context, args updateTestCaseSt
 		return nil, fmt.Errorf("at least one field (body or expected_result) must be provided")
 	}
 
+	body := args.Body
+	if args.ExpectedResult != "" && body == "" {
+		// The API rejects an expected_result-only PATCH (400 step.onlyonedetail) —
+		// body must be resent alongside it, so fetch and reuse the current body.
+		if args.TestCaseID <= 0 {
+			return nil, fmt.Errorf("test_case_id is required to set expected_result without body: the API rejects an expected_result-only edit, so the step's current body must be looked up and resent")
+		}
+		tree, err := r.allure.GetTestCaseSteps(ctx, args.TestCaseID)
+		if err != nil {
+			return nil, fmt.Errorf("look up current step body: %w", err)
+		}
+		node := stepNodeFromTree(tree, args.StepID)
+		if node == nil {
+			return nil, fmt.Errorf("step %d not found under test case %d", args.StepID, args.TestCaseID)
+		}
+		body = nodeString(node, "body")
+	}
+
 	req := allure.ScenarioStepPatchRequest{
-		Body:           args.Body,
+		Body:           body,
 		ExpectedResult: args.ExpectedResult,
 	}
 
@@ -760,7 +838,86 @@ func (r *Registry) updateTestCaseStep(ctx context.Context, args updateTestCaseSt
 		return nil, fmt.Errorf("update test case step: %w", err)
 	}
 
-	return map[string]any{"status": "updated"}, nil
+	result := map[string]any{"status": "updated"}
+	if args.ExpectedResult != "" && args.TestCaseID > 0 {
+		if err := r.ensureExpectedResultText(ctx, args.TestCaseID, args.StepID, req, args.ExpectedResult); err != nil {
+			r.logger.Warn("expected result verification/repair failed", map[string]any{"step_id": args.StepID, "error": err.Error()})
+			result["expected_result_warning"] = err.Error()
+		}
+	}
+	return result, nil
+}
+
+// ensureExpectedResultText works around an API quirk: PATCHing a step's
+// expectedResult does not always create the linked expected-result child step
+// node on the first call — a second, identical PATCH is sometimes needed — and
+// even once created, the child node initially holds a placeholder ("Expected
+// Result") rather than the real text, which must be set with a further PATCH
+// targeting the child's own step ID. This verifies the outcome and repairs it.
+func (r *Registry) ensureExpectedResultText(ctx context.Context, testCaseID, stepID int64, req allure.ScenarioStepPatchRequest, wantText string) error {
+	const maxCreateAttempts = 2
+
+	var childID int64
+	for attempt := 0; attempt < maxCreateAttempts; attempt++ {
+		tree, err := r.allure.GetTestCaseSteps(ctx, testCaseID)
+		if err != nil {
+			return fmt.Errorf("re-fetch steps: %w", err)
+		}
+		node := stepNodeFromTree(tree, stepID)
+		if node == nil {
+			return fmt.Errorf("step %d not found under test case %d", stepID, testCaseID)
+		}
+		childID = nodeInt64(node, "expectedResultId")
+		if childID > 0 {
+			if childNode := stepNodeFromTree(tree, childID); childNode != nil && nodeString(childNode, "body") == wantText {
+				return nil // already correct
+			}
+			break
+		}
+		// expectedResultId not created yet — a repeat of the same PATCH creates it.
+		if err := r.allure.UpdateTestCaseStep(ctx, stepID, req); err != nil {
+			return fmt.Errorf("retry patch to create expected-result node: %w", err)
+		}
+	}
+	if childID <= 0 {
+		return fmt.Errorf("expectedResultId was never created after %d attempts", maxCreateAttempts)
+	}
+
+	// The child node exists but doesn't hold the real text yet — set it directly.
+	if err := r.allure.UpdateTestCaseStep(ctx, childID, allure.ScenarioStepPatchRequest{Body: wantText}); err != nil {
+		return fmt.Errorf("set expected-result child step body: %w", err)
+	}
+	return nil
+}
+
+// stepNodeFromTree looks up a step node by ID in a NormalizedScenarioDto tree
+// (as returned by GetTestCaseSteps), checking both the scenarioSteps map and
+// the root node.
+func stepNodeFromTree(tree map[string]any, stepID int64) map[string]any {
+	key := strconv.FormatInt(stepID, 10)
+	if steps, ok := tree["scenarioSteps"].(map[string]any); ok {
+		if node, ok := steps[key].(map[string]any); ok {
+			return node
+		}
+	}
+	if root, ok := tree["root"].(map[string]any); ok && int64(nodeFloat(root, "id")) == stepID {
+		return root
+	}
+	return nil
+}
+
+func nodeFloat(node map[string]any, field string) float64 {
+	v, _ := node[field].(float64)
+	return v
+}
+
+func nodeInt64(node map[string]any, field string) int64 {
+	return int64(nodeFloat(node, field))
+}
+
+func nodeString(node map[string]any, field string) string {
+	v, _ := node[field].(string)
+	return v
 }
 
 type deleteTestCaseStepArgs struct {
@@ -821,8 +978,8 @@ func (r *Registry) getTestCaseCustomFields(ctx context.Context, args getTestCase
 type updateTestCaseCustomFieldsArgs struct {
 	TestCaseID   int64 `json:"test_case_id"`
 	CustomFields []struct {
-		CustomFieldID int64   `json:"custom_field_id"`
-		ValueIDs      []int64 `json:"value_ids"`
+		CustomFieldID int64                        `json:"custom_field_id"`
+		Values        []allure.CustomFieldValueDto `json:"values"`
 	} `json:"custom_fields"`
 }
 
@@ -836,13 +993,14 @@ func (r *Registry) updateTestCaseCustomFields(ctx context.Context, args updateTe
 
 	fields := make([]allure.CustomFieldWithValuesDto, len(args.CustomFields))
 	for i, cf := range args.CustomFields {
-		values := make([]allure.CustomFieldValueDto, len(cf.ValueIDs))
-		for j, vid := range cf.ValueIDs {
-			values[j] = allure.CustomFieldValueDto{ID: vid}
+		for _, v := range cf.Values {
+			if v.Name == "" {
+				return nil, fmt.Errorf("custom_fields[%d].values: name must be set for value id %d (the API rejects id-only values) — get it via list_custom_field_values", i, v.ID)
+			}
 		}
 		fields[i] = allure.CustomFieldWithValuesDto{
 			CustomField: allure.CustomFieldDto{ID: cf.CustomFieldID},
-			Values:      values,
+			Values:      cf.Values,
 		}
 	}
 
@@ -857,6 +1015,33 @@ func (r *Registry) updateTestCaseCustomFields(ctx context.Context, args updateTe
 	}
 
 	return map[string]any{"status": "updated"}, nil
+}
+
+type listCustomFieldValuesArgs struct {
+	ProjectID     int64  `json:"project_id"`
+	CustomFieldID int64  `json:"custom_field_id"`
+	Query         string `json:"query"`
+	Page          int    `json:"page"`
+	Size          int    `json:"size"`
+}
+
+func (r *Registry) listCustomFieldValues(ctx context.Context, args listCustomFieldValuesArgs) (any, error) {
+	if args.ProjectID <= 0 {
+		return nil, fmt.Errorf("project_id must be positive")
+	}
+	if args.CustomFieldID <= 0 {
+		return nil, fmt.Errorf("custom_field_id must be positive")
+	}
+	size := args.Size
+	if size <= 0 {
+		size = 10
+	}
+
+	result, err := r.allure.ListCustomFieldValues(ctx, args.ProjectID, args.CustomFieldID, args.Query, args.Page, size)
+	if err != nil {
+		return nil, fmt.Errorf("list custom field values: %w", err)
+	}
+	return result, nil
 }
 
 type getTestCaseHistoryArgs struct {

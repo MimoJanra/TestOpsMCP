@@ -38,6 +38,7 @@ secrets/
 # ── Logs ──────────────────────────────────────────────────────────────────────
 logs/
 *.log
+/audit/
 
 # ── Docker & Compose overrides ────────────────────────────────────────────────
 docker-compose.override.yml

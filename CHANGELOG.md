@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-08-25 - Fix Async Status Codes, Custom Fields, and Stdio Confirmation Dialogs
+
+### Added
+
+- **`--version` CLI flag** — prints the build version and negotiated MCP protocol version, then exits (`testops-mcp v2.2.0 (MCP protocol 2025-11-25)`).
+- **`create_test_tag` tool** — creates a new project-wide tag via `POST /api/tag` and returns its ID. There was previously no way to create a brand-new tag through the available tools.
+- **`list_custom_field_values` tool** — lists the valid values defined for a custom field within a project (e.g. allowed Priority/Section options) via `GET /api/project/{id}/cfv`, so a value ID can be looked up instead of guessed.
+
+### Fixed
+
+- **`bulk_set_test_case_status` rejected legitimate workflow status IDs.** Allure TestOps uses negative IDs for built-in workflow statuses, but the tool validated `status_id` as `> 0`. Relaxed to `!= 0`.
+- **Tags with `id: 0` couldn't be created via `set_test_case_tags`.** `TestTagDto.ID` had no `omitempty`, so a new tag (no ID yet) always serialized as `"id":0` instead of omitting the field — likely breaking the API's create-by-name path. Added `omitempty`.
+- **`update_test_case_step` silently deleted a step's expected result.** `PATCH /api/testcase/step/{id}` requires the `withExpectedResult=true` query parameter (see `spec/testops.json`) or the API detaches `expectedResultId` and deletes the expected-result child node — even on a body-only edit. The client now always sends `withExpectedResult=true`.
+- **`bulk_add_test_case_custom_fields` returned 500 for every custom field** (reproduced on `isAutomated`, `Priority`, `Section1`) even though the request matched the documented v1 schema for `POST /api/testcase/bulk/cfv/add`. Switched to the v2 endpoint (`POST /api/v2/test-case/bulk/cfv/add`), which uses a flat per-value shape (`{id, customField}` per row) instead of v1's field-with-nested-values shape.
+- **`update_test_case_custom_fields` / `bulk_add_test_case_custom_fields` still 500'd even with a valid, existing value id** — the server error was `null value in column "name" of relation "custom_field_value" violates not-null constraint`, meaning it tries to INSERT a new value row instead of referencing the existing one when `name` is missing. Both tools now require `values: [{id, name}]` instead of bare `value_ids`, and validate that `name` is set before sending the request.
+- **`assign_test_result`, `mute_test_result`, `resolve_test_result`, `unmute_test_result`, `copy_launch`, `restore_test_case_version`, `move_test_cases_to_folder` (drag-and-drop), and all `bulk_*` operations built on the shared `bulkPost` helper (e.g. `bulk_move_test_cases`) treated the API's actual success response (`202 Accepted`) as an error** — the calls succeeded server-side but were reported to the caller as "Tool execution failed". Added `202` to each of these client methods' accepted status codes.
+- **`copy_launch` additionally never returned the new launch's ID** — the endpoint responds `202 Accepted` with no body per the API spec, so the client can't read one back; the tool result now says so explicitly instead of trying (and failing) to decode a launch object, and points the caller at `list_launches`.
+- **`delete_test_case` / `bulk_delete_test_cases` always failed over stdio with "no interactive session is available"**, even with explicit user confirmation — the stdio transport never wired up the elicitation/sampling machinery (`sessctx.WithElicit`/`WithSampling`) that the HTTP transports use, and its single-threaded read loop couldn't have waited for a client reply mid-request anyway. The stdio transport now registers a persistent session (`Server.StdioSession`), dispatches each request on its own goroutine, and drains server-initiated messages (elicitation/sampling) to stdout concurrently — the same architecture the HTTP transports already used.
+- **`get_test_case_scenario` and `get_test_case`'s `manual_scenario` field always returned an empty step list**, even when `get_test_case_steps` showed a fully populated scenario. Both called `GET /api/testcase/{id}/scenario`, which is marked `deprecated` in the API spec. Switched both to the same normalized-step endpoint `get_test_case_steps` already uses.
+- **`update_test_case_step` rejected an `expected_result`-only edit with `400 step.onlyonedetail`** — the API requires `body` to be resent alongside `expected_result` in the same call. The tool now accepts an optional `test_case_id` and looks up the step's current body automatically when only `expected_result` is given.
+- **Setting a step's `expected_result` silently didn't take even on a "successful" call** — empirically, the API doesn't create the step's `expectedResultId` on the first PATCH (a second, identical PATCH is needed), and even then the linked child step initially holds a placeholder ("Expected Result") instead of the real text, requiring a further PATCH targeting the child's own step ID. `update_test_case_step` now verifies the outcome (when `test_case_id` is passed) and performs the repair automatically.
+
+### Changed
+
+- **`update_test_case`'s description now warns that writing `manual_scenario` has been observed to silently corrupt step text** (stored as the literal string `"<empty>"` with no error) and recommends `create_test_case_step`/`update_test_case_step` instead, which reliably persist real text.
+- Clarified in tool descriptions: `set_test_case_tags`/`bulk_add_test_case_tags` require an existing tag `id` (a name-only entry for a new tag is rejected with 409) — use `create_test_tag` first; `run_test_case` requires the case to already be in the launch via `add_test_cases_to_launch` (otherwise 409); `search_test_cases` AQL string literals must be single-quoted (double quotes return 400 Invalid AQL).
+
+## [2.1.9] - 2026-08-24 - Fix Docker Build on Go 1.27
+
+### Fixed
+
+- **Docker Release build failed** (`go.mod requires go >= 1.27 (running go 1.26.7; GOTOOLCHAIN=local)`) — the builder stage was still pinned to `golang:1.26-alpine` after 2.1.8 bumped `go.mod` to 1.27. Bumped the Dockerfile's base image to `golang:1.27-alpine`. Cross-platform binary builds were unaffected (they don't use the Dockerfile) and shipped correctly in 2.1.8.
+
+## [2.1.8] - 2026-08-24 - Vendored Widgets, Destructive-Op Guard, Test Coverage
+
+### Fixed
+
+- **`execute_testops_operation` could run any DELETE/PUT/PATCH from the 600+ OpenAPI operations with no server-side check.** The `destructiveHint` annotation was advisory metadata only — no client is required to honor it. The tool now requires `parameters.confirm: true` for any operation that resolves to DELETE, PUT, or PATCH; without it, the call fails with a clear error instead of executing.
+- **ext-apps widget bundle was fetched from unpkg/jsdelivr at runtime with no integrity check.** A compromised or unavailable CDN could serve unverified JS into the widget sandbox, and a single transient network failure permanently poisoned the process-lifetime cache with a stripped-down fallback stub until restart. The exact pinned `1.7.4` bundle is now vendored into the repo (`internal/tools/assets/ext-apps-1.7.4.js`) and loaded via `go:embed` — no runtime network dependency, no fallback-stub failure mode. A test now fails the build if a future version bump ships a bundle whose export shape the rewrite regex no longer recognizes.
+- **Tool count documentation had drifted from the code in multiple ways** (README.md and docs/API.md said 104, llms.txt said both 104 and 114 in the same file) — corrected to 115 everywhere, the real count from a fully-configured server (verified against the actual binary, not just the unit-test registry, which never exercises the OpenAPI-spec-loaded code path since `go test`'s working directory prevents `FindSpecFile` from finding `spec/testops.json`). A new `TestDocsToolCountMatchesRegistry` test now fails the build if the docs and the code disagree again.
+
+### Changed
+
+- **Go version bumped to 1.27** (`go.mod`, CI, and all docs referencing the minimum Go version).
+- Widget HTML/JS templates (`launch-dashboard`, `action-picker`, `results-display`) moved from Go string constants into standalone `.html` files under `internal/tools/assets/`, loaded via `go:embed` — gives them real editor syntax highlighting/linting.
+- `internal/adapters/allure/client.go` refactored: the repeated build-request → auth → send → status-check → decode pattern across ~110 methods is now a shared `doJSON`/`doRequest`/`doRaw` helper, with behavior unchanged.
+- Test coverage raised well above 80% across all internal packages (was as low as 0% in `internal/adapters/allure`, `internal/audit`, `internal/core`, `internal/session`, `internal/tasks`, and ~31% in `internal/mcp`).
+
 ## [2.1.7] - 2026-07-14 - Revert SDK Downgrade, Route Around jitless zod Bug Instead
 
 ### Fixed

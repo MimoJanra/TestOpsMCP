@@ -41,7 +41,7 @@ make run
 ```
 
 **Time:** ~5 minutes  
-**Requirements:** Go 1.26+, Claude Desktop  
+**Requirements:** Go 1.27+, Claude Desktop  
 **See also:** [Installation Guide](./INSTALLATION.md#local-development)
 
 ---
@@ -90,7 +90,7 @@ claude mcp list
 ```
 
 **Time:** ~2 minutes  
-**Requirements:** Go 1.26+, Claude Code CLI  
+**Requirements:** Go 1.27+, Claude Code CLI  
 **See also:** [Installation Guide](./INSTALLATION.md#claude-code-cli)
 
 ---
@@ -345,7 +345,7 @@ docker-compose restart allure-mcp
 ### "Cannot find binary" in local mode
 
 ```bash
-# Ensure Go 1.26+ is installed
+# Ensure Go 1.27+ is installed
 go version
 
 # Rebuild

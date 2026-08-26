@@ -35,7 +35,7 @@ func (r *Registry) registerTestCaseExtraTools() {
 				"test_case_id": map[string]any{"type": "integer", "description": "Allure test case ID"},
 				"tags": map[string]any{
 					"type":        "array",
-					"description": "Complete list of tags to set. Each tag needs either id (existing) or name (new).",
+					"description": "Complete list of tags to set. Each tag needs an existing id — the API rejects a name-only entry for a tag that doesn't exist yet with 409 (field 'id' must not be null or empty). Use create_test_tag first to create a new tag and get its id.",
 					"items": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
@@ -48,6 +48,21 @@ func (r *Registry) registerTestCaseExtraTools() {
 			"required": []string{"test_case_id", "tags"},
 		},
 		Handler: Typed(r.setTestCaseTags),
+	})
+
+	r.register(&Tool{
+		Name: "create_test_tag",
+		Description: "Create a new project-wide tag by name and return its ID. " +
+			"Use this first when you need a tag that doesn't exist yet, then attach the returned id " +
+			"via set_test_case_tags or bulk_add_test_case_tags.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"name": map[string]any{"type": "string", "description": "Tag name"},
+			},
+			"required": []string{"name"},
+		},
+		Handler: Typed(r.createTestTag),
 	})
 
 	// ── Issues ────────────────────────────────────────────────────────────────
@@ -213,8 +228,12 @@ func (r *Registry) registerTestCaseExtraTools() {
 
 	r.register(&Tool{
 		Name: "search_test_cases",
-		Description: "Search test cases in a project using AQL/RQL query. " +
-			"Example queries: \"name ~ 'login'\", \"status = 'active'\", \"tag = 'smoke'\".",
+		Description: "Search test cases in a project using an AQL query. " +
+			"String literals MUST be single-quoted — name ~ \"login\" (double quotes) returns 400 Invalid AQL; " +
+			"use name ~ 'login' instead. Example queries: name ~ 'login', status = 'active', tag = 'smoke'. " +
+			"If a query 400s and the cause isn't obvious, call validate_test_case_query first to check the syntax " +
+			"before assuming the field/operator is wrong — suggest_test_cases is also available as a fallback " +
+			"for natural-language-style lookups.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -247,9 +266,8 @@ func (r *Registry) registerTestCaseExtraTools() {
 
 	r.register(&Tool{
 		Name: "get_test_case_scenario",
-		Description: "Read the scenario of a test case: ordered steps with names, keywords, expected results, and nesting. " +
-			"Use when the user wants to view or discuss test steps. " +
-			"Does not include step IDs — if you need to move, copy, or delete a specific step, call get_test_case_steps instead.",
+		Description: "Read the scenario of a test case: ordered steps with names, keywords, expected results, and nesting " +
+			"(same underlying data as get_test_case_steps, including step IDs).",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -579,6 +597,21 @@ func (r *Registry) setTestCaseTags(ctx context.Context, args setTestCaseTagsArgs
 	return map[string]any{"status": "updated", "count": len(args.Tags)}, nil
 }
 
+type createTestTagArgs struct {
+	Name string `json:"name"`
+}
+
+func (r *Registry) createTestTag(ctx context.Context, args createTestTagArgs) (any, error) {
+	if args.Name == "" {
+		return nil, fmt.Errorf("name must be provided")
+	}
+	tag, err := r.allure.CreateTestTag(ctx, args.Name)
+	if err != nil {
+		return nil, fmt.Errorf("create test tag: %w", err)
+	}
+	return map[string]any{"id": tag.ID, "name": tag.Name}, nil
+}
+
 type getTestCaseIssuesArgs struct {
 	TestCaseID int64 `json:"test_case_id"`
 }
@@ -871,7 +904,10 @@ func (r *Registry) getTestCaseScenario(ctx context.Context, args getTestCaseScen
 	if args.TestCaseID <= 0 {
 		return nil, fmt.Errorf("test_case_id must be positive")
 	}
-	result, err := r.allure.GetTestCaseScenario(ctx, args.TestCaseID)
+	// Uses the same normalized-step endpoint as get_test_case_steps. The old
+	// dedicated scenario endpoint (GET /api/testcase/{id}/scenario) is marked
+	// deprecated in the API spec and always returns an empty step list.
+	result, err := r.allure.GetTestCaseSteps(ctx, args.TestCaseID)
 	if err != nil {
 		return nil, fmt.Errorf("get test case scenario: %w", err)
 	}

@@ -4,10 +4,10 @@
 
 ## Overview
 
-TestOps MCP is a production-grade Go server implementing the Model Context Protocol (MCP, protocol version 2025-11-25). It exposes **104 curated tools** plus a dynamic fallback covering **600+ Allure TestOps API endpoints** via an OpenAPI spec index, **2 prompt templates**, and **4 resources** (including 3 interactive widget resources). Supports two transports: **stdio** (Claude Desktop, single-user) and **HTTP + SSE** (shared team server, multi-user with per-session token isolation). Async tasks auto-expire after 1 hour; finished-task list is pruned every 5 minutes.
+TestOps MCP is a production-grade Go server implementing the Model Context Protocol (MCP, protocol version 2025-11-25). It exposes **117 curated tools** plus a dynamic fallback covering **600+ Allure TestOps API endpoints** via an OpenAPI spec index, **2 prompt templates**, and **4 resources** (including 3 interactive widget resources). Supports two transports: **stdio** (Claude Desktop, single-user) and **HTTP + SSE** (shared team server, multi-user with per-session token isolation). Async tasks auto-expire after 1 hour; finished-task list is pruned every 5 minutes.
 
 - Module: `github.com/MimoJanra/TestOpsMCP`
-- Language: Go 1.26+
+- Language: Go 1.27+
 - License: Apache 2.0
 
 ## Key Packages
@@ -16,7 +16,7 @@ TestOps MCP is a production-grade Go server implementing the Model Context Proto
 |---------|------|
 | `cmd/server` | Entry point; `--http` flag selects transport |
 | `internal/mcp` | JSON-RPC 2.0 dispatcher, SSE sessions, heartbeat |
-| `internal/tools` | Tool registry, 114 tools, OpenAPI search/execute |
+| `internal/tools` | Tool registry, 117 tools, OpenAPI search/execute |
 | `internal/adapters/allure` | HTTP client for Allure TestOps API, JWT caching |
 | `internal/config` | Env-var configuration loader |
 | `internal/core` | Structured JSON logger (slog-backed) |
@@ -24,14 +24,14 @@ TestOps MCP is a production-grade Go server implementing the Model Context Proto
 | `internal/audit` | Daily JSONL audit log with configurable retention |
 | `internal/tasks` | Async task store (working/succeeded/failed/cancelled lifecycle) |
 
-## Tool Groups (104 total)
+## Tool Groups (117 total)
 
 - **Universal** (3): `configure_allure_token`, `search_testops_operations`, `execute_testops_operation`
 - **Launches** (14): `run_allure_launch`, `get_launch_status`, `get_launch_report`, `list_launches`, `get_launch_details`, `close_launch`, `reopen_launch`, `copy_launch`, `merge_launches`, `get_launch_environment`, `add_test_cases_to_launch`, `add_test_plan_to_launch`, `remove_test_cases_from_launch`, `get_launch_defects`
 - **Test Results** (6): `list_test_results`, `get_test_result`, `assign_test_result`, `mute_test_result`, `resolve_test_result`, `unmute_test_result`
 - **Test Cases — Core** (11): `list_test_cases`, `get_test_case`, `create_test_case`, `update_test_case`, `delete_test_case`, `clone_test_case`, `restore_test_case`, `run_test_case`, `search_test_cases`, `suggest_test_cases`, `validate_test_case_query`
 - **Test Cases — Steps** (8): `create_test_case_step`, `update_test_case_step`, `delete_test_case_step`, `move_test_case_step`, `copy_test_case_step`, `delete_test_case_scenario`, `get_test_case_scenario_from_run`, `detach_test_case_automation`
-- **Test Cases — Metadata** (13): `get_test_case_tags`, `set_test_case_tags`, `get_test_case_issues`, `set_test_case_issues`, `get_test_case_examples`, `set_test_case_examples`, `get_test_case_custom_fields`, `update_test_case_custom_fields`, `get_test_case_keys`, `set_test_case_keys`, `get_test_case_relations`, `set_test_case_relations`, `get_test_case_workflow`
+- **Test Cases — Metadata** (15): `get_test_case_tags`, `set_test_case_tags`, `create_test_tag`, `get_test_case_issues`, `set_test_case_issues`, `get_test_case_examples`, `set_test_case_examples`, `get_test_case_custom_fields`, `update_test_case_custom_fields`, `list_custom_field_values`, `get_test_case_keys`, `set_test_case_keys`, `get_test_case_relations`, `set_test_case_relations`, `get_test_case_workflow`
 - **Test Cases — Members & Links** (6): `get_test_case_members`, `add_test_case_members`, `remove_test_case_members`, `get_test_case_external_links`, `add_test_case_external_link`, `delete_test_case_external_link`
 - **Test Cases — Defects** (3): `get_test_case_defects`, `add_test_case_defect`, `remove_test_case_defect`
 - **Test Cases — Versions & Attachments** (7): `list_test_case_versions`, `create_test_case_version`, `restore_test_case_version`, `get_test_case_version_data`, `delete_test_case_version`, `get_test_case_attachments`, `delete_test_case_attachment`
