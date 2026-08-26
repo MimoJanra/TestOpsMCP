@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-08-26 - Fix Expected-Result Model in update_test_case_step
+
 ### Fixed
 
 - **`update_test_case_step` was spawning spurious empty "Expected Result" placeholder child nodes on plain `body`-only edits**, not just when setting `expected_result` — the 2.2.0 fix for the opposite problem (losing an existing expected result on a body-only edit) unconditionally sent `withExpectedResult=true` on every call, which the API treats as "materialize expected-result bookkeeping for this step" regardless of whether `expected_result` was actually being set. Reported live with full repro in [#16](https://github.com/MimoJanra/TestOpsMCP/issues/16). `withExpectedResult` is now sent only when this call sets `expected_result`, or when `test_case_id` shows the step already has an expected result to preserve.
