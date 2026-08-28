@@ -282,7 +282,11 @@ func (r *Registry) registerTestCaseExtraTools() {
 		Name: "get_test_case_steps",
 		Description: "Read the normalized step list for a test case, including the ID of every step. " +
 			"Use this when you need a step ID to call move_test_case_step, copy_test_case_step, or delete_test_case_step. " +
-			"For a readable view of the scenario without IDs, use get_test_case_scenario.",
+			"For a readable view of the scenario without IDs, use get_test_case_scenario. " +
+			"If this returns an empty scenarioSteps ({}), don't assume the case has no steps: check get_test_case's " +
+			"hasManualScenario field — false means this case's real content may be in get_test_case's legacy " +
+			"`scenario` field instead (older, ID-less steps), which this tool and create_test_case_step/" +
+			"update_test_case_step do not read or write.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

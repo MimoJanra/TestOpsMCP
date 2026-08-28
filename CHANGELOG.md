@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`get_test_case`, `get_test_case_steps`, and `create_test_case_step` now document a discovered Allure TestOps architecture gap**: a test case can store its steps in either the modern "manual scenario" tree (what these tools read/write, keyed by step IDs) or a legacy, ID-less `scenario` field returned alongside it in `get_test_case` — never both. `hasManualScenario: false` with a non-empty legacy `scenario.steps` means the case's real content lives only in the legacy field. Confirmed live (2026-08-27, tassta.testops.cloud project 170 case 13403): calling `create_test_case_step` on such a case immediately switches the web UI to showing only the new, near-empty modern tree — the legacy steps become invisible in the UI. There is no API path to migrate legacy steps automatically; the tool descriptions now instruct recreating all existing legacy steps (body + expected_result) in the same pass as any new addition, to avoid apparent data loss.
+
 ## [2.2.1] - 2026-08-26 - Fix Expected-Result Model in update_test_case_step
 
 ### Fixed

@@ -38,8 +38,12 @@ func (r *Registry) registerTestCaseTools() {
 	})
 
 	r.register(&Tool{
-		Name:        "get_test_case",
-		Description: "Get full details of a test case: name, description, precondition, expected_result, status, tags, members, custom fields, and the manual scenario with its steps.",
+		Name: "get_test_case",
+		Description: "Get full details of a test case: name, description, precondition, expected_result, status, tags, members, custom fields, and the manual scenario with its steps. " +
+			"Two different scenario representations can appear: `manual_scenario` (the step tree that create_test_case_step/update_test_case_step/get_test_case_steps operate on) and a legacy `scenario` field (older, ID-less steps — present on test cases that predate or were imported outside the manual-scenario feature). " +
+			"Check `hasManualScenario`: if it's false but `scenario.steps` is non-empty, this case's real content lives ONLY in the legacy field. " +
+			"Adding even one step via create_test_case_step immediately switches the web UI to showing only the (mostly empty) modern tree — the legacy steps become invisible in the UI, though the API still returns them for a while. " +
+			"Before adding any step to such a case, recreate ALL of its existing legacy steps (body via create_test_case_step, expected_result via update_test_case_step) in the same pass, so nothing appears to disappear from the UI. Confirmed live 2026-08-27 on tassta.testops.cloud project 170 case 13403.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -275,8 +279,11 @@ func (r *Registry) registerTestCaseTools() {
 	})
 
 	r.register(&Tool{
-		Name:        "create_test_case_step",
-		Description: "Add a step to a test case scenario. Appended to the end by default; use after_id to insert after a specific step, or parent_id to nest it inside another step. Get existing step IDs with get_test_case_steps.",
+		Name: "create_test_case_step",
+		Description: "Add a step to a test case scenario. Appended to the end by default; use after_id to insert after a specific step, or parent_id to nest it inside another step. Get existing step IDs with get_test_case_steps. " +
+			"IMPORTANT: check get_test_case's hasManualScenario field first. If it's false, this case's real steps may live only in the legacy `scenario` field (get_test_case), not in the tree this tool writes to. " +
+			"Adding a step here immediately switches the web UI to showing only this tool's step tree — the legacy steps become invisible in the UI, even though they still exist server-side for a while. " +
+			"If hasManualScenario is false and get_test_case's `scenario.steps` is non-empty, recreate ALL of those legacy steps here (with update_test_case_step for each expected_result) in the same pass, rather than adding just the one new step you actually wanted.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
