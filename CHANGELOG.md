@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.2] - 2026-09-13 - Fix Custom Field Bulk Remove and Single-Case Update
+
+### Fixed
+
+- **`bulk_remove_test_case_custom_fields` reported success but silently left the custom field value in place.** The v1 endpoint (`/api/testcase/bulk/cfv/remove`), unlike the v2 one, doesn't actually clear the value on this API's backend even though it returns 204. Switched to `/api/v2/test-case/bulk/cfv/remove`, mirroring the earlier `bulk_add_test_case_custom_fields` v1→v2 fix. Confirmed live: [#18](https://github.com/MimoJanra/TestOpsMCP/issues/18).
+- **`get_test_case_custom_fields` returned stale or empty values for some custom fields** (e.g. a multi-select field that `get_test_case`'s full response showed correctly) — the underlying `GET /api/testcase/{id}/cfv` endpoint requires a `projectId` query parameter per the API spec, which was never sent. The tool now looks up the test case's project via its overview and includes it.
+- **`update_test_case_custom_fields` (single-case) failed with `500 An unexpected error occurred` on every call**, including an empty-array body on an unrelated test case — the dedicated `PATCH /api/testcase/{id}/cfv` endpoint is unconditionally broken on this API's backend, regardless of payload. Reimplemented on top of the (now-fixed) bulk v2 endpoints with a single test case ID: clear each named field first, then set the desired values — since bulk remove only supports clearing a whole field, not individual values, "update" here means replace, not merge.
+
 ### Changed
 
 - **`get_test_case`, `get_test_case_steps`, and `create_test_case_step` now document a discovered Allure TestOps architecture gap**: a test case can store its steps in either the modern "manual scenario" tree (what these tools read/write, keyed by step IDs) or a legacy, ID-less `scenario` field returned alongside it in `get_test_case` — never both. `hasManualScenario: false` with a non-empty legacy `scenario.steps` means the case's real content lives only in the legacy field. Confirmed live (2026-08-27, tassta.testops.cloud project 170 case 13403): calling `create_test_case_step` on such a case immediately switches the web UI to showing only the new, near-empty modern tree — the legacy steps become invisible in the UI. There is no API path to migrate legacy steps automatically; the tool descriptions now instruct recreating all existing legacy steps (body + expected_result) in the same pass as any new addition, to avoid apparent data loss.

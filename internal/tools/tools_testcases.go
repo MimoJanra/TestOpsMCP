@@ -375,7 +375,9 @@ func (r *Registry) registerTestCaseTools() {
 
 	r.register(&Tool{
 		Name: "update_test_case_custom_fields",
-		Description: "Update custom field values for a test case. " +
+		Description: "Set custom field values for a test case, replacing whatever values each named field currently " +
+			"has (implemented as clear-then-set: the API's dedicated single-case update endpoint is unconditionally " +
+			"broken — 500 on any payload, any test case). " +
 			"Each item must specify the custom field ID and the values to set — each value needs both id and " +
 			"name (the API rejects id-only values with a not-null constraint on the value's name). " +
 			"Use get_test_case_custom_fields first to discover available fields and their current values, " +
@@ -999,7 +1001,18 @@ func (r *Registry) getTestCaseCustomFields(ctx context.Context, args getTestCase
 
 	r.logger.Info("fetching test case custom fields", map[string]any{"test_case_id": args.TestCaseID})
 
-	fields, err := r.allure.GetTestCaseCustomFields(ctx, args.TestCaseID)
+	// project_id is a required query param on the underlying API (per
+	// spec/testops.json) — the test case's overview already carries it.
+	overview, err := r.allure.GetTestCaseOverview(ctx, args.TestCaseID)
+	if err != nil {
+		return nil, fmt.Errorf("look up test case project: %w", err)
+	}
+	projectID := int64(nodeFloat(overview, "projectId"))
+	if projectID <= 0 {
+		return nil, fmt.Errorf("test case %d has no projectId in its overview", args.TestCaseID)
+	}
+
+	fields, err := r.allure.GetTestCaseCustomFields(ctx, args.TestCaseID, projectID)
 	if err != nil {
 		r.logger.Error("get test case custom fields", err, map[string]any{"test_case_id": args.TestCaseID})
 		return nil, fmt.Errorf("get test case custom fields: %w", err)
@@ -1040,6 +1053,7 @@ func (r *Registry) updateTestCaseCustomFields(ctx context.Context, args updateTe
 		return nil, fmt.Errorf("custom_fields must contain at least one entry")
 	}
 
+	fieldIDs := make([]int64, len(args.CustomFields))
 	fields := make([]allure.CustomFieldWithValuesDto, len(args.CustomFields))
 	for i, cf := range args.CustomFields {
 		for _, v := range cf.Values {
@@ -1047,10 +1061,20 @@ func (r *Registry) updateTestCaseCustomFields(ctx context.Context, args updateTe
 				return nil, fmt.Errorf("custom_fields[%d].values: name must be set for value id %d (the API rejects id-only values) — get it via list_custom_field_values", i, v.ID)
 			}
 		}
+		fieldIDs[i] = cf.CustomFieldID
 		fields[i] = allure.CustomFieldWithValuesDto{
 			CustomField: allure.CustomFieldDto{ID: cf.CustomFieldID},
 			Values:      cf.Values,
 		}
+	}
+
+	overview, err := r.allure.GetTestCaseOverview(ctx, args.TestCaseID)
+	if err != nil {
+		return nil, fmt.Errorf("look up test case project: %w", err)
+	}
+	projectID := int64(nodeFloat(overview, "projectId"))
+	if projectID <= 0 {
+		return nil, fmt.Errorf("test case %d has no projectId in its overview", args.TestCaseID)
 	}
 
 	r.logger.Info("updating test case custom fields", map[string]any{
@@ -1058,9 +1082,17 @@ func (r *Registry) updateTestCaseCustomFields(ctx context.Context, args updateTe
 		"fields_count": len(fields),
 	})
 
-	if err := r.allure.UpdateTestCaseCustomFields(ctx, args.TestCaseID, fields); err != nil {
-		r.logger.Error("update test case custom fields", err, map[string]any{"test_case_id": args.TestCaseID})
-		return nil, fmt.Errorf("update test case custom fields: %w", err)
+	// PATCH /api/testcase/{id}/cfv (the single-case "update" endpoint) is
+	// unconditionally broken on this API — even an empty-array body 500s,
+	// regardless of test case (github.com/MimoJanra/TestOpsMCP/issues/18).
+	// Routed through the bulk v2 endpoints instead, with a single test case ID:
+	// clear each field first (bulk remove only supports whole-field clearing,
+	// not per-value removal), then set the desired values.
+	if err := r.allure.BulkRemoveTestCaseCustomFields(ctx, projectID, []int64{args.TestCaseID}, fieldIDs); err != nil {
+		return nil, fmt.Errorf("clear existing custom field values: %w", err)
+	}
+	if err := r.allure.BulkAddTestCaseCustomFields(ctx, projectID, []int64{args.TestCaseID}, fields); err != nil {
+		return nil, fmt.Errorf("set custom field values: %w", err)
 	}
 
 	return map[string]any{"status": "updated"}, nil

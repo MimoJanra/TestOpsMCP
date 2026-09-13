@@ -352,17 +352,16 @@ func (c *Client) UpdateTestCase(ctx context.Context, testCaseID int64, req Updat
 }
 
 // GetTestCaseCustomFields returns all custom field values for a test case.
-func (c *Client) GetTestCaseCustomFields(ctx context.Context, testCaseID int64) ([]CustomFieldWithValuesDto, error) {
+// projectID is required by the API (per spec/testops.json) — omitting it was
+// returning stale/empty values for some custom fields even though the test
+// case genuinely had values set (confirmed live: github.com/MimoJanra/TestOpsMCP/issues/18).
+func (c *Client) GetTestCaseCustomFields(ctx context.Context, testCaseID, projectID int64) ([]CustomFieldWithValuesDto, error) {
 	var result []CustomFieldWithValuesDto
-	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/testcase/%d/cfv", testCaseID), nil, &result, []int{http.StatusOK}...); err != nil {
+	u := fmt.Sprintf("/api/testcase/%d/cfv?projectId=%d", testCaseID, projectID)
+	if err := c.doJSON(ctx, http.MethodGet, u, nil, &result, []int{http.StatusOK}...); err != nil {
 		return nil, err
 	}
 	return result, nil
-}
-
-// UpdateTestCaseCustomFields updates custom field values for a test case via PATCH /api/testcase/{id}/cfv.
-func (c *Client) UpdateTestCaseCustomFields(ctx context.Context, testCaseID int64, fields []CustomFieldWithValuesDto) error {
-	return c.doRequest(ctx, http.MethodPatch, fmt.Sprintf("/api/testcase/%d/cfv", testCaseID), fields, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
 // ListCustomFieldValues lists the valid values defined for a custom field within a project
@@ -682,9 +681,13 @@ func (c *Client) BulkAddTestCaseCustomFields(ctx context.Context, projectID int6
 }
 
 // BulkRemoveTestCaseCustomFields removes custom field values from multiple test cases.
+//
+// Uses the v2 endpoint (/api/v2/test-case/bulk/cfv/remove): the v1 endpoint
+// (/api/testcase/bulk/cfv/remove), despite reporting success, silently leaves
+// the custom field value in place on this API's backend.
 func (c *Client) BulkRemoveTestCaseCustomFields(ctx context.Context, projectID int64, testCaseIDs []int64, cfIDs []int64) error {
-	return c.bulkPost(ctx, "/api/testcase/bulk/cfv/remove", BulkCfvRemoveDto{
-		Selection: TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: testCaseIDs},
+	return c.bulkPost(ctx, "/api/v2/test-case/bulk/cfv/remove", TestCaseCfvBulkRemoveDtoV2{
+		Selection: TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: testCaseIDs},
 		IDs:       cfIDs,
 	})
 }

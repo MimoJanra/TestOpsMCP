@@ -471,9 +471,20 @@ func TestDeleteTestCaseStep_Handler(t *testing.T) {
 }
 
 func TestGetTestCaseCustomFields_Handler(t *testing.T) {
-	r := newTestRegistryWithServer(t, jsonHandler(http.StatusOK, `[
-		{"customField":{"id":1,"name":"Priority"},"values":[{"id":10,"name":"High"}]}
-	]`))
+	r := newTestRegistryWithServer(t, func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch req.URL.Path {
+		case "/api/testcase/1/overview":
+			_, _ = w.Write([]byte(`{"id":1,"projectId":5}`))
+		case "/api/testcase/1/cfv":
+			if req.URL.Query().Get("projectId") != "5" {
+				t.Errorf("expected projectId=5 query param, got %q", req.URL.RawQuery)
+			}
+			_, _ = w.Write([]byte(`[{"customField":{"id":1,"name":"Priority"},"values":[{"id":10,"name":"High"}]}]`))
+		default:
+			t.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+	})
 
 	res, err := r.getTestCaseCustomFields(context.Background(), getTestCaseCustomFieldsArgs{TestCaseID: 1})
 	if err != nil {
@@ -486,7 +497,22 @@ func TestGetTestCaseCustomFields_Handler(t *testing.T) {
 }
 
 func TestUpdateTestCaseCustomFields_Handler(t *testing.T) {
-	r := newTestRegistryWithServer(t, jsonHandler(http.StatusOK, `{}`))
+	var sawRemove, sawAdd bool
+	r := newTestRegistryWithServer(t, func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/api/testcase/1/overview":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":1,"projectId":5}`))
+		case "/api/v2/test-case/bulk/cfv/remove":
+			sawRemove = true
+			w.WriteHeader(http.StatusNoContent)
+		case "/api/v2/test-case/bulk/cfv/add":
+			sawAdd = true
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+	})
 	args := updateTestCaseCustomFieldsArgs{TestCaseID: 1}
 	args.CustomFields = append(args.CustomFields, struct {
 		CustomFieldID int64                        `json:"custom_field_id"`
@@ -499,6 +525,12 @@ func TestUpdateTestCaseCustomFields_Handler(t *testing.T) {
 	}
 	if res.(map[string]any)["status"] != "updated" {
 		t.Errorf("unexpected result: %v", res)
+	}
+	if !sawRemove {
+		t.Error("expected a bulk cfv/remove call to clear existing values first")
+	}
+	if !sawAdd {
+		t.Error("expected a bulk cfv/add call to set the desired values")
 	}
 }
 

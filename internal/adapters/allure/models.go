@@ -744,10 +744,13 @@ type TestCaseCfvBulkAddDto struct {
 	Cfv       []CustomFieldValueWithCfV2Dto `json:"cfv"`
 }
 
-// BulkCfvRemoveDto is the request body for POST /api/testcase/bulk/cfv/remove.
-type BulkCfvRemoveDto struct {
-	Selection TestCaseTreeSelectionDto `json:"selection"`
-	IDs       []int64                  `json:"ids"`
+// TestCaseCfvBulkRemoveDtoV2 is the request body for POST /api/v2/test-case/bulk/cfv/remove.
+// Used instead of the v1 /api/testcase/bulk/cfv/remove endpoint, which reports
+// success on this API's backend but silently leaves the custom field value in
+// place (confirmed live: github.com/MimoJanra/TestOpsMCP/issues/18).
+type TestCaseCfvBulkRemoveDtoV2 struct {
+	Selection TestCaseSelectionDtoV2 `json:"selection"`
+	IDs       []int64                `json:"ids"`
 }
 
 // BulkExternalLinkAddDto is the request body for POST /api/testcase/bulk/externallink/add.
