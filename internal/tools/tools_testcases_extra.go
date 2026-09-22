@@ -228,11 +228,12 @@ func (r *Registry) registerTestCaseExtraTools() {
 
 	r.register(&Tool{
 		Name: "search_test_cases",
-		Description: "Search test cases in a project using an AQL query. " +
-			"String literals MUST be single-quoted — name ~ \"login\" (double quotes) returns 400 Invalid AQL; " +
-			"use name ~ 'login' instead. Example queries: name ~ 'login', status = 'active', tag = 'smoke'. " +
-			"If a query 400s and the cause isn't obvious, call validate_test_case_query first to check the syntax " +
-			"before assuming the field/operator is wrong — suggest_test_cases is also available as a fallback " +
+		Description: "Search test cases in a project using an AQL query (per docs.qameta.io/allure-testops/advanced/aql/). " +
+			"String literals MUST be double-quoted — single quotes (e.g. status = 'active') return invalid AQL / a 400. " +
+			"Partial match uses ~= (not ~ alone). Custom fields use bracket notation with the field name double-quoted: " +
+			"cf[\"Priority\"] = \"Medium\". Example queries: name ~= \"login\", status = \"active\", tag = \"smoke\", " +
+			"cf[\"Priority\"] = \"Medium\". If a query still 400s, call validate_test_case_query first to check the " +
+			"syntax before assuming the field/operator is wrong — suggest_test_cases is also available as a fallback " +
 			"for natural-language-style lookups.",
 		InputSchema: map[string]any{
 			"type": "object",

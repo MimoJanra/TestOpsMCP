@@ -406,7 +406,7 @@ Start a run for a single test case in an existing launch.
 ```
 
 #### search_test_cases
-AQL/RQL query. Examples: `"name ~ 'login'"`, `"status = 'active'"`, `"tag = 'smoke'"`.
+AQL query (per docs.qameta.io/allure-testops/advanced/aql/) — string literals MUST be double-quoted, not single-quoted; partial match is `~=`, not `~`; custom fields use `cf["Name"] = "value"`. Examples: `name ~= "login"`, `status = "active"`, `tag = "smoke"`, `cf["Priority"] = "Medium"`.
 ```json
 {
   "project_id": "integer (required)",

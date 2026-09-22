@@ -173,7 +173,7 @@ func TestDeleteTestCaseAttachment_Handler(t *testing.T) {
 
 func TestSearchTestCases_Handler(t *testing.T) {
 	r := newTestRegistryWithServer(t, jsonHandler(http.StatusOK, pagedEmptyJSON))
-	res, err := r.searchTestCases(context.Background(), searchTestCasesArgs{ProjectID: 1, Query: "name ~ 'x'"})
+	res, err := r.searchTestCases(context.Background(), searchTestCasesArgs{ProjectID: 1, Query: `name ~= "x"`})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

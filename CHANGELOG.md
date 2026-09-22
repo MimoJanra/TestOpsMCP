@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`search_test_cases`/`validate_test_case_query`'s documented AQL syntax was backwards.** The tool description claimed string literals must be single-quoted (`status = 'active'`) and double quotes cause a 400 — the actual Allure AQL grammar (per docs.qameta.io/allure-testops/advanced/aql/) requires **double**-quoted string literals, uses `~=` for partial match (not `~` alone), and references custom fields via `cf["Name"] = "value"` bracket notation. Every example in the old description, including the tool's own advertised syntax, was invalid AQL. Reported live: a query returning `valid: false` for every string-literal query tried, including the tool's own documented example. Corrected the description and all doc examples to the real, double-quoted syntax.
+
 ## [2.3.0] - 2026-09-22 - Add Custom Field Management, Fix update_test_case_step Body Drop
 
 ### Added
