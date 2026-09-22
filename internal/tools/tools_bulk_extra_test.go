@@ -62,7 +62,7 @@ func TestBulkHandlers_HappyAndErrorPaths(t *testing.T) {
 	}{
 		{"bulkAddTestCaseMembersTool", func(r *Registry) (any, error) {
 			return r.bulkAddTestCaseMembersTool(context.Background(), bulkAddTestCaseMembersArgs{
-				ProjectID: 1, TestCaseIDs: []int64{1}, Members: []allure.MemberDto{{ID: 1}},
+				ProjectID: 1, TestCaseIDs: []int64{1}, Members: []allure.MemberDto{{ID: 1, Role: &allure.RoleDto{ID: -1, Name: "Owner"}}},
 			})
 		}},
 		{"bulkRemoveTestCaseMembersTool", func(r *Registry) (any, error) {
@@ -142,7 +142,7 @@ func TestBulkHandlers_HappyAndErrorPaths(t *testing.T) {
 		}},
 		{"bulkRemoveTestCaseTags", func(r *Registry) (any, error) {
 			return r.bulkRemoveTestCaseTags(context.Background(), bulkRemoveTestCaseTagsArgs{
-				ProjectID: 1, TestCaseIDs: []int64{1}, Tags: []allure.TestTagDto{{Name: "smoke"}},
+				ProjectID: 1, TestCaseIDs: []int64{1}, Tags: []allure.TestTagDto{{ID: 42, Name: "smoke"}},
 			})
 		}},
 		{"bulkAssignTestResults", func(r *Registry) (any, error) {
@@ -392,5 +392,91 @@ func TestBulkRemoveTestCaseCustomFields_ResolvesValueIDsPerTestCase(t *testing.T
 	}
 	if len(got) != 2 || !got[100] || !got[200] {
 		t.Errorf("remove call ids = %v, want the two distinct value ids [100, 200] (not the field id 5)", ids)
+	}
+}
+
+// TestBulkRemoveTestCaseTags_ResolvesNameToID guards against sending the
+// wrong DTO shape to POST /api/testcase/bulk/tag/remove: the endpoint takes
+// TestCaseBulkEntityIdsDto ({ids, selection}), where ids are the tags' own
+// global ids — not TestCaseBulkTagDto ({tags, selection}). Callers usually
+// only know the tag's name, so the handler must resolve it to an id first.
+func TestBulkRemoveTestCaseTags_ResolvesNameToID(t *testing.T) {
+	var removeBody map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/uaa/oauth/token", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"test-jwt","expires_in":3600}`))
+	})
+	mux.HandleFunc("/api/testcase/1/tag", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"id":7,"name":"smoke"},{"id":8,"name":"regression"}]`))
+	})
+	mux.HandleFunc("/api/testcase/bulk/tag/remove", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&removeBody)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	client := allure.NewClient(server.URL, "test-token", 5*time.Second)
+	r := NewRegistry(client, core.NewLogger(core.LevelError))
+
+	res, err := r.bulkRemoveTestCaseTags(context.Background(), bulkRemoveTestCaseTagsArgs{
+		ProjectID: 1, TestCaseIDs: []int64{1}, Tags: []allure.TestTagDto{{Name: "smoke"}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.(map[string]any)["status"] != "success" {
+		t.Errorf("unexpected result: %v", res)
+	}
+
+	ids, _ := removeBody["ids"].([]any)
+	if len(ids) != 1 || ids[0].(float64) != 7 {
+		t.Errorf("remove call ids = %v, want [7] (smoke's resolved id, not its name)", ids)
+	}
+	if _, hasTags := removeBody["tags"]; hasTags {
+		t.Errorf("remove body should not contain a tags field, got %v", removeBody)
+	}
+}
+
+// TestBulkMuteTestCases_SendsMuteReason guards against POST
+// /api/testcase/bulk/mute/add's required "mute" object being omitted —
+// the DB has a NOT NULL constraint on mute.name that isn't surfaced by the
+// spec, mirroring MuteTestResultRequest (see MuteTestResult).
+func TestBulkMuteTestCases_SendsMuteReason(t *testing.T) {
+	var body map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/uaa/oauth/token", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"test-jwt","expires_in":3600}`))
+	})
+	mux.HandleFunc("/api/testcase/bulk/mute/add", func(w http.ResponseWriter, req *http.Request) {
+		_ = json.NewDecoder(req.Body).Decode(&body)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	client := allure.NewClient(server.URL, "test-token", 5*time.Second)
+	r := NewRegistry(client, core.NewLogger(core.LevelError))
+
+	res, err := r.bulkMuteTestCases(context.Background(), bulkMuteTestCasesArgs{
+		ProjectID: 1, TestCaseIDs: []int64{1}, Reason: "flaky in CI",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.(map[string]any)["status"] != "success" {
+		t.Errorf("unexpected result: %v", res)
+	}
+
+	mute, _ := body["mute"].(map[string]any)
+	if mute == nil {
+		t.Fatalf("expected a mute object in the request body, got %v", body)
+	}
+	if mute["name"] == "" || mute["name"] == nil {
+		t.Errorf("mute.name must not be empty, got %v", mute["name"])
+	}
+	if mute["reason"] != "flaky in CI" {
+		t.Errorf("mute.reason = %v, want %q", mute["reason"], "flaky in CI")
 	}
 }

@@ -520,7 +520,7 @@ func (r *Registry) listTestCases(ctx context.Context, args listTestCasesArgs) (a
 		items[i] = map[string]any{
 			"id":                tc.ID,
 			"name":              tc.Name,
-			"project_id":        tc.ProjectID,
+			"project_id":        args.ProjectID,
 			"status":            tc.Status,
 			"automation_status": tc.AutomationStatus,
 		}
@@ -583,7 +583,19 @@ func (r *Registry) runTestCase(ctx context.Context, args runTestCaseArgs) (any, 
 		"launch_id":    args.LaunchID,
 	})
 
-	if err := r.allure.RunTestCase(ctx, args.TestCaseID, args.LaunchID); err != nil {
+	// The API's run-existing-launch endpoint requires a full selection
+	// (with the test case's project id), not just the launch/test case ids —
+	// see Client.RunTestCase.
+	overview, err := r.allure.GetTestCaseOverview(ctx, args.TestCaseID)
+	if err != nil {
+		return nil, fmt.Errorf("look up test case project: %w", err)
+	}
+	projectID := int64(nodeFloat(overview, "projectId"))
+	if projectID <= 0 {
+		return nil, fmt.Errorf("test case %d has no projectId in its overview", args.TestCaseID)
+	}
+
+	if err := r.allure.RunTestCase(ctx, args.TestCaseID, args.LaunchID, projectID); err != nil {
 		r.logger.Error("run test case", err, map[string]any{"test_case_id": args.TestCaseID})
 		return nil, fmt.Errorf("run test case: %w", err)
 	}
@@ -678,8 +690,10 @@ func (r *Registry) updateTestCase(ctx context.Context, args updateTestCaseArgs) 
 		WorkflowID:     args.WorkflowID,
 		Tags:           args.Tags,
 		Members:        args.Members,
-		Links:          args.Links,
 		Scenario:       args.ManualScenario,
+	}
+	if args.Links != nil {
+		req.Links = &args.Links
 	}
 
 	r.logger.Info("updating test case", map[string]any{"test_case_id": args.TestCaseID})

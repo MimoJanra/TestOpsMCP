@@ -136,6 +136,15 @@ type LaunchListItem struct {
 	Links            []ExternalLinkDto `json:"links"`
 }
 
+// LaunchPatchRequest is the body for PATCH /api/launch/{id} (rename, or
+// toggle autoclose/external). All fields are optional — only non-nil/non-empty
+// ones are sent.
+type LaunchPatchRequest struct {
+	Name      string `json:"name,omitempty"`
+	AutoClose *bool  `json:"autoclose,omitempty"`
+	External  *bool  `json:"external,omitempty"`
+}
+
 type LaunchDetailsResponse struct {
 	ID               int64             `json:"id"`
 	UUID             string            `json:"uuid"`
@@ -272,13 +281,23 @@ type AssignTestResultRequest struct {
 	Username string `json:"username"`
 }
 
+// MuteTestResultRequest is the body for POST /api/testresult/{id}/mute.
+// Name has no omitempty: the API's "mute" table has a NOT NULL constraint on
+// it, and omitting the JSON key entirely (as this DTO did before) is bound
+// server-side as SQL NULL, not an empty string, causing a 500 (confirmed live).
 type MuteTestResultRequest struct {
-	Reason string `json:"reason"`
+	Name   string `json:"name"`
+	Reason string `json:"reason,omitempty"`
 }
 
+// RunTestCaseRequest is the body for POST /api/testcase/bulk/run/existing.
+// There is no top-level "testCaseIds" field — the API requires a full
+// TestCaseTreeSelectionDto (with its own required projectId), confirmed live:
+// omitting it 409s with {"field":"selection","must not be null"} even when
+// the test case is already in the launch.
 type RunTestCaseRequest struct {
-	TestCaseIds []int64 `json:"testCaseIds"`
-	LaunchId    int64   `json:"launchId"`
+	LaunchId  int64                    `json:"launchId"`
+	Selection TestCaseTreeSelectionDto `json:"selection"`
 }
 
 // ── Test Cases ────────────────────────────────────────────────────────────────
@@ -432,7 +451,13 @@ type UpdateTestCaseRequest struct {
 	WorkflowID     *int64                      `json:"workflowId,omitempty"`
 	Tags           []TestTagDto                `json:"tags,omitempty"`
 	Members        []MemberDto                 `json:"members,omitempty"`
-	Links          []ExternalLinkDto           `json:"links,omitempty"`
+	// Links is a pointer so a caller can distinguish "don't touch links" (nil)
+	// from "clear to no links" (pointer to an empty slice) — a plain
+	// []ExternalLinkDto with omitempty would serialize both cases identically
+	// (the field dropped entirely), silently no-op'ing the clear. See
+	// Client.DeleteTestCaseExternalLink, which relies on this to remove the
+	// last remaining link.
+	Links          *[]ExternalLinkDto          `json:"links,omitempty"`
 	Scenario       *ScenarioDto                `json:"scenario,omitempty"`
 	CustomFields   []CustomFieldValueWithCfDto `json:"customFields,omitempty"`
 }
@@ -639,6 +664,25 @@ type TestCaseExampleParam struct {
 	Value string `json:"value"`
 }
 
+// TestCaseExampleDto is one row of a test case's parametrized example table, as
+// returned by GET /api/testcase/{id}/example — note this differs from the POST
+// request body shape (a bare [][]TestCaseExampleParam): the GET response wraps
+// rows in TestCaseExamplePage and each row also carries an id and status.
+type TestCaseExampleDto struct {
+	ID         int64                  `json:"id"`
+	Status     string                 `json:"status,omitempty"`
+	Parameters []TestCaseExampleParam `json:"parameters"`
+}
+
+// TestCaseExamplePage is the paginated response of GET /api/testcase/{id}/example.
+type TestCaseExamplePage struct {
+	Content []TestCaseExampleDto `json:"content"`
+	Last    bool                 `json:"last"`
+	Number  int                  `json:"number"`
+	Size    int                  `json:"size"`
+	Total   int                  `json:"totalElements"`
+}
+
 // TestCaseVersionDto represents a version/snapshot of a test case.
 type TestCaseVersionDto struct {
 	ID          int64  `json:"id"`
@@ -674,10 +718,14 @@ type RelationTargetDto struct {
 	Name string `json:"name,omitempty"`
 }
 
-// RelationDto represents a relation between two test cases.
+// RelationDto represents a relation between two test cases. Type is required
+// by the API (TestCaseRelationDto) — one of the TestCaseRelationTypeDto enum
+// values: "related to", "clones", "is cloned by", "duplicates",
+// "is duplicated by", "automates", "is automated by".
 type RelationDto struct {
 	ID     int64             `json:"id,omitempty"`
 	Target RelationTargetDto `json:"target"`
+	Type   string            `json:"type"`
 }
 
 // ── Scenario steps ────────────────────────────────────────────────────────────
@@ -740,6 +788,16 @@ type TestCaseBulkTagDto struct {
 type TestCaseBulkMemberDto struct {
 	Selection TestCaseTreeSelectionDto `json:"selection"`
 	Members   []MemberDto              `json:"members"`
+}
+
+// TestCaseBulkEntityIdsDto is the request body for bulk remove endpoints that
+// detach existing entity instances (tag/member/etc.) by their own ids rather
+// than by re-sending the entity payload — e.g. POST /api/testcase/bulk/tag/remove
+// and POST /api/testcase/bulk/member/remove. `ids` are the ids of the
+// tag/member attachments to remove, not test case ids (those live in Selection).
+type TestCaseBulkEntityIdsDto struct {
+	Selection TestCaseTreeSelectionDto `json:"selection"`
+	IDs       []int64                  `json:"ids"`
 }
 
 // ── Bulk test result DTOs ─────────────────────────────────────────────────────
@@ -887,8 +945,17 @@ type BulkCreateTestPlanDto struct {
 	TestPlanName string                   `json:"testPlanName"`
 }
 
+// MuteDto is the mute reason payload nested under BulkMuteDto.Mute. The API
+// requires the "mute" object itself to be present (see BulkMuteDto), and,
+// mirroring MuteTestResultRequest, the DB has a NOT NULL constraint on name
+// that the spec doesn't surface — always send a non-empty Name.
+type MuteDto struct {
+	Name   string `json:"name"`
+	Reason string `json:"reason,omitempty"`
+}
+
 // BulkMuteDto is the request body for POST /api/testcase/bulk/mute/add.
 type BulkMuteDto struct {
 	Selection TestCaseTreeSelectionDto `json:"selection"`
-	Mute      map[string]any           `json:"mute,omitempty"`
+	Mute      MuteDto                  `json:"mute"`
 }

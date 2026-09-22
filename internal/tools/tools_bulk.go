@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/MimoJanra/TestOpsMCP/internal/adapters/allure"
 	"github.com/MimoJanra/TestOpsMCP/internal/session"
@@ -254,14 +255,28 @@ func (r *Registry) registerBulkTools() {
 	// ── Test case bulk: members ───────────────────────────────────────────────
 
 	r.register(&Tool{
-		Name:        "bulk_add_test_case_members",
-		Description: "Bulk add members to multiple test cases",
-		InputSchema: bulkTCSchema("members", "array", "Members to add (each with id and name)", map[string]any{
+		Name: "bulk_add_test_case_members",
+		Description: "Bulk add members to multiple test cases. Each member needs a role — the API rejects a member with " +
+			"no role with a misleading 400 (\"Some role users not found\"). Get valid role ids/names via " +
+			"search_testops_operations (\"role\") + execute_testops_operation (GET /api/role) — commonly -1 \"Owner\" and " +
+			"-2 \"Lead\". The member id must also be an existing collaborator on the project (an org-wide user id is not " +
+			"enough) — find one via execute_testops_operation on GET /api/member/suggest with projectId.",
+		InputSchema: bulkTCSchema("members", "array", "Members to add (each needs id and role; name is informational only)", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"id":   map[string]any{"type": "integer"},
+				"id":   map[string]any{"type": "integer", "description": "Project collaborator's user ID"},
 				"name": map[string]any{"type": "string"},
+				"role": map[string]any{
+					"type":        "object",
+					"description": "Required. The role to assign, e.g. {\"id\": -1, \"name\": \"Owner\"}",
+					"properties": map[string]any{
+						"id":   map[string]any{"type": "integer"},
+						"name": map[string]any{"type": "string"},
+					},
+					"required": []string{"id"},
+				},
 			},
+			"required": []string{"id", "role"},
 		}),
 		Handler: Typed(r.bulkAddTestCaseMembersTool),
 	})
@@ -457,6 +472,7 @@ func (r *Registry) registerBulkTools() {
 			"properties": map[string]any{
 				"project_id":    map[string]any{"type": "integer", "description": "Allure project ID"},
 				"test_case_ids": map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "Test case IDs to mute"},
+				"reason":        map[string]any{"type": "string", "description": "Optional mute reason (defaults to \"Muted via MCP\")"},
 			},
 			"required": []string{"project_id", "test_case_ids"},
 		},
@@ -500,6 +516,11 @@ func (r *Registry) bulkAddTestCaseMembersTool(ctx context.Context, args bulkAddT
 	if len(args.Members) == 0 {
 		return nil, fmt.Errorf("members must not be empty")
 	}
+	for i, m := range args.Members {
+		if m.Role == nil || m.Role.ID == 0 {
+			return nil, fmt.Errorf("member %d: role is required (e.g. {\"id\": -1, \"name\": \"Owner\"}) — the API 400s with a misleading \"Some role users not found\" if it's omitted", i)
+		}
+	}
 	if err := r.allure.BulkAddTestCaseMembers(ctx, args.ProjectID, args.TestCaseIDs, args.Members); err != nil {
 		return nil, fmt.Errorf("bulk add members: %w", err)
 	}
@@ -522,11 +543,7 @@ func (r *Registry) bulkRemoveTestCaseMembersTool(ctx context.Context, args bulkR
 	if len(args.MemberIDs) == 0 {
 		return nil, fmt.Errorf("member_ids must not be empty")
 	}
-	members := make([]allure.MemberDto, len(args.MemberIDs))
-	for i, id := range args.MemberIDs {
-		members[i] = allure.MemberDto{ID: id}
-	}
-	if err := r.allure.BulkRemoveTestCaseMembers(ctx, args.ProjectID, args.TestCaseIDs, members); err != nil {
+	if err := r.allure.BulkRemoveTestCaseMembers(ctx, args.ProjectID, args.TestCaseIDs, args.MemberIDs); err != nil {
 		return nil, fmt.Errorf("bulk remove members: %w", err)
 	}
 	return map[string]any{"status": "success", "count": len(args.TestCaseIDs)}, nil
@@ -860,6 +877,7 @@ func (r *Registry) bulkCreateTestPlan(ctx context.Context, args bulkCreateTestPl
 type bulkMuteTestCasesArgs struct {
 	ProjectID   int64   `json:"project_id"`
 	TestCaseIDs []int64 `json:"test_case_ids"`
+	Reason      string  `json:"reason"`
 }
 
 func (r *Registry) bulkMuteTestCases(ctx context.Context, args bulkMuteTestCasesArgs) (any, error) {
@@ -869,7 +887,7 @@ func (r *Registry) bulkMuteTestCases(ctx context.Context, args bulkMuteTestCases
 	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
-	if err := r.allure.BulkMuteTestCases(ctx, args.ProjectID, args.TestCaseIDs); err != nil {
+	if err := r.allure.BulkMuteTestCases(ctx, args.ProjectID, args.TestCaseIDs, args.Reason); err != nil {
 		return nil, fmt.Errorf("bulk mute: %w", err)
 	}
 	return map[string]any{"status": "success", "count": len(args.TestCaseIDs)}, nil
@@ -892,8 +910,8 @@ func (r *Registry) bulkSetTestCaseStatus(ctx context.Context, args bulkSetTestCa
 	if args.StatusID == 0 {
 		return nil, fmt.Errorf("status_id must be set")
 	}
-	if args.WorkflowID <= 0 {
-		return nil, fmt.Errorf("workflow_id must be positive")
+	if args.WorkflowID == 0 {
+		return nil, fmt.Errorf("workflow_id must be set")
 	}
 
 	r.logger.Info("bulk setting test case status", map[string]any{"project_id": args.ProjectID, "count": len(args.TestCaseIDs)})
@@ -950,14 +968,68 @@ func (r *Registry) bulkRemoveTestCaseTags(ctx context.Context, args bulkRemoveTe
 		return nil, fmt.Errorf("tags must not be empty")
 	}
 
+	tagIDs, err := r.resolveTagIDs(ctx, args.TestCaseIDs, args.Tags)
+	if err != nil {
+		return nil, err
+	}
+
 	r.logger.Info("bulk removing test case tags", map[string]any{"project_id": args.ProjectID, "count": len(args.TestCaseIDs)})
 
-	if err := r.allure.BulkRemoveTestCaseTags(ctx, args.ProjectID, args.TestCaseIDs, args.Tags); err != nil {
+	if err := r.allure.BulkRemoveTestCaseTags(ctx, args.ProjectID, args.TestCaseIDs, tagIDs); err != nil {
 		r.logger.Error("bulk remove test case tags", err, map[string]any{"project_id": args.ProjectID})
 		return nil, fmt.Errorf("bulk remove tags: %w", err)
 	}
 
 	return map[string]any{"status": "success", "count": len(args.TestCaseIDs)}, nil
+}
+
+// resolveTagIDs turns the caller-supplied tags (which may only carry a Name,
+// since tag ids aren't something a caller normally has memorized) into the
+// global tag ids the remove endpoint requires. Tags are project-wide entities
+// (created via create_test_tag / POST /api/tag), so an id found on any one of
+// the target test cases is valid for all of them. Tags that already carry an
+// id are used as-is.
+func (r *Registry) resolveTagIDs(ctx context.Context, testCaseIDs []int64, tags []allure.TestTagDto) ([]int64, error) {
+	ids := make([]int64, 0, len(tags))
+	var byName []string
+	for _, t := range tags {
+		if t.ID > 0 {
+			ids = append(ids, t.ID)
+		} else if t.Name != "" {
+			byName = append(byName, t.Name)
+		} else {
+			return nil, fmt.Errorf("each tag must have either an id or a name")
+		}
+	}
+	if len(byName) == 0 {
+		return ids, nil
+	}
+
+	found := make(map[string]int64, len(byName))
+	for _, tcID := range testCaseIDs {
+		if len(found) == len(byName) {
+			break
+		}
+		existing, err := r.allure.GetTestCaseTags(ctx, tcID)
+		if err != nil {
+			return nil, fmt.Errorf("look up tags on test case %d: %w", tcID, err)
+		}
+		for _, e := range existing {
+			for _, name := range byName {
+				if _, ok := found[name]; !ok && strings.EqualFold(e.Name, name) {
+					found[name] = e.ID
+				}
+			}
+		}
+	}
+	for _, name := range byName {
+		id, ok := found[name]
+		if !ok {
+			return nil, fmt.Errorf("tag %q not found on any of the given test cases", name)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
 
 type bulkCloneTestCasesArgs struct {

@@ -5,7 +5,28 @@ All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.4.0] - 2026-09-22 - Fix Bulk Operation DTOs, Test Case Relations, Examples Decode, and Member Roles
+
+### Added
+
+- **`update_launch`** — there was no way to rename a launch or change its `autoClose`/`external` flags after creation. Exposes `PATCH /api/launch/{id}`. Confirmed live: renamed an existing launch and verified via `get_launch_details`.
+
+### Fixed
+
+- **`mute_test_result` failed with `500 null value in column "name" of relation "mute"`** on every call — the request only sent `reason`, but the API's `TestResultMuteReason` schema requires `name` too (a DB NOT NULL constraint the OpenAPI spec doesn't mark required). Now always sends `name` (defaulting to the reason text, or `"Muted via MCP"` if no reason given). Confirmed live.
+- **`copy_launch` failed with `500 null value in column "name" of relation "launch"`** on every call — the copy request body was sent empty, but the endpoint requires `launchName`. Added an optional `launch_name` parameter; when omitted, the tool looks up the original launch's name and defaults to `"<original name> (copy)"`. Confirmed live.
+- **`run_test_case` 409'd with `{"field":"selection","must not be null"}`** even when the test case was already in the launch — the request only sent `testCaseIds`/`launchId`, but the endpoint requires a full `TestCaseTreeSelectionDto` including the test case's `projectId`. The tool now looks up the test case's project automatically, so its own parameters (`test_case_id`, `launch_id`) are unchanged. Confirmed live.
+- **`get_project_stats`, `list_test_cases`, and `list_deleted_test_cases` always reported `project_id: 0`** in their results — each read `projectId` back off the API response item, but neither `/api/project/{id}/stats` nor the test-case list endpoints actually include that field per item (it's implied by the request, not echoed back). All three now return the `project_id` that was actually requested. Confirmed live for `get_project_stats` and `list_test_cases`.
+- **`delete_test_case` and `delete_test_case_version` reported "unexpected status 202"** even though the delete actually succeeded — the API returns `202 Accepted` for these (an async delete), which wasn't in the client's accepted-status list.
+- **`clone_test_case` failed with `400 Required request body is missing`** on every call — the endpoint requires a request body even though every field within it is optional. Now sends `{}` instead of no body at all.
+- **`bulk_set_test_case_status` rejected every real workflow ID** with `workflow_id must be positive` — workflow IDs are commonly negative (e.g. `-1` for "Default Manual"). Relaxed to `workflow_id != 0`, mirroring the earlier `status_id` fix.
+- **`bulk_remove_test_case_tags` and `bulk_remove_test_case_members` reported success but didn't detach anything.** Both sent the *add* endpoints' DTO shape (`{tags/members: [...], selection}`) to the *remove* endpoints, which actually expect `{ids: [...], selection}` — tag/member ids to detach, not the full entity payload. `bulk_remove_test_case_tags` now resolves tag names to their (global, project-wide) ids by looking them up on the target test cases first.
+- **`bulk_mute_test_cases` 500'd** — the request only sent `selection`, but the endpoint requires a `mute: {name, reason}` object (the DB has a NOT NULL constraint on `mute.name` the spec doesn't surface, same class of bug as the `mute_test_result` fix). Added an optional `reason` parameter; defaults to `"Muted via MCP"` when omitted.
+- **`delete_test_case_external_link` silently no-op'd when removing a test case's last remaining link** — the shared PATCH DTO's `Links []ExternalLinkDto` field used `omitempty`, so clearing to an empty list serialized identically to "don't touch links" (the field was dropped from the request entirely) and the server kept the old links. `Links` is now `*[]ExternalLinkDto`, which lets an explicit empty slice still serialize as `"links": []`.
+- **`set_test_case_relations` sent an invalid request** — `RelationDto` was missing the required `type` field entirely (and the tool's description advertised nonexistent relation types `blocks`/`is blocked by`). Added `type` (validated against the real enum: `related to`, `clones`, `is cloned by`, `duplicates`, `is duplicated by`, `automates`, `is automated by`) and corrected the docs.
+- **`get_test_case_examples` failed with `decode response: json: cannot unmarshal object into Go value of type [][]allure.TestCaseExampleParam`** on every call — the GET endpoint returns a paginated page object (`{content: [...], ...}`), not a bare array of rows (that shape is only the POST request body). Now decodes the page and returns each row's `id`, `status`, and `parameters`.
+- **`list_muted_test_cases` always reported `project_id: 0`** — same class of bug as `get_project_stats`/`list_test_cases`/`list_deleted_test_cases`, just missed in that pass. Now returns the requested `project_id`.
+- **`add_test_case_members`/`bulk_add_test_case_members` failed with a misleading `400 Some role users not found`** — each member needs a `role` (the API's `MemberDto` requires it), but neither tool's schema advertised the field, so callers had no way to know to send it. Documented the requirement (with how to look up valid role ids via `GET /api/role`, e.g. `-1` "Owner"/`-2` "Lead") and added explicit validation with an actionable error instead of the confusing 400. Also documented that the member id must be an existing project collaborator (via `GET /api/member/suggest?projectId=`), not just any org-wide user id. Confirmed live: added a project collaborator as an "Owner" member.
 
 ## [2.3.1] - 2026-09-22 - Fix AQL Syntax and Remaining Custom Field Value/Field-ID Confusion
 

@@ -156,14 +156,46 @@ func (r *Registry) registerLaunchTools() {
 	})
 
 	r.register(&Tool{
+		Name:        "update_launch",
+		Description: "Rename a launch, or toggle its autoclose/external flags. All fields besides launch_id are optional — only the ones you pass are changed.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"launch_id": map[string]any{
+					"type":        "integer",
+					"description": "Allure launch ID",
+				},
+				"name": map[string]any{
+					"type":        "string",
+					"description": "New launch name (optional)",
+				},
+				"autoclose": map[string]any{
+					"type":        "boolean",
+					"description": "Whether the launch auto-closes when all results are in (optional)",
+				},
+				"external": map[string]any{
+					"type":        "boolean",
+					"description": "Whether the launch is marked external (optional)",
+				},
+			},
+			"required": []string{"launch_id"},
+		},
+		Handler: Typed(r.updateLaunch),
+	})
+
+	r.register(&Tool{
 		Name:        "copy_launch",
-		Description: "Copy/duplicate a launch",
+		Description: "Copy/duplicate a launch. If launch_name is omitted, defaults to the original launch's name with \" (copy)\" appended.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"launch_id": map[string]any{
 					"type":        "integer",
 					"description": "Allure launch ID to copy",
+				},
+				"launch_name": map[string]any{
+					"type":        "string",
+					"description": "Name for the new launch (optional — defaults to the original name + \" (copy)\")",
 				},
 			},
 			"required": []string{"launch_id"},
@@ -172,24 +204,27 @@ func (r *Registry) registerLaunchTools() {
 	})
 
 	r.register(&Tool{
-		Name:        "merge_launches",
-		Description: "Merge multiple launches into a single launch",
+		Name: "merge_launches",
+		Description: "Merge one or more launches into an existing destination launch. The API only supports a single from→to pair " +
+			"per call (there is no endpoint that creates a brand-new, custom-named launch from several sources) — every test result " +
+			"in each from_launch_id is moved onto to_launch_id, and each from_launch_id is then deleted. " +
+			"To rename the destination afterward, use update_launch.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"launch_ids": map[string]any{
+				"to_launch_id": map[string]any{
+					"type":        "integer",
+					"description": "Destination launch ID. Receives all results and survives the merge.",
+				},
+				"from_launch_ids": map[string]any{
 					"type": "array",
 					"items": map[string]any{
 						"type": "integer",
 					},
-					"description": "IDs of launches to merge",
-				},
-				"launch_name": map[string]any{
-					"type":        "string",
-					"description": "Name for the merged launch",
+					"description": "Launch ID(s) to merge into to_launch_id. Each one is deleted after its results are moved.",
 				},
 			},
-			"required": []string{"launch_ids", "launch_name"},
+			"required": []string{"to_launch_id", "from_launch_ids"},
 		},
 		Handler: Typed(r.mergeLaunches),
 	})
@@ -556,8 +591,35 @@ func (r *Registry) getLaunchEnvironment(ctx context.Context, args getLaunchEnvir
 	return map[string]any{"environment": env}, nil
 }
 
+type updateLaunchArgs struct {
+	LaunchID  int64  `json:"launch_id"`
+	Name      string `json:"name"`
+	AutoClose *bool  `json:"autoclose"`
+	External  *bool  `json:"external"`
+}
+
+func (r *Registry) updateLaunch(ctx context.Context, args updateLaunchArgs) (any, error) {
+	if args.LaunchID <= 0 {
+		return nil, fmt.Errorf("launch_id must be positive")
+	}
+	if args.Name == "" && args.AutoClose == nil && args.External == nil {
+		return nil, fmt.Errorf("at least one of name, autoclose, external must be provided")
+	}
+
+	r.logger.Info("updating launch", map[string]any{"launch_id": args.LaunchID})
+
+	req := allure.LaunchPatchRequest{Name: args.Name, AutoClose: args.AutoClose, External: args.External}
+	if err := r.allure.UpdateLaunch(ctx, args.LaunchID, req); err != nil {
+		r.logger.Error("update launch", err, map[string]any{"launch_id": args.LaunchID})
+		return nil, fmt.Errorf("update launch: %w", err)
+	}
+
+	return map[string]any{"status": "updated"}, nil
+}
+
 type copyLaunchArgs struct {
-	LaunchID int64 `json:"launch_id"`
+	LaunchID   int64  `json:"launch_id"`
+	LaunchName string `json:"launch_name"`
 }
 
 func (r *Registry) copyLaunch(ctx context.Context, args copyLaunchArgs) (any, error) {
@@ -569,7 +631,19 @@ func (r *Registry) copyLaunch(ctx context.Context, args copyLaunchArgs) (any, er
 
 	task, taskCtx := r.taskStore.Create("copy_launch", ctx)
 	r.taskStore.Run(task.ID, taskCtx, func(taskCtx context.Context) {
-		if err := r.allure.CopyLaunch(taskCtx, args.LaunchID); err != nil {
+		launchName := args.LaunchName
+		if launchName == "" {
+			// launchName is required by the API despite the spec marking it
+			// optional — an empty/omitted one 500s (NOT NULL constraint on the
+			// new launch's "name" column). Default to the original name + " (copy)".
+			original, err := r.allure.GetLaunchDetails(taskCtx, args.LaunchID)
+			if err != nil {
+				r.taskStore.Update(task.ID, tasks.StatusFailed, "", nil, fmt.Errorf("look up original launch name: %w", err))
+				return
+			}
+			launchName = original.Name + " (copy)"
+		}
+		if err := r.allure.CopyLaunch(taskCtx, args.LaunchID, launchName); err != nil {
 			r.logger.Error("copy launch", err, map[string]any{"launch_id": args.LaunchID})
 			r.taskStore.Update(task.ID, tasks.StatusFailed, "", nil, err)
 			return
@@ -589,33 +663,37 @@ func (r *Registry) copyLaunch(ctx context.Context, args copyLaunchArgs) (any, er
 }
 
 type mergeLaunchesArgs struct {
-	LaunchIDs  []int64 `json:"launch_ids"`
-	LaunchName string  `json:"launch_name"`
+	ToLaunchID    int64   `json:"to_launch_id"`
+	FromLaunchIDs []int64 `json:"from_launch_ids"`
 }
 
 func (r *Registry) mergeLaunches(ctx context.Context, args mergeLaunchesArgs) (any, error) {
-	if len(args.LaunchIDs) == 0 {
-		return nil, fmt.Errorf("launch_ids must not be empty")
+	if args.ToLaunchID <= 0 {
+		return nil, fmt.Errorf("to_launch_id must be positive")
 	}
-	if args.LaunchName == "" {
-		return nil, fmt.Errorf("launch_name is required")
+	if len(args.FromLaunchIDs) == 0 {
+		return nil, fmt.Errorf("from_launch_ids must not be empty")
 	}
 
 	r.logger.Info("merging launches async", map[string]any{
-		"count": len(args.LaunchIDs),
-		"name":  args.LaunchName,
+		"to_launch_id": args.ToLaunchID,
+		"count":        len(args.FromLaunchIDs),
 	})
 
 	task, taskCtx := r.taskStore.Create("merge_launches", ctx)
 	r.taskStore.Run(task.ID, taskCtx, func(taskCtx context.Context) {
-		launchID, err := r.allure.MergeLaunches(taskCtx, args.LaunchIDs, args.LaunchName)
-		if err != nil {
-			r.logger.Error("merge launches", err, map[string]any{"count": len(args.LaunchIDs)})
-			r.taskStore.Update(task.ID, tasks.StatusFailed, "", nil, err)
-			return
+		to := args.ToLaunchID
+		for _, from := range args.FromLaunchIDs {
+			mergedID, err := r.allure.MergeLaunches(taskCtx, from, to)
+			if err != nil {
+				r.logger.Error("merge launches", err, map[string]any{"from": from, "to": to})
+				r.taskStore.Update(task.ID, tasks.StatusFailed, "", nil, fmt.Errorf("merge %d into %d: %w", from, to, err))
+				return
+			}
+			to = mergedID
 		}
 		r.taskStore.Update(task.ID, tasks.StatusSucceeded, "", map[string]any{
-			"merged_launch_id": launchID,
+			"merged_launch_id": to,
 			"status":           "merged",
 		}, nil)
 	})

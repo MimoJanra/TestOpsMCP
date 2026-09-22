@@ -4,7 +4,7 @@
 
 ## Overview
 
-TestOps MCP is a production-grade Go server implementing the Model Context Protocol (MCP, protocol version 2025-11-25). It exposes **130 curated tools** plus a dynamic fallback covering **600+ Allure TestOps API endpoints** via an OpenAPI spec index, **2 prompt templates**, and **4 resources** (including 3 interactive widget resources). Supports two transports: **stdio** (Claude Desktop, single-user) and **HTTP + SSE** (shared team server, multi-user with per-session token isolation). Async tasks auto-expire after 1 hour; finished-task list is pruned every 5 minutes.
+TestOps MCP is a production-grade Go server implementing the Model Context Protocol (MCP, protocol version 2025-11-25). It exposes **131 curated tools** plus a dynamic fallback covering **600+ Allure TestOps API endpoints** via an OpenAPI spec index, **2 prompt templates**, and **4 resources** (including 3 interactive widget resources). Supports two transports: **stdio** (Claude Desktop, single-user) and **HTTP + SSE** (shared team server, multi-user with per-session token isolation). Async tasks auto-expire after 1 hour; finished-task list is pruned every 5 minutes.
 
 - Module: `github.com/MimoJanra/TestOpsMCP`
 - Language: Go 1.27+
@@ -16,7 +16,7 @@ TestOps MCP is a production-grade Go server implementing the Model Context Proto
 |---------|------|
 | `cmd/server` | Entry point; `--http` flag selects transport |
 | `internal/mcp` | JSON-RPC 2.0 dispatcher, SSE sessions, heartbeat |
-| `internal/tools` | Tool registry, 130 tools, OpenAPI search/execute |
+| `internal/tools` | Tool registry, 131 tools, OpenAPI search/execute |
 | `internal/adapters/allure` | HTTP client for Allure TestOps API, JWT caching |
 | `internal/config` | Env-var configuration loader |
 | `internal/core` | Structured JSON logger (slog-backed) |
@@ -24,10 +24,10 @@ TestOps MCP is a production-grade Go server implementing the Model Context Proto
 | `internal/audit` | Daily JSONL audit log with configurable retention |
 | `internal/tasks` | Async task store (working/succeeded/failed/cancelled lifecycle) |
 
-## Tool Groups (130 total)
+## Tool Groups (131 total)
 
 - **Universal** (3): `configure_allure_token`, `search_testops_operations`, `execute_testops_operation`
-- **Launches** (14): `run_allure_launch`, `get_launch_status`, `get_launch_report`, `list_launches`, `get_launch_details`, `close_launch`, `reopen_launch`, `copy_launch`, `merge_launches`, `get_launch_environment`, `add_test_cases_to_launch`, `add_test_plan_to_launch`, `remove_test_cases_from_launch`, `get_launch_defects`
+- **Launches** (15): `run_allure_launch`, `get_launch_status`, `get_launch_report`, `list_launches`, `get_launch_details`, `close_launch`, `reopen_launch`, `update_launch`, `copy_launch`, `merge_launches`, `get_launch_environment`, `add_test_cases_to_launch`, `add_test_plan_to_launch`, `remove_test_cases_from_launch`, `get_launch_defects`
 - **Test Results** (6): `list_test_results`, `get_test_result`, `assign_test_result`, `mute_test_result`, `resolve_test_result`, `unmute_test_result`
 - **Test Cases — Core** (11): `list_test_cases`, `get_test_case`, `create_test_case`, `update_test_case`, `delete_test_case`, `clone_test_case`, `restore_test_case`, `run_test_case`, `search_test_cases`, `suggest_test_cases`, `validate_test_case_query`
 - **Test Cases — Steps** (8): `create_test_case_step`, `update_test_case_step`, `delete_test_case_step`, `move_test_case_step`, `copy_test_case_step`, `delete_test_case_scenario`, `get_test_case_scenario_from_run`, `detach_test_case_automation`
@@ -41,7 +41,7 @@ TestOps MCP is a production-grade Go server implementing the Model Context Proto
 - **Bulk Operations** (18): `bulk_set_test_case_status`, `bulk_add_test_case_tags`, `bulk_remove_test_case_tags`, `bulk_clone_test_cases`, `bulk_mute_test_cases`, `bulk_delete_test_cases`, `bulk_move_test_cases`, `bulk_set_test_case_layer`, `bulk_add_test_case_members`, `bulk_remove_test_case_members`, `bulk_add_test_case_custom_fields`, `bulk_remove_test_case_custom_fields`, `bulk_add_test_case_external_links`, `bulk_add_test_case_issues`, `bulk_remove_test_case_issues`, `bulk_run_test_cases_new_launch`, `bulk_run_test_cases_existing_launch`, `bulk_create_test_plan`
 - **Projects** (3): `list_projects`, `get_project`, `get_project_stats`
 - **Analytics** (3): `get_launch_trend_analytics`, `get_launch_duration_analytics`, `get_test_success_rate`
-- **Relations** (6): `get_test_case_relations`, `add_test_case_relation`, `remove_test_case_relation`, `get_relation_types`, `bulk_assign_test_results`, `bulk_mute_test_results`, `bulk_unmute_test_results`, `bulk_resolve_test_results`
+- **Bulk Test Results** (4): `bulk_assign_test_results`, `bulk_mute_test_results`, `bulk_unmute_test_results`, `bulk_resolve_test_results`
 - **Tasks** (3): `get_task_status`, `list_running_tasks`, `cancel_task` — track async background operations
 - **Analysis** (1): `analyze_launch_failures` — AI-powered failure root-cause analysis via sampling
 

@@ -570,14 +570,14 @@ func TestMergeLaunches_MultiLineMarshaledBody(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": 77})
 	})
 
-	id, err := c.MergeLaunches(context.Background(), []int64{1, 2, 3}, "merged")
+	id, err := c.MergeLaunches(context.Background(), 1, 2)
 	if err != nil {
 		t.Fatalf("MergeLaunches: %v", err)
 	}
 	if id != 77 {
 		t.Errorf("id = %d, want 77", id)
 	}
-	if gotBody["name"] != "merged" {
-		t.Errorf("request body name = %v, want merged", gotBody["name"])
+	if gotBody["from"] != float64(1) || gotBody["to"] != float64(2) {
+		t.Errorf("request body = %v, want from=1 to=2", gotBody)
 	}
 }

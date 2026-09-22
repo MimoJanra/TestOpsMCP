@@ -91,8 +91,12 @@ func (r *Registry) registerRelationTools() {
 	})
 
 	r.register(&Tool{
-		Name:        "add_test_case_members",
-		Description: "Add team members to a test case",
+		Name: "add_test_case_members",
+		Description: "Add team members to a test case. Each member needs a role — the API rejects a member with no role " +
+			"with a misleading 400 (\"Some role users not found\"). Get valid role ids/names via search_testops_operations " +
+			"(\"role\") + execute_testops_operation (GET /api/role) — commonly -1 \"Owner\" and -2 \"Lead\". The member id " +
+			"must also be an existing collaborator on this test case's project (an org-wide user id is not enough) — " +
+			"find one via execute_testops_operation on GET /api/member/suggest with projectId.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -102,13 +106,23 @@ func (r *Registry) registerRelationTools() {
 				},
 				"members": map[string]any{
 					"type":        "array",
-					"description": "Members to add (with id and name)",
+					"description": "Members to add (each needs id and role; name is informational only)",
 					"items": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
-							"id":   map[string]any{"type": "integer"},
+							"id":   map[string]any{"type": "integer", "description": "Project collaborator's user ID"},
 							"name": map[string]any{"type": "string"},
+							"role": map[string]any{
+								"type":        "object",
+								"description": "Required. The role to assign, e.g. {\"id\": -1, \"name\": \"Owner\"}",
+								"properties": map[string]any{
+									"id":   map[string]any{"type": "integer"},
+									"name": map[string]any{"type": "string"},
+								},
+								"required": []string{"id"},
+							},
 						},
+						"required": []string{"id", "role"},
 					},
 				},
 			},
@@ -333,6 +347,11 @@ func (r *Registry) addTestCaseMembers(ctx context.Context, args addTestCaseMembe
 	}
 	if len(args.Members) == 0 {
 		return nil, fmt.Errorf("members must not be empty")
+	}
+	for i, m := range args.Members {
+		if m.Role == nil || m.Role.ID == 0 {
+			return nil, fmt.Errorf("member %d: role is required (e.g. {\"id\": -1, \"name\": \"Owner\"}) — the API 400s with a misleading \"Some role users not found\" if it's omitted", i)
+		}
 	}
 
 	r.logger.Info("adding members to test case", map[string]any{

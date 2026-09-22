@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -126,8 +127,16 @@ func TestGetTestCase_ScenarioFetchFailsGracefully(t *testing.T) {
 
 func TestRunTestCase_Handler(t *testing.T) {
 	var gotMethod string
+	var gotRunBody map[string]any
 	r := newTestRegistryWithServer(t, func(w http.ResponseWriter, req *http.Request) {
+		if strings.HasSuffix(req.URL.Path, "/overview") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"id":1,"projectId":5}`))
+			return
+		}
 		gotMethod = req.Method
+		_ = json.NewDecoder(req.Body).Decode(&gotRunBody)
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -140,6 +149,13 @@ func TestRunTestCase_Handler(t *testing.T) {
 	}
 	if gotMethod == "" {
 		t.Error("expected a request to reach the server")
+	}
+	selection, _ := gotRunBody["selection"].(map[string]any)
+	if selection == nil {
+		t.Fatalf("expected selection in run request body, got %v", gotRunBody)
+	}
+	if selection["projectId"] != float64(5) {
+		t.Errorf("selection.projectId = %v, want 5", selection["projectId"])
 	}
 }
 

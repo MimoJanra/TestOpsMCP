@@ -37,14 +37,16 @@ func TestGetLaunchEnvironment_Success(t *testing.T) {
 			t.Errorf("path = %q", req.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"OS": "linux", "BRANCH": "main"})
+		_ = json.NewEncoder(w).Encode([]map[string]any{
+			{"id": 1, "name": "OS", "variable": map[string]any{"value": "linux"}},
+		})
 	})
 	result, err := r.getLaunchEnvironment(context.Background(), getLaunchEnvironmentArgs{LaunchID: 5})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	env := result.(map[string]any)["environment"].(map[string]any)
-	if env["OS"] != "linux" {
+	env := result.(map[string]any)["environment"].([]map[string]any)
+	if len(env) != 1 || env[0]["name"] != "OS" {
 		t.Errorf("environment = %+v", env)
 	}
 }
@@ -59,12 +61,19 @@ func TestGetLaunchEnvironment_ValidatesInput(t *testing.T) {
 }
 
 func TestCopyLaunch_Success(t *testing.T) {
+	var sawCopyBody map[string]any
 	r := newLaunchesTestRegistry(t, func(w http.ResponseWriter, req *http.Request) {
-		if req.URL.Path != "/api/launch/5/copy" {
-			t.Errorf("path = %q", req.URL.Path)
+		switch req.URL.Path {
+		case "/api/launch/5":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":5,"name":"Smoke suite"}`))
+		case "/api/launch/5/copy":
+			_ = json.NewDecoder(req.Body).Decode(&sawCopyBody)
+			// Real API responds 202 Accepted with no body.
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			t.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
 		}
-		// Real API responds 202 Accepted with no body.
-		w.WriteHeader(http.StatusAccepted)
 	})
 	result, err := r.copyLaunch(context.Background(), copyLaunchArgs{LaunchID: 5})
 	if err != nil {
@@ -78,6 +87,35 @@ func TestCopyLaunch_Success(t *testing.T) {
 	res := task.Result.(map[string]any)
 	if res["status"] != "copied" {
 		t.Errorf("result = %+v", res)
+	}
+	// launchName defaults to the original name + " (copy)" — required by the
+	// API even though the spec marks it optional (NOT NULL on "name").
+	if sawCopyBody["launchName"] != "Smoke suite (copy)" {
+		t.Errorf("copy request launchName = %v, want %q", sawCopyBody["launchName"], "Smoke suite (copy)")
+	}
+}
+
+func TestCopyLaunch_UsesGivenLaunchName(t *testing.T) {
+	var sawCopyBody map[string]any
+	r := newLaunchesTestRegistry(t, func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/api/launch/5/copy":
+			_ = json.NewDecoder(req.Body).Decode(&sawCopyBody)
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			t.Errorf("unexpected request (should not look up the original name when one is given): %s %s", req.Method, req.URL.Path)
+		}
+	})
+	result, err := r.copyLaunch(context.Background(), copyLaunchArgs{LaunchID: 5, LaunchName: "Custom name"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	task := waitForTask(t, r, result.(map[string]any)["task_id"].(string))
+	if task.Status != tasks.StatusSucceeded {
+		t.Fatalf("task status = %s, error = %s", task.Status, task.Error)
+	}
+	if sawCopyBody["launchName"] != "Custom name" {
+		t.Errorf("copy request launchName = %v, want %q", sawCopyBody["launchName"], "Custom name")
 	}
 }
 
@@ -106,14 +144,18 @@ func TestCopyLaunch_TaskFailsOnAPIError(t *testing.T) {
 }
 
 func TestMergeLaunches_Success(t *testing.T) {
+	var gotBodies []map[string]any
 	r := newLaunchesTestRegistry(t, func(w http.ResponseWriter, req *http.Request) {
 		if req.URL.Path != "/api/launch/merge" {
 			t.Errorf("path = %q", req.URL.Path)
 		}
+		var body map[string]any
+		_ = json.NewDecoder(req.Body).Decode(&body)
+		gotBodies = append(gotBodies, body)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": 42})
 	})
-	result, err := r.mergeLaunches(context.Background(), mergeLaunchesArgs{LaunchIDs: []int64{1, 2}, LaunchName: "merged"})
+	result, err := r.mergeLaunches(context.Background(), mergeLaunchesArgs{ToLaunchID: 42, FromLaunchIDs: []int64{1, 2}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -122,17 +164,26 @@ func TestMergeLaunches_Success(t *testing.T) {
 	if task.Status != tasks.StatusSucceeded {
 		t.Fatalf("task status = %s, error = %s", task.Status, task.Error)
 	}
+	if len(gotBodies) != 2 {
+		t.Fatalf("expected 2 merge calls, got %d", len(gotBodies))
+	}
+	if gotBodies[0]["from"] != float64(1) || gotBodies[0]["to"] != float64(42) {
+		t.Errorf("first merge body = %+v, want from=1 to=42", gotBodies[0])
+	}
+	if gotBodies[1]["from"] != float64(2) || gotBodies[1]["to"] != float64(42) {
+		t.Errorf("second merge body = %+v, want from=2 to=42", gotBodies[1])
+	}
 }
 
 func TestMergeLaunches_ValidatesInput(t *testing.T) {
 	r := newLaunchesTestRegistry(t, func(w http.ResponseWriter, _ *http.Request) {
 		t.Fatal("should not call API")
 	})
-	if _, err := r.mergeLaunches(context.Background(), mergeLaunchesArgs{LaunchIDs: nil, LaunchName: "x"}); err == nil {
-		t.Error("expected error for empty launch_ids")
+	if _, err := r.mergeLaunches(context.Background(), mergeLaunchesArgs{ToLaunchID: 0, FromLaunchIDs: []int64{1}}); err == nil {
+		t.Error("expected error for non-positive to_launch_id")
 	}
-	if _, err := r.mergeLaunches(context.Background(), mergeLaunchesArgs{LaunchIDs: []int64{1}, LaunchName: ""}); err == nil {
-		t.Error("expected error for empty launch_name")
+	if _, err := r.mergeLaunches(context.Background(), mergeLaunchesArgs{ToLaunchID: 1, FromLaunchIDs: nil}); err == nil {
+		t.Error("expected error for empty from_launch_ids")
 	}
 }
 

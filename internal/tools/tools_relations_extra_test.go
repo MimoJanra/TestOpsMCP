@@ -101,7 +101,7 @@ func TestAddTestCaseMembers(t *testing.T) {
 	})
 	r := newRelationsTestRegistry(t, mux)
 
-	args := addTestCaseMembersArgs{TestCaseID: 1, Members: []allure.MemberDto{{ID: 1, Name: "Alice"}}}
+	args := addTestCaseMembersArgs{TestCaseID: 1, Members: []allure.MemberDto{{ID: 1, Name: "Alice", Role: &allure.RoleDto{ID: -1, Name: "Owner"}}}}
 	if _, err := r.addTestCaseMembers(context.Background(), args); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -110,6 +110,9 @@ func TestAddTestCaseMembers(t *testing.T) {
 	}
 	if _, err := r.addTestCaseMembers(context.Background(), addTestCaseMembersArgs{TestCaseID: 1}); err == nil {
 		t.Error("expected error for empty members")
+	}
+	if _, err := r.addTestCaseMembers(context.Background(), addTestCaseMembersArgs{TestCaseID: 1, Members: []allure.MemberDto{{ID: 1, Name: "Alice"}}}); err == nil {
+		t.Error("expected error for member missing a role")
 	}
 }
 
@@ -201,13 +204,26 @@ func TestDeleteTestCaseExternalLink(t *testing.T) {
 			"links": []map[string]any{{"name": "Bug", "type": "JIRA", "url": "https://example.com/BUG-1"}},
 		})
 	})
+	var patchedBody map[string]any
 	mux.HandleFunc("/api/testcase/1", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&patchedBody)
 		w.WriteHeader(http.StatusOK)
 	})
 	r := newRelationsTestRegistry(t, mux)
 
 	if _, err := r.deleteTestCaseExternalLink(context.Background(), deleteTestCaseExternalLinkArgs{TestCaseID: 1, URL: "https://example.com/BUG-1"}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	// Regression guard: deleting the last remaining link must still send an
+	// explicit "links": [] in the PATCH body, not omit the field — a
+	// []ExternalLinkDto with omitempty would drop it for a zero-length slice,
+	// silently no-op'ing the clear (the server would just keep the old links).
+	links, hasLinks := patchedBody["links"]
+	if !hasLinks {
+		t.Fatalf("expected PATCH body to explicitly include an empty links field, got %+v", patchedBody)
+	}
+	if arr, _ := links.([]any); len(arr) != 0 {
+		t.Errorf("expected links to be cleared to [], got %v", links)
 	}
 	if _, err := r.deleteTestCaseExternalLink(context.Background(), deleteTestCaseExternalLinkArgs{TestCaseID: 1, URL: "https://example.com/missing"}); err == nil {
 		t.Error("expected error when the URL isn't among the current links")

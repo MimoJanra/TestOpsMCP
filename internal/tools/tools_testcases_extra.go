@@ -347,7 +347,7 @@ func (r *Registry) registerTestCaseExtraTools() {
 
 	r.register(&Tool{
 		Name:        "get_test_case_relations",
-		Description: "Get test-case-to-test-case relations (e.g. 'blocks', 'is blocked by')",
+		Description: "Get test-case-to-test-case relations (e.g. 'clones', 'duplicates', 'related to')",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -360,7 +360,7 @@ func (r *Registry) registerTestCaseExtraTools() {
 
 	r.register(&Tool{
 		Name:        "set_test_case_relations",
-		Description: "Set test-case-to-test-case relations (e.g. 'blocks', 'is blocked by'). Full replace — pass the complete list you want to keep.",
+		Description: "Set test-case-to-test-case relations. Full replace — pass the complete list you want to keep.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -373,8 +373,13 @@ func (r *Registry) registerTestCaseExtraTools() {
 						"properties": map[string]any{
 							"target_id":   map[string]any{"type": "integer", "description": "Target test case ID"},
 							"target_name": map[string]any{"type": "string", "description": "Target test case name (optional)"},
+							"type": map[string]any{
+								"type":        "string",
+								"description": "Relation type",
+								"enum":        []string{"related to", "clones", "is cloned by", "duplicates", "is duplicated by", "automates", "is automated by"},
+							},
 						},
-						"required": []string{"target_id"},
+						"required": []string{"target_id", "type"},
 					},
 				},
 			},
@@ -685,7 +690,15 @@ func (r *Registry) getTestCaseExamples(ctx context.Context, args getTestCaseExam
 	if err != nil {
 		return nil, fmt.Errorf("get test case examples: %w", err)
 	}
-	return map[string]any{"examples": examples, "count": len(examples)}, nil
+	items := make([]map[string]any, len(examples))
+	for i, ex := range examples {
+		items[i] = map[string]any{
+			"id":         ex.ID,
+			"status":     ex.Status,
+			"parameters": ex.Parameters,
+		}
+	}
+	return map[string]any{"examples": items, "count": len(items)}, nil
 }
 
 type setTestCaseExamplesArgs struct {
@@ -887,7 +900,7 @@ func (r *Registry) listDeletedTestCases(ctx context.Context, args listDeletedTes
 		items[i] = map[string]any{
 			"id":                tc.ID,
 			"name":              tc.Name,
-			"project_id":        tc.ProjectID,
+			"project_id":        args.ProjectID,
 			"status":            tc.Status,
 			"automation_status": tc.AutomationStatus,
 		}
@@ -1002,9 +1015,21 @@ func (r *Registry) getTestCaseRelations(ctx context.Context, args getTestCaseRel
 			"id":          rel.ID,
 			"target_id":   rel.Target.ID,
 			"target_name": rel.Target.Name,
+			"type":        rel.Type,
 		}
 	}
 	return map[string]any{"relations": items}, nil
+}
+
+// validRelationTypes are the TestCaseRelationTypeDto enum values the API accepts.
+var validRelationTypes = map[string]bool{
+	"related to":       true,
+	"clones":           true,
+	"is cloned by":     true,
+	"duplicates":       true,
+	"is duplicated by": true,
+	"automates":        true,
+	"is automated by":  true,
 }
 
 type setTestCaseRelationsArgs struct {
@@ -1012,6 +1037,7 @@ type setTestCaseRelationsArgs struct {
 	Relations  []struct {
 		TargetID   int64  `json:"target_id"`
 		TargetName string `json:"target_name"`
+		Type       string `json:"type"`
 	} `json:"relations"`
 }
 
@@ -1021,8 +1047,12 @@ func (r *Registry) setTestCaseRelations(ctx context.Context, args setTestCaseRel
 	}
 	relations := make([]allure.RelationDto, len(args.Relations))
 	for i, rel := range args.Relations {
+		if !validRelationTypes[rel.Type] {
+			return nil, fmt.Errorf("relation %d: type %q is not a valid relation type (must be one of: related to, clones, is cloned by, duplicates, is duplicated by, automates, is automated by)", i, rel.Type)
+		}
 		relations[i] = allure.RelationDto{
 			Target: allure.RelationTargetDto{ID: rel.TargetID, Name: rel.TargetName},
+			Type:   rel.Type,
 		}
 	}
 	if err := r.allure.SetTestCaseRelations(ctx, args.TestCaseID, relations); err != nil {
@@ -1050,7 +1080,7 @@ func (r *Registry) listMutedTestCases(ctx context.Context, args listMutedTestCas
 	}
 	items := make([]map[string]any, len(cases.Content))
 	for i, tc := range cases.Content {
-		items[i] = map[string]any{"id": tc.ID, "name": tc.Name, "project_id": tc.ProjectID, "status": tc.Status}
+		items[i] = map[string]any{"id": tc.ID, "name": tc.Name, "project_id": args.ProjectID, "status": tc.Status}
 	}
 	return map[string]any{"test_cases": items, "page": cases.Number, "size": cases.Size, "total": cases.Total, "is_last": cases.Last}, nil
 }

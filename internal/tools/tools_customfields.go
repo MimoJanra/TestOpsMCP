@@ -291,8 +291,10 @@ func (r *Registry) registerCustomFieldTools() {
 	r.register(&Tool{
 		Name: "update_custom_field_value",
 		Description: "Rename a custom field value, or change its default/global flag. Existing test cases and " +
-			"test results already assigned this value are unaffected. All fields are optional — only the ones " +
-			"you pass are changed.",
+			"test results already assigned this value are unaffected — confirmed live, this is because renaming " +
+			"assigns a NEW value_id under the hood (the API returns no body, so this tool can't report it); " +
+			"call list_custom_field_values afterward to find the value's new id before referencing it again. " +
+			"All fields are optional — only the ones you pass are changed.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

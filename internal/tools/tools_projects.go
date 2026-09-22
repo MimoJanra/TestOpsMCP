@@ -245,7 +245,7 @@ func (r *Registry) getProjectStats(ctx context.Context, args getProjectStatsArgs
 	}
 
 	return map[string]any{
-		"project_id":           stats.ID,
+		"project_id":           args.ProjectID,
 		"automated_test_cases": stats.AutomatedTestCases,
 		"manual_test_cases":    stats.ManualTestCases,
 		"automation_percent":   stats.AutomationPercent,

@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -83,13 +84,22 @@ func TestSetTestCaseIssues_Handler(t *testing.T) {
 }
 
 func TestGetTestCaseExamples_Handler(t *testing.T) {
-	r := newTestRegistryWithServer(t, jsonHandler(http.StatusOK, `[[{"name":"a","value":"1"}]]`))
+	// The GET endpoint returns a paginated page object, not a bare array of
+	// rows (that shape is only for the POST body) — see GetTestCaseExamples.
+	r := newTestRegistryWithServer(t, jsonHandler(http.StatusOK, `{
+		"content":[{"id":1,"status":"PASSED","parameters":[{"name":"a","value":"1"}]}],
+		"last":true,"number":0,"size":20,"totalElements":1
+	}`))
 	res, err := r.getTestCaseExamples(context.Background(), getTestCaseExamplesArgs{TestCaseID: 1})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if res.(map[string]any)["count"] != 1 {
 		t.Errorf("unexpected result: %v", res)
+	}
+	items := res.(map[string]any)["examples"].([]map[string]any)
+	if items[0]["id"] != int64(1) || items[0]["status"] != "PASSED" {
+		t.Errorf("unexpected example row: %+v", items[0])
 	}
 }
 
@@ -275,12 +285,17 @@ func TestGetTestCaseRelations_Handler(t *testing.T) {
 }
 
 func TestSetTestCaseRelations_Handler(t *testing.T) {
-	r := newTestRegistryWithServer(t, jsonHandler(http.StatusOK, `{}`))
+	var gotBody []map[string]any
+	r := newTestRegistryWithServer(t, func(w http.ResponseWriter, req *http.Request) {
+		_ = json.NewDecoder(req.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusOK)
+	})
 	args := setTestCaseRelationsArgs{TestCaseID: 1}
 	args.Relations = append(args.Relations, struct {
 		TargetID   int64  `json:"target_id"`
 		TargetName string `json:"target_name"`
-	}{TargetID: 2, TargetName: "other"})
+		Type       string `json:"type"`
+	}{TargetID: 2, TargetName: "other", Type: "clones"})
 
 	res, err := r.setTestCaseRelations(context.Background(), args)
 	if err != nil {
@@ -288,6 +303,23 @@ func TestSetTestCaseRelations_Handler(t *testing.T) {
 	}
 	if res.(map[string]any)["count"] != 1 {
 		t.Errorf("unexpected result: %v", res)
+	}
+	if len(gotBody) != 1 || gotBody[0]["type"] != "clones" {
+		t.Errorf("expected request body to carry type %q, got %+v", "clones", gotBody)
+	}
+}
+
+func TestSetTestCaseRelations_RejectsInvalidType(t *testing.T) {
+	r := newTestRegistryWithServer(t, jsonHandler(http.StatusOK, `{}`))
+	args := setTestCaseRelationsArgs{TestCaseID: 1}
+	args.Relations = append(args.Relations, struct {
+		TargetID   int64  `json:"target_id"`
+		TargetName string `json:"target_name"`
+		Type       string `json:"type"`
+	}{TargetID: 2, TargetName: "other", Type: "blocks"})
+
+	if _, err := r.setTestCaseRelations(context.Background(), args); err == nil {
+		t.Error("expected error for invalid relation type")
 	}
 }
 
@@ -299,6 +331,24 @@ func TestListMutedTestCases_Handler(t *testing.T) {
 	}
 	if res.(map[string]any)["total"] != 0 {
 		t.Errorf("unexpected result: %v", res)
+	}
+}
+
+// TestListMutedTestCases_ReturnsRequestedProjectID guards against the muted
+// test case items echoing "project_id": 0 — the API's per-item response
+// doesn't include projectId (it's implied by the request), same class of bug
+// as get_project_stats/list_test_cases/list_deleted_test_cases.
+func TestListMutedTestCases_ReturnsRequestedProjectID(t *testing.T) {
+	r := newTestRegistryWithServer(t, jsonHandler(http.StatusOK, `{
+		"content":[{"id":1,"name":"muted case"}],"last":true,"number":0,"size":20,"totalElements":1
+	}`))
+	res, err := r.listMutedTestCases(context.Background(), listMutedTestCasesArgs{ProjectID: 408})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	items := res.(map[string]any)["test_cases"].([]map[string]any)
+	if items[0]["project_id"] != int64(408) {
+		t.Errorf("project_id = %v, want 408", items[0]["project_id"])
 	}
 }
 

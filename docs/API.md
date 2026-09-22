@@ -14,7 +14,7 @@ Complete reference for Allure MCP Server tools and endpoints.
 
 ## Tools
 
-The server exposes **130 tools** across multiple categories covering launches, test results, test cases, bulk operations, custom fields, analytics, async tasks, and AI analysis. See [llms-full.txt](../llms-full.txt) for the complete reference.
+The server exposes **131 tools** across multiple categories covering launches, test results, test cases, bulk operations, custom fields, analytics, async tasks, and AI analysis. See [llms-full.txt](../llms-full.txt) for the complete reference.
 
 ---
 
@@ -204,6 +204,36 @@ Reopen a closed launch for additional test results.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `launch_id` | integer | ✓ | Launch ID |
+
+---
+
+### 7a. `copy_launch`
+
+Copy an existing launch, including its test results, into a new launch.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `launch_id` | integer | ✓ | Launch ID to copy |
+| `launch_name` | string | | Name for the new launch. Defaults to `"<original name> (copy)"` if omitted. |
+
+Async — returns a `task_id`; poll with `get_task_status`.
+
+---
+
+### 7b. `update_launch`
+
+Rename a launch or change its `autoClose`/`external` flags.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `launch_id` | integer | ✓ | Launch ID |
+| `name` | string | | New launch name (optional) |
+| `autoclose` | boolean | | Auto-close flag (optional) |
+| `external` | boolean | | External flag (optional) |
 
 ---
 

@@ -224,6 +224,11 @@ func (c *Client) GetLaunchDetails(ctx context.Context, launchID int64) (*LaunchD
 	return &result, nil
 }
 
+// UpdateLaunch patches a launch's name and/or autoclose/external flags.
+func (c *Client) UpdateLaunch(ctx context.Context, launchID int64, req LaunchPatchRequest) error {
+	return c.doRequest(ctx, http.MethodPatch, fmt.Sprintf("/api/launch/%d", launchID), req, []int{http.StatusOK, http.StatusNoContent}...)
+}
+
 func (c *Client) ListTestResults(ctx context.Context, launchID int64, status string, page, size int) (*TestResultListResponse, error) {
 	url := fmt.Sprintf("/api/testresult?launchId=%d&page=%d&size=%d", launchID, page, size)
 	if status != "" {
@@ -250,7 +255,11 @@ func (c *Client) AssignTestResult(ctx context.Context, testResultID int64, usern
 }
 
 func (c *Client) MuteTestResult(ctx context.Context, testResultID int64, reason string) error {
-	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testresult/%d/mute", testResultID), MuteTestResultRequest{Reason: reason}, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
+	name := reason
+	if name == "" {
+		name = "Muted via MCP"
+	}
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testresult/%d/mute", testResultID), MuteTestResultRequest{Name: name, Reason: reason}, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
 }
 
 func (c *Client) ListTestCases(ctx context.Context, projectID int64, page, size int) (*TestCaseListResponse, error) {
@@ -278,10 +287,10 @@ func (c *Client) GetTestCaseOverview(ctx context.Context, testCaseID int64) (map
 	return result, nil
 }
 
-func (c *Client) RunTestCase(ctx context.Context, testCaseID, launchID int64) error {
+func (c *Client) RunTestCase(ctx context.Context, testCaseID, launchID, projectID int64) error {
 	return c.doRequest(ctx, http.MethodPost, "/api/testcase/bulk/run/existing", RunTestCaseRequest{
-		TestCaseIds: []int64{testCaseID},
-		LaunchId:    launchID,
+		LaunchId:  launchID,
+		Selection: TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: []int64{testCaseID}},
 	}, []int{http.StatusOK, http.StatusAccepted}...)
 }
 
@@ -531,13 +540,16 @@ func (c *Client) SetTestCaseIssues(ctx context.Context, testCaseID int64, issues
 
 // ─── Examples (parametrized) ──────────────────────────────────────────────────
 
-// GetTestCaseExamples returns the parametrized examples of a test case.
-func (c *Client) GetTestCaseExamples(ctx context.Context, testCaseID int64) ([][]TestCaseExampleParam, error) {
-	var result [][]TestCaseExampleParam
-	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/testcase/%d/example", testCaseID), nil, &result, []int{http.StatusOK}...); err != nil {
+// GetTestCaseExamples returns the parametrized examples of a test case. The
+// response is a paginated TestCaseExamplePage (not a bare array — that shape
+// is only for the POST body), so decoding straight into [][]TestCaseExampleParam
+// fails with "cannot unmarshal object into Go value of type [][]...".
+func (c *Client) GetTestCaseExamples(ctx context.Context, testCaseID int64) ([]TestCaseExampleDto, error) {
+	var page TestCaseExamplePage
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/testcase/%d/example", testCaseID), nil, &page, []int{http.StatusOK}...); err != nil {
 		return nil, err
 	}
-	return result, nil
+	return page.Content, nil
 }
 
 // SetTestCaseExamples replaces the parametrized examples of a test case.
@@ -760,7 +772,7 @@ func (c *Client) GetTestCaseVersionData(ctx context.Context, versionID int64) (m
 
 // DeleteTestCaseVersion deletes a specific version of a test case.
 func (c *Client) DeleteTestCaseVersion(ctx context.Context, versionID int64) error {
-	return c.doRequest(ctx, http.MethodDelete, fmt.Sprintf("/api/testcase/version/%d", versionID), nil, []int{http.StatusOK, http.StatusNoContent}...)
+	return c.doRequest(ctx, http.MethodDelete, fmt.Sprintf("/api/testcase/version/%d", versionID), nil, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
 }
 
 // ─── Bulk operations (new) ────────────────────────────────────────────────────
@@ -883,17 +895,23 @@ func (c *Client) BulkCreateTestPlan(ctx context.Context, projectID int64, testCa
 	})
 }
 
-// BulkMuteTestCases mutes multiple test cases.
-func (c *Client) BulkMuteTestCases(ctx context.Context, projectID int64, testCaseIDs []int64) error {
+// BulkMuteTestCases mutes multiple test cases. The API requires a non-empty
+// mute reason object (see MuteDto); reason defaults to "Muted via MCP" when empty.
+func (c *Client) BulkMuteTestCases(ctx context.Context, projectID int64, testCaseIDs []int64, reason string) error {
+	name := reason
+	if name == "" {
+		name = "Muted via MCP"
+	}
 	return c.bulkPost(ctx, "/api/testcase/bulk/mute/add", BulkMuteDto{
 		Selection: TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: testCaseIDs},
+		Mute:      MuteDto{Name: name, Reason: reason},
 	})
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 
 func (c *Client) DeleteTestCase(ctx context.Context, testCaseID int64) error {
-	return c.doRequest(ctx, http.MethodDelete, fmt.Sprintf("/api/testcase/%d", testCaseID), nil, []int{http.StatusOK, http.StatusNoContent}...)
+	return c.doRequest(ctx, http.MethodDelete, fmt.Sprintf("/api/testcase/%d", testCaseID), nil, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
 }
 
 func (c *Client) CreateTestCaseStep(ctx context.Context, req ScenarioStepCreateRequest, afterID int64) (int64, error) {
@@ -968,14 +986,18 @@ func (c *Client) BulkAddTestCaseTags(ctx context.Context, projectID int64, testC
 	}, []int{http.StatusNoContent, http.StatusOK, http.StatusAccepted}...)
 }
 
-func (c *Client) BulkRemoveTestCaseTags(ctx context.Context, projectID int64, testCaseIDs []int64, tags []TestTagDto) error {
+// BulkRemoveTestCaseTags detaches tags from multiple test cases. Unlike add,
+// the remove endpoint takes tag ids (TestCaseBulkEntityIdsDto), not full tag
+// objects — tags are global project-wide entities, so their id is stable and
+// callers must resolve names to ids first (see resolveTagIDs in tools_bulk.go).
+func (c *Client) BulkRemoveTestCaseTags(ctx context.Context, projectID int64, testCaseIDs []int64, tagIDs []int64) error {
 	selection := TestCaseTreeSelectionDto{
 		ProjectID:    projectID,
 		LeafsInclude: testCaseIDs,
 	}
-	return c.doRequest(ctx, http.MethodPost, "/api/testcase/bulk/tag/remove", TestCaseBulkTagDto{
+	return c.doRequest(ctx, http.MethodPost, "/api/testcase/bulk/tag/remove", TestCaseBulkEntityIdsDto{
 		Selection: selection,
-		Tags:      tags,
+		IDs:       tagIDs,
 	}, []int{http.StatusNoContent, http.StatusOK, http.StatusAccepted}...)
 }
 
@@ -990,14 +1012,17 @@ func (c *Client) BulkAddTestCaseMembers(ctx context.Context, projectID int64, te
 	}, []int{http.StatusNoContent, http.StatusOK, http.StatusAccepted}...)
 }
 
-func (c *Client) BulkRemoveTestCaseMembers(ctx context.Context, projectID int64, testCaseIDs []int64, members []MemberDto) error {
+// BulkRemoveTestCaseMembers detaches members from multiple test cases. Unlike
+// add, the remove endpoint takes member (user) ids (TestCaseBulkEntityIdsDto),
+// not full member objects.
+func (c *Client) BulkRemoveTestCaseMembers(ctx context.Context, projectID int64, testCaseIDs []int64, memberIDs []int64) error {
 	selection := TestCaseTreeSelectionDto{
 		ProjectID:    projectID,
 		LeafsInclude: testCaseIDs,
 	}
-	return c.doRequest(ctx, http.MethodPost, "/api/testcase/bulk/member/remove", TestCaseBulkMemberDto{
+	return c.doRequest(ctx, http.MethodPost, "/api/testcase/bulk/member/remove", TestCaseBulkEntityIdsDto{
 		Selection: selection,
-		Members:   members,
+		IDs:       memberIDs,
 	}, []int{http.StatusNoContent, http.StatusOK, http.StatusAccepted}...)
 }
 
@@ -1175,8 +1200,11 @@ func (c *Client) doRequest(ctx context.Context, method, path string, reqBody any
 	return c.doJSON(ctx, method, path, reqBody, nil, okStatuses...)
 }
 
+// CloneTestCase clones a test case. The request body is required by the API
+// (even though every field within it is optional) — sending nil (no body at
+// all) 400s with "Required request body is missing" (confirmed live).
 func (c *Client) CloneTestCase(ctx context.Context, testCaseID int64) (int64, error) {
-	resp, err := c.doRaw(ctx, http.MethodPost, fmt.Sprintf("/api/testcase/%d/clone", testCaseID), nil, []int{http.StatusOK, http.StatusCreated}...)
+	resp, err := c.doRaw(ctx, http.MethodPost, fmt.Sprintf("/api/testcase/%d/clone", testCaseID), map[string]any{}, []int{http.StatusOK, http.StatusCreated}...)
 	if err != nil {
 		return 0, err
 	}
@@ -1195,8 +1223,13 @@ func (c *Client) CloneTestCase(ctx context.Context, testCaseID int64) (int64, er
 // CopyLaunch starts an async copy of a launch. Per the API spec, this endpoint
 // responds 202 Accepted with no body — the new launch's ID is not returned
 // here; find it afterwards via ListLaunches.
-func (c *Client) CopyLaunch(ctx context.Context, launchID int64) error {
-	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/launch/%d/copy", launchID), map[string]any{}, []int{http.StatusOK, http.StatusAccepted, http.StatusCreated, http.StatusNoContent}...)
+//
+// launchName is required even though the OpenAPI spec marks it optional: an
+// empty/omitted launchName is bound server-side as SQL NULL into the new
+// launch's "name" column, which has a NOT NULL constraint — confirmed live,
+// the call 500s otherwise.
+func (c *Client) CopyLaunch(ctx context.Context, launchID int64, launchName string) error {
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/launch/%d/copy", launchID), map[string]any{"launchName": launchName}, []int{http.StatusOK, http.StatusAccepted, http.StatusCreated, http.StatusNoContent}...)
 }
 
 func (c *Client) ResolveTestResult(ctx context.Context, testResultID int64, status string) error {
@@ -1207,8 +1240,8 @@ func (c *Client) UnmuteTestResult(ctx context.Context, testResultID int64) error
 	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testresult/%d/unmute", testResultID), nil, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
 }
 
-func (c *Client) GetLaunchEnvironment(ctx context.Context, launchID int64) (map[string]any, error) {
-	var result map[string]any
+func (c *Client) GetLaunchEnvironment(ctx context.Context, launchID int64) ([]map[string]any, error) {
+	var result []map[string]any
 	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/launch/%d/env", launchID), nil, &result, []int{http.StatusOK}...); err != nil {
 		return nil, err
 	}
@@ -1242,10 +1275,15 @@ func (c *Client) GetTestCaseDefects(ctx context.Context, testCaseID int64, page,
 	return result, nil
 }
 
-func (c *Client) MergeLaunches(ctx context.Context, launchIDs []int64, launchName string) (int64, error) {
+// MergeLaunches merges the launch "from" into the launch "to": every test
+// result in "from" is moved onto "to", and "from" itself is deleted.
+// Confirmed live: the API's LaunchMergeDto only takes {"from", "to"} — a
+// single pair, not an array of launch ids with a new name (there is no
+// endpoint that merges N launches into a brand-new, custom-named launch).
+func (c *Client) MergeLaunches(ctx context.Context, from, to int64) (int64, error) {
 	resp, err := c.doRaw(ctx, http.MethodPost, "/api/launch/merge", map[string]any{
-		"launchIds": launchIDs,
-		"name":      launchName,
+		"from": from,
+		"to":   to,
 	}, []int{http.StatusOK, http.StatusCreated}...)
 	if err != nil {
 		return 0, err
@@ -1323,7 +1361,7 @@ func (c *Client) AddTestCaseExternalLink(ctx context.Context, testCaseID int64, 
 		return fmt.Errorf("get current links: %w", err)
 	}
 	updated := append(current, link)
-	return c.UpdateTestCase(ctx, testCaseID, UpdateTestCaseRequest{Links: updated})
+	return c.UpdateTestCase(ctx, testCaseID, UpdateTestCaseRequest{Links: &updated})
 }
 
 // DeleteTestCaseExternalLink removes the external link with the given URL from a test case.
@@ -1348,7 +1386,7 @@ func (c *Client) DeleteTestCaseExternalLink(ctx context.Context, testCaseID int6
 		return fmt.Errorf("external link not found: %s", linkURL)
 	}
 
-	return c.UpdateTestCase(ctx, testCaseID, UpdateTestCaseRequest{Links: remaining})
+	return c.UpdateTestCase(ctx, testCaseID, UpdateTestCaseRequest{Links: &remaining})
 }
 
 func (c *Client) RestoreTestCase(ctx context.Context, testCaseID int64) error {

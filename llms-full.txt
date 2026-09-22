@@ -1,6 +1,6 @@
 # TestOps MCP — Full LLM Reference
 
-> MCP server that connects Claude to Allure TestOps. 130 curated tools + 600+ dynamic OpenAPI endpoints + 2 prompt templates + 4 resources.
+> MCP server that connects Claude to Allure TestOps. 131 curated tools + 600+ dynamic OpenAPI endpoints + 2 prompt templates + 4 resources.
 > Module: github.com/MimoJanra/TestOpsMCP | Go 1.27+ | Apache 2.0 | MCP protocol 2025-11-25
 
 ---
@@ -216,10 +216,17 @@ Returns: `{"status": "closed"}`
 ```
 Returns: `{"status": "reopened"}`
 
-#### copy_launch
-Async. Returns task_id. Task result: `{"launch_id": N, "name": "...", "status": "copied"}`
+#### update_launch
+Rename a launch, or toggle autoclose/external. All fields besides launch_id optional.
 ```json
-{ "launch_id": "integer (required)" }
+{ "launch_id": "integer (required)", "name": "string", "autoclose": "boolean", "external": "boolean" }
+```
+Returns: `{"status": "updated"}`
+
+#### copy_launch
+Async. Returns task_id. `launch_name` required by the API even though optional in this tool — defaults to the original launch's name + " (copy)" if omitted. The API responds 202 with no body, so the new launch's ID isn't returned; task result: `{"status": "copied", "message": "..."}` — find the new launch via list_launches.
+```json
+{ "launch_id": "integer (required)", "launch_name": "string (optional)" }
 ```
 
 #### merge_launches
@@ -588,11 +595,12 @@ set (Jira/Azure keys, full replace):
 
 #### get_test_case_relations / set_test_case_relations
 get: `{ "test_case_id": integer }`
-set (full replace, e.g. 'blocks', 'is blocked by'):
+set (full replace — pass the complete list you want to keep). `type` is required, one of:
+`related to`, `clones`, `is cloned by`, `duplicates`, `is duplicated by`, `automates`, `is automated by`:
 ```json
 {
   "test_case_id": "integer (required)",
-  "relations": [{"target_id": N, "target_name": "..."}]
+  "relations": [{"target_id": N, "target_name": "...", "type": "clones"}]
 }
 ```
 
@@ -662,10 +670,14 @@ delete: `{ "project_id": "integer (required)", "value_id": "integer (required)" 
 ```
 
 #### add_test_case_members
+`role` is required per member (API 400s with a misleading "Some role users not found" if omitted) — get valid role
+ids via `execute_testops_operation` on `GET /api/role` (commonly `-1` "Owner", `-2` "Lead"). The member `id` must be an
+existing collaborator on the test case's project (an org-wide user id is not enough) — find one via
+`execute_testops_operation` on `GET /api/member/suggest?projectId=`.
 ```json
 {
   "test_case_id": "integer (required)",
-  "members": [{"id": N, "name": "..."}]
+  "members": [{"id": N, "name": "...", "role": {"id": -1, "name": "Owner"}}]
 }
 ```
 
@@ -859,7 +871,7 @@ All bulk test case tools accept `project_id` (integer, required) and `test_case_
 
 #### bulk_mute_test_cases
 ```json
-{ "project_id": N, "test_case_ids": [...] }
+{ "project_id": N, "test_case_ids": [...], "reason": "string (optional, defaults to \"Muted via MCP\")" }
 ```
 
 #### bulk_delete_test_cases
@@ -878,7 +890,10 @@ All bulk test case tools accept `project_id` (integer, required) and `test_case_
 ```
 
 #### bulk_add_test_case_members / bulk_remove_test_case_members
-add: `{ "project_id": N, "test_case_ids": [...], "members": [{"id": N, "name": "..."}] }`
+add: each member needs a `role` (API 400s with a misleading "Some role users not found" if omitted — get valid role
+ids via `execute_testops_operation` on `GET /api/role`, e.g. `-1` "Owner"); `id` must be an existing project
+collaborator (via `GET /api/member/suggest?projectId=`), not just any org-wide user id —
+`{ "project_id": N, "test_case_ids": [...], "members": [{"id": N, "name": "...", "role": {"id": -1, "name": "Owner"}}] }`
 remove: `{ "project_id": N, "test_case_ids": [...], "member_ids": [N] }`
 
 #### bulk_add_test_case_custom_fields / bulk_remove_test_case_custom_fields
