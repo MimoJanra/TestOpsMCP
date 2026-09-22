@@ -69,12 +69,14 @@ func (r *Registry) analyzeLaunchFailures(ctx context.Context, args analyzeLaunch
 
 	r.logger.Info("analyzing launch failures", map[string]any{"launch_id": args.LaunchID})
 
-	results, err := r.allure.ListTestResults(ctx, args.LaunchID, "FAILED", 0, args.MaxFailures)
+	// The API has no server-side status filter (see Client.ListTestResults),
+	// so this scans the launch's results and filters to "failed" client-side.
+	results, _, _, err := r.filterTestResultsByStatus(ctx, args.LaunchID, "failed", 0, args.MaxFailures)
 	if err != nil {
 		return nil, fmt.Errorf("list failed results: %w", err)
 	}
 
-	if len(results.Content) == 0 {
+	if len(results) == 0 {
 		return map[string]any{
 			"launch_id": args.LaunchID,
 			"failures":  0,
@@ -83,8 +85,8 @@ func (r *Registry) analyzeLaunchFailures(ctx context.Context, args analyzeLaunch
 	}
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "Launch #%d — %d failed tests:\n\n", args.LaunchID, len(results.Content))
-	for i, res := range results.Content {
+	fmt.Fprintf(&sb, "Launch #%d — %d failed tests:\n\n", args.LaunchID, len(results))
+	for i, res := range results {
 		fmt.Fprintf(&sb, "%d. %s\n", i+1, res.Name)
 		if res.Message != "" {
 			fmt.Fprintf(&sb, "   Error: %s\n", truncateRunes(res.Message, 300))
@@ -109,7 +111,7 @@ func (r *Registry) analyzeLaunchFailures(ctx context.Context, args analyzeLaunch
 		r.logger.Error("sampling failed", err, map[string]any{"launch_id": args.LaunchID})
 		return map[string]any{
 			"launch_id": args.LaunchID,
-			"failures":  len(results.Content),
+			"failures":  len(results),
 			"summary":   sb.String(),
 			"error":     "AI analysis unavailable: " + err.Error(),
 		}, nil
@@ -117,7 +119,7 @@ func (r *Registry) analyzeLaunchFailures(ctx context.Context, args analyzeLaunch
 
 	return map[string]any{
 		"launch_id": args.LaunchID,
-		"failures":  len(results.Content),
+		"failures":  len(results),
 		"analysis":  sampResult.Text,
 	}, nil
 }

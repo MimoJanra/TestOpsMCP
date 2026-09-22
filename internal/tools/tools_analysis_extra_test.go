@@ -97,7 +97,7 @@ func TestAnalyzeLaunchFailures_WithSamplingSuccess(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"content": []map[string]any{
-				{"id": 1, "name": "test A", "message": "boom", "trace": "stack trace here"},
+				{"id": 1, "name": "test A", "status": "failed", "message": "boom", "trace": "stack trace here"},
 			},
 			"empty": false, "last": true, "totalElements": 1,
 		})
@@ -131,7 +131,7 @@ func TestAnalyzeLaunchFailures_SamplingErrorFallsBackToSummary(t *testing.T) {
 	r := newAnalysisTestRegistry(t, func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"content": []map[string]any{{"id": 1, "name": "test A", "message": "boom"}},
+			"content": []map[string]any{{"id": 1, "name": "test A", "status": "failed", "message": "boom"}},
 			"empty":   false, "last": true, "totalElements": 1,
 		})
 	})

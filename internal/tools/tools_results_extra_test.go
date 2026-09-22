@@ -35,6 +35,89 @@ func TestListTestResults(t *testing.T) {
 	}
 }
 
+// TestListTestResults_SizeAboveOldCap guards against the size param silently
+// clamping to 100 — the API accepts much larger pages (confirmed live:
+// size=300 returns a full 300-item page, no server-side clamp).
+func TestListTestResults_SizeAboveOldCap(t *testing.T) {
+	var gotSize string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/testresult", func(w http.ResponseWriter, r *http.Request) {
+		gotSize = r.URL.Query().Get("size")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"content": []map[string]any{}, "number": 0, "size": 300, "totalElements": 0, "last": true,
+		})
+	})
+	r := newRelationsTestRegistry(t, mux)
+
+	result, err := r.listTestResults(context.Background(), listTestResultsArgs{LaunchID: 1, Size: 300})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotSize != "300" {
+		t.Errorf("request size = %q, want \"300\" (should not be clamped to 100)", gotSize)
+	}
+	if out := result.(map[string]any); out["size"] != 300 {
+		t.Errorf("response size = %v, want 300", out["size"])
+	}
+}
+
+// TestListTestResults_StatusFilter guards against #22: GET /api/testresult has
+// no server-side status filter (a "status" query param is silently ignored),
+// so a naive pass-through returned every status regardless of the requested
+// filter. This verifies the client-side scan-and-paginate filtering actually
+// excludes non-matching statuses and paginates correctly over the matches.
+func TestListTestResults_StatusFilter(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/testresult", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("status"); got != "" {
+			t.Errorf("request should not send a status query param (API ignores it), got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"content": []map[string]any{
+				{"id": 1, "name": "t1", "status": "passed"},
+				{"id": 2, "name": "t2", "status": "failed"},
+				{"id": 3, "name": "t3", "status": "skipped"},
+				{"id": 4, "name": "t4", "status": "failed"},
+				{"id": 5, "name": "t5", "status": "passed"},
+			},
+			"number": 0, "size": 100, "totalElements": 5, "last": true,
+		})
+	})
+	r := newRelationsTestRegistry(t, mux)
+
+	result, err := r.listTestResults(context.Background(), listTestResultsArgs{LaunchID: 1, Status: "failed"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := result.(map[string]any)
+	items := out["test_results"].([]map[string]any)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 failed results, got %d: %+v", len(items), items)
+	}
+	if items[0]["id"] != int64(2) || items[1]["id"] != int64(4) {
+		t.Errorf("unexpected failed result ids: %v, %v", items[0]["id"], items[1]["id"])
+	}
+	if out["is_last"] != true {
+		t.Errorf("is_last = %v, want true", out["is_last"])
+	}
+
+	// Second failed item alone, via page/size over the filtered set.
+	result, err = r.listTestResults(context.Background(), listTestResultsArgs{LaunchID: 1, Status: "FAILED", Page: 1, Size: 1})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out = result.(map[string]any)
+	items = out["test_results"].([]map[string]any)
+	if len(items) != 1 || items[0]["id"] != int64(4) {
+		t.Errorf("expected page 1 to return only id 4, got %+v", items)
+	}
+	if out["is_last"] != true {
+		t.Errorf("is_last = %v, want true", out["is_last"])
+	}
+}
+
 func TestGetTestResult(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/testresult/1", func(w http.ResponseWriter, r *http.Request) {

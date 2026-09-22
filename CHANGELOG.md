@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`list_test_results`'s `status` filter silently did nothing** — reported live: a filtered request returned every status regardless of the value passed. `GET /api/testresult` has no `status` query parameter at all (only `launchId`/`page`/`size`/`sort` per the spec); sending one is just ignored. Now scans the launch's results client-side and paginates over the matches when `status` is set (capped at 20,000 scanned results; a `truncated` flag surfaces if the cap is hit). `analyze_launch_failures` had the exact same bug — it silently analyzed the first N results of *any* status, not the actual failures — and is fixed the same way.
+- **`list_test_results` pagination could skip or duplicate results at page boundaries** — the request only sorted by `createdDate,DESC` with no tiebreaker, so results sharing the same timestamp had no guaranteed stable order across separate page requests. Added an explicit `id,ASC` secondary sort.
+- **`list_test_results`'s `size` silently clamped to 100** with no indication in the tool description — confirmed live the API itself accepts far larger pages (`size=300` returns a full 300-item page, no server-side clamp). Raised the cap to 1000 and documented it.
+
 ## [2.4.0] - 2026-09-22 - Fix Bulk Operation DTOs, Test Case Relations, Examples Decode, and Member Roles
 
 ### Added

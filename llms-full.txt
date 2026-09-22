@@ -301,12 +301,15 @@ Returns paginated defect list.
 ```json
 {
   "launch_id": "integer (required)",
-  "status": "string (optional) — PASSED|FAILED|BROKEN|SKIPPED",
+  "status": "string (optional) — passed|failed|broken|skipped|unknown",
   "page": "integer (default 0)",
-  "size": "integer (default 10, max 100)"
+  "size": "integer (default 10, max 1000)"
 }
 ```
-Returns paginated list: id, name, status, launch_id, start_time, end_time, duration.
+Returns paginated list: id, name, status, launch_id, start_time, end_time, duration. The API has no server-side
+status filter (a "status" query param is silently ignored) — when `status` is set, this scans the launch's results
+client-side and paginates over the matches, `page`/`size` applying to the filtered list. The scan is capped at 20,000
+results; a `truncated: true` in the response means the cap was hit before the full launch could be scanned.
 
 #### get_test_result
 Full result detail including uuid, full_name, description, parameters.

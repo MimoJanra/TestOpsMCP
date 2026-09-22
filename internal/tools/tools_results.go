@@ -3,12 +3,18 @@ package tools
 import (
 	"context"
 	"fmt"
+	"strings"
+
+	"github.com/MimoJanra/TestOpsMCP/internal/adapters/allure"
 )
 
 func (r *Registry) registerResultTools() {
 	r.register(&Tool{
-		Name:        "list_test_results",
-		Description: "List test results in a launch with optional status filter",
+		Name: "list_test_results",
+		Description: "List test results in a launch with optional status filter (passed, failed, broken, skipped, unknown). " +
+			"The underlying API has no server-side status filter, so a filtered request scans the launch's results " +
+			"client-side (capped; see the truncated field) and paginates over the matches — page/size apply to the " +
+			"filtered list, not the launch's raw result order.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -18,7 +24,7 @@ func (r *Registry) registerResultTools() {
 				},
 				"status": map[string]any{
 					"type":        "string",
-					"description": "Filter by status (PASSED, FAILED, BROKEN, SKIPPED)",
+					"description": "Filter by status (passed, failed, broken, skipped, unknown)",
 				},
 				"page": map[string]any{
 					"type":        "integer",
@@ -27,7 +33,7 @@ func (r *Registry) registerResultTools() {
 				},
 				"size": map[string]any{
 					"type":        "integer",
-					"description": "Items per page",
+					"description": "Items per page (default 10, max 1000)",
 					"default":     10,
 				},
 			},
@@ -137,16 +143,77 @@ type listTestResultsArgs struct {
 	Size     int    `json:"size"`
 }
 
+const (
+	// listTestResultsScanPageSize is the underlying page size used while
+	// scanning for status matches (confirmed live the API honors page sizes
+	// well above 100 with no server-side clamp; kept well below that to leave
+	// headroom rather than push the true limit).
+	listTestResultsScanPageSize = 500
+	// listTestResultsMaxScanPages caps a single filtered list_test_results call
+	// at 20,000 scanned results, so a huge launch can't make one call scan forever.
+	listTestResultsMaxScanPages = 40
+)
+
+// filterTestResultsByStatus scans launchID's test results (via the unfiltered
+// Client.ListTestResults — the API has no server-side status filter) and
+// returns up to `size` results whose status matches `status`
+// (case-insensitive), skipping the first `page*size` matches. isLast reports
+// whether there are no more matching results after this page; truncated
+// reports whether the scan cap (listTestResultsMaxScanPages pages) was hit
+// before that could be determined.
+func (r *Registry) filterTestResultsByStatus(ctx context.Context, launchID int64, status string, page, size int) (matched []allure.TestResultItem, isLast bool, truncated bool, err error) {
+	start := page * size
+	end := start + size
+	matchedCount := 0
+
+	for p := 0; p < listTestResultsMaxScanPages; p++ {
+		resp, ferr := r.allure.ListTestResults(ctx, launchID, p, listTestResultsScanPageSize)
+		if ferr != nil {
+			return nil, false, false, ferr
+		}
+
+		for _, tr := range resp.Content {
+			if !strings.EqualFold(tr.Status, status) {
+				continue
+			}
+			if matchedCount >= end {
+				// Proof there's at least one more match beyond the requested page.
+				return matched, false, false, nil
+			}
+			if matchedCount >= start {
+				matched = append(matched, tr)
+			}
+			matchedCount++
+		}
+
+		if resp.Last || len(resp.Content) == 0 {
+			return matched, true, false, nil
+		}
+		if p == listTestResultsMaxScanPages-1 {
+			return matched, false, true, nil
+		}
+	}
+	return matched, true, false, nil
+}
+
 func (r *Registry) listTestResults(ctx context.Context, args listTestResultsArgs) (any, error) {
 	if args.LaunchID <= 0 {
 		return nil, fmt.Errorf("launch_id must be positive")
+	}
+	if args.Page < 0 {
+		args.Page = 0
 	}
 
 	if args.Size <= 0 {
 		args.Size = 10
 	}
-	if args.Size > 100 {
-		args.Size = 100
+	// The API itself accepts far larger page sizes (confirmed live: size=300
+	// returns a full 300-item page, no server-side clamp) — 100 was an
+	// arbitrary client-side cap that silently truncated a caller's requested
+	// size with no indication in the tool description. 1000 is a generous
+	// ceiling to keep a single response reasonably sized.
+	if args.Size > 1000 {
+		args.Size = 1000
 	}
 
 	r.logger.Info("listing test results", map[string]any{
@@ -156,15 +223,8 @@ func (r *Registry) listTestResults(ctx context.Context, args listTestResultsArgs
 		"size":      args.Size,
 	})
 
-	results, err := r.allure.ListTestResults(ctx, args.LaunchID, args.Status, args.Page, args.Size)
-	if err != nil {
-		r.logger.Error("list test results", err, map[string]any{"launch_id": args.LaunchID})
-		return nil, fmt.Errorf("list test results: %w", err)
-	}
-
-	items := make([]map[string]any, len(results.Content))
-	for i, result := range results.Content {
-		items[i] = map[string]any{
+	buildItem := func(result allure.TestResultItem) map[string]any {
+		return map[string]any{
 			"id":           result.ID,
 			"name":         result.Name,
 			"status":       result.Status,
@@ -177,6 +237,36 @@ func (r *Registry) listTestResults(ctx context.Context, args listTestResultsArgs
 			"muted":        result.Muted,
 			"flaky":        result.Flaky,
 		}
+	}
+
+	if args.Status != "" {
+		matched, isLast, truncated, err := r.filterTestResultsByStatus(ctx, args.LaunchID, args.Status, args.Page, args.Size)
+		if err != nil {
+			r.logger.Error("list test results", err, map[string]any{"launch_id": args.LaunchID})
+			return nil, fmt.Errorf("list test results: %w", err)
+		}
+		items := make([]map[string]any, len(matched))
+		for i, result := range matched {
+			items[i] = buildItem(result)
+		}
+		return map[string]any{
+			"test_results": items,
+			"page":         args.Page,
+			"size":         args.Size,
+			"is_last":      isLast,
+			"truncated":    truncated,
+		}, nil
+	}
+
+	results, err := r.allure.ListTestResults(ctx, args.LaunchID, args.Page, args.Size)
+	if err != nil {
+		r.logger.Error("list test results", err, map[string]any{"launch_id": args.LaunchID})
+		return nil, fmt.Errorf("list test results: %w", err)
+	}
+
+	items := make([]map[string]any, len(results.Content))
+	for i, result := range results.Content {
+		items[i] = buildItem(result)
 	}
 
 	return map[string]any{

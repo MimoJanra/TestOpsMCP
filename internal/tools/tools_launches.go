@@ -815,7 +815,7 @@ func (r *Registry) removeTestCasesFromLaunch(ctx context.Context, args removeTes
 	truncated := false
 
 	for page := 0; page < removeFromLaunchMaxPages; page++ {
-		resp, err := r.allure.ListTestResults(ctx, args.LaunchID, "", page, removeFromLaunchPageSize)
+		resp, err := r.allure.ListTestResults(ctx, args.LaunchID, page, removeFromLaunchPageSize)
 		if err != nil {
 			r.logger.Error("remove test cases from launch: list results", err, map[string]any{"launch_id": args.LaunchID})
 			return nil, fmt.Errorf("list test results: %w", err)

@@ -229,11 +229,17 @@ func (c *Client) UpdateLaunch(ctx context.Context, launchID int64, req LaunchPat
 	return c.doRequest(ctx, http.MethodPatch, fmt.Sprintf("/api/launch/%d", launchID), req, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
-func (c *Client) ListTestResults(ctx context.Context, launchID int64, status string, page, size int) (*TestResultListResponse, error) {
-	url := fmt.Sprintf("/api/testresult?launchId=%d&page=%d&size=%d", launchID, page, size)
-	if status != "" {
-		url += fmt.Sprintf("&status=%s", status)
-	}
+// ListTestResults returns one page of a launch's test results, unfiltered —
+// GET /api/testresult has no status query parameter (confirmed against the
+// spec and live: a "status" param is silently ignored, returning every status
+// regardless), so status filtering is done client-side by callers; see
+// Registry.filterTestResultsByStatus. The explicit id tiebreaker on top of the
+// default createdDate sort keeps page boundaries stable when many results
+// share the same createdDate (otherwise the server's tie-break order isn't
+// guaranteed stable across separate requests, which can skip or duplicate
+// results at page boundaries).
+func (c *Client) ListTestResults(ctx context.Context, launchID int64, page, size int) (*TestResultListResponse, error) {
+	url := fmt.Sprintf("/api/testresult?launchId=%d&page=%d&size=%d&sort=createdDate,DESC&sort=id,ASC", launchID, page, size)
 
 	var result TestResultListResponse
 	if err := c.doJSON(ctx, http.MethodGet, url, nil, &result, []int{http.StatusOK}...); err != nil {

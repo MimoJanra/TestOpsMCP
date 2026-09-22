@@ -285,16 +285,18 @@ Returns `removed_count`, `removed_result_ids`, `not_found_test_case_ids`, and `t
 
 ### 11. `list_test_results`
 
-List test results in a launch with optional status filter.
+List test results in a launch with optional status filter. The underlying API has no server-side status filter,
+so a filtered request scans the launch's results client-side (capped at 20,000; see `truncated` in the response)
+and paginates over the matches — `page`/`size` apply to the filtered list, not the launch's raw result order.
 
 #### Parameters
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `launch_id` | integer | ✓ | Launch ID |
-| `status` | string | | Filter: PASSED, FAILED, BROKEN, SKIPPED |
+| `status` | string | | Filter: passed, failed, broken, skipped, unknown |
 | `page` | integer | | Page number (0-based) |
-| `size` | integer | | Items per page |
+| `size` | integer | | Items per page (default 10, max 1000) |
 
 ---
 
