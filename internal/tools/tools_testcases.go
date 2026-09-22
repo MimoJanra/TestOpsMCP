@@ -312,10 +312,10 @@ func (r *Registry) registerTestCaseTools() {
 	r.register(&Tool{
 		Name: "update_test_case_step",
 		Description: "Edit a step's text (body) or expected result. Requires the step ID — get it from get_test_case_steps. " +
-			"Setting expected_result always requires test_case_id: the API models expected results as a separate " +
-			"linked step (not a plain field), and this tool finds or creates the entry that the web UI actually " +
-			"displays there. Passing test_case_id on a body-only edit is also recommended so an existing expected " +
-			"result isn't wiped. See github.com/MimoJanra/TestOpsMCP/issues/16 for the underlying API structure.",
+			"test_case_id is always required: the API models expected results as a separate linked step (not a " +
+			"plain field), and this tool needs it both to find/create the entry the web UI actually displays and " +
+			"to tell whether a body-only edit would wipe an expected result the step already has. " +
+			"See github.com/MimoJanra/TestOpsMCP/issues/16 for the underlying API structure.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -325,7 +325,7 @@ func (r *Registry) registerTestCaseTools() {
 				},
 				"test_case_id": map[string]any{
 					"type":        "integer",
-					"description": "Parent test case ID. Required when setting expected_result (the API needs it to locate/create the visible entry). Recommended on a body-only edit too, so an existing expected result isn't accidentally wiped.",
+					"description": "Parent test case ID (always required — see tool description)",
 				},
 				"body": map[string]any{
 					"type":        "string",
@@ -336,7 +336,7 @@ func (r *Registry) registerTestCaseTools() {
 					"description": "Expected result (optional)",
 				},
 			},
-			"required": []string{"step_id"},
+			"required": []string{"step_id", "test_case_id"},
 		},
 		Handler: Typed(r.updateTestCaseStep),
 	})
@@ -380,6 +380,8 @@ func (r *Registry) registerTestCaseTools() {
 			"broken — 500 on any payload, any test case). " +
 			"Each item must specify the custom field ID and the values to set — each value needs both id and " +
 			"name (the API rejects id-only values with a not-null constraint on the value's name). " +
+			"Pass an empty values array for a field to deliberately clear it rather than set it — this is not " +
+			"an error, so don't pass an empty array by accident. " +
 			"Use get_test_case_custom_fields first to discover available fields and their current values, " +
 			"and list_custom_field_values to discover valid values (with id and name) for a field (e.g. Priority, Section) " +
 			"before setting one, rather than guessing an ID.",
@@ -402,7 +404,7 @@ func (r *Registry) registerTestCaseTools() {
 							},
 							"values": map[string]any{
 								"type":        "array",
-								"description": "Values to assign — each needs both id and name",
+								"description": "Values to assign — each needs both id and name. An empty array clears the field instead of setting it.",
 								"items": map[string]any{
 									"type": "object",
 									"properties": map[string]any{
@@ -815,37 +817,32 @@ func (r *Registry) updateTestCaseStep(ctx context.Context, args updateTestCaseSt
 	if args.Body == "" && args.ExpectedResult == "" {
 		return nil, fmt.Errorf("at least one field (body or expected_result) must be provided")
 	}
+	// Required unconditionally, not just when setting expected_result: a
+	// body-only edit without it can't tell whether the step already has an
+	// expected result to preserve, and silently wipes it if so. Confirmed
+	// live 2026-09-21 — see github.com/MimoJanra/TestOpsMCP/issues/16.
+	if args.TestCaseID <= 0 {
+		return nil, fmt.Errorf("test_case_id is required: without it this tool can't tell whether the step already has an expected result to preserve, and setting expected_result needs it to find or create the entry the web UI actually displays")
+	}
 
 	if args.ExpectedResult != "" {
-		// Setting expected_result needs test_case_id: the API models it as a
-		// separate "container" step (linked via expectedResultId) whose own body
-		// the web UI does not display — the UI instead renders a list of the
-		// container's child steps. See github.com/MimoJanra/TestOpsMCP/issues/16.
-		if args.TestCaseID <= 0 {
-			return nil, fmt.Errorf("test_case_id is required to set expected_result: needed both to resend the current body (an expected_result-only PATCH is rejected) and to find or create the entry the web UI actually displays")
-		}
 		return r.setExpectedResult(ctx, args)
 	}
 
 	// Body-only edit.
-	withExpectedResult := false
-	if args.TestCaseID > 0 {
-		tree, err := r.allure.GetTestCaseSteps(ctx, args.TestCaseID)
-		if err != nil {
-			return nil, fmt.Errorf("look up current step state: %w", err)
-		}
-		node := stepNodeFromTree(tree, args.StepID)
-		if node == nil {
-			return nil, fmt.Errorf("step %d not found under test case %d", args.StepID, args.TestCaseID)
-		}
-		// withExpectedResult=true is only safe to send when the step already has
-		// an expected result to preserve — sending it on a step with none makes
-		// the API spawn a new, empty expected-result container that never
-		// existed before. See github.com/MimoJanra/TestOpsMCP/issues/16.
-		if nodeInt64(node, "expectedResultId") > 0 {
-			withExpectedResult = true
-		}
+	tree, err := r.allure.GetTestCaseSteps(ctx, args.TestCaseID)
+	if err != nil {
+		return nil, fmt.Errorf("look up current step state: %w", err)
 	}
+	node := stepNodeFromTree(tree, args.StepID)
+	if node == nil {
+		return nil, fmt.Errorf("step %d not found under test case %d", args.StepID, args.TestCaseID)
+	}
+	// withExpectedResult=true is only safe to send when the step already has
+	// an expected result to preserve — sending it on a step with none makes
+	// the API spawn a new, empty expected-result container that never
+	// existed before. See github.com/MimoJanra/TestOpsMCP/issues/16.
+	withExpectedResult := nodeInt64(node, "expectedResultId") > 0
 
 	r.logger.Info("updating test case step", map[string]any{"step_id": args.StepID})
 
@@ -888,7 +885,7 @@ func (r *Registry) setExpectedResult(ctx context.Context, args updateTestCaseSte
 
 	containerID := nodeInt64(node, "expectedResultId")
 	if containerID <= 0 {
-		// First expected result on this step: create the container.
+		// First expected result on this step: this same call also creates the container.
 		if err := r.allure.UpdateTestCaseStep(ctx, args.StepID, allure.ScenarioStepPatchRequest{
 			Body:           body,
 			ExpectedResult: args.ExpectedResult,
@@ -906,6 +903,15 @@ func (r *Registry) setExpectedResult(ctx context.Context, args updateTestCaseSte
 		containerID = nodeInt64(node, "expectedResultId")
 		if containerID <= 0 {
 			return nil, fmt.Errorf("expected-result container was not created")
+		}
+	} else if args.Body != "" {
+		// The container already exists, so the branch above (which also writes
+		// body) doesn't run — but a body change was requested, and nothing else
+		// in this function ever touches the parent step's own body. Without this,
+		// body is silently dropped whenever expected_result is set on a step that
+		// already has one (confirmed live 2026-09-21).
+		if err := r.allure.UpdateTestCaseStep(ctx, args.StepID, allure.ScenarioStepPatchRequest{Body: body}, true); err != nil {
+			return nil, fmt.Errorf("update step body: %w", err)
 		}
 	}
 
@@ -1082,6 +1088,48 @@ func (r *Registry) updateTestCaseCustomFields(ctx context.Context, args updateTe
 		"fields_count": len(fields),
 	})
 
+	// Snapshot the fields' current values before touching them, so a failed
+	// clear or set below (transient error, bad value on one field) can be
+	// rolled back on a best-effort basis instead of leaving them wiped. This
+	// is purely an optimistic safety net — if the lookup itself fails, fall
+	// back to the old best-effort (no rollback) behavior rather than
+	// aborting an update that would otherwise have succeeded.
+	originalByID := make(map[int64]allure.CustomFieldWithValuesDto)
+	if existing, err := r.allure.GetTestCaseCustomFields(ctx, args.TestCaseID, projectID); err != nil {
+		r.logger.Warn("could not snapshot existing custom field values before update; rollback on failure will be unavailable", map[string]any{
+			"test_case_id": args.TestCaseID,
+			"error":        err.Error(),
+		})
+	} else {
+		for _, f := range existing {
+			originalByID[f.CustomField.ID] = f
+		}
+	}
+
+	// restoreOriginalValues is called on any failure below. The bulk
+	// endpoints don't guarantee atomicity across rows, so a failed call may
+	// have partially applied its changes — re-clear every touched field
+	// unconditionally before restoring whichever ones had a value prior to
+	// this update, rather than assuming the failed call had no effect.
+	restoreOriginalValues := func(cause error) error {
+		if clearErr := r.allure.BulkRemoveTestCaseCustomFields(ctx, projectID, []int64{args.TestCaseID}, fieldIDs); clearErr != nil {
+			return fmt.Errorf("%w (rollback also failed, custom fields may be left in a partial state: %v)", cause, clearErr)
+		}
+		var original []allure.CustomFieldWithValuesDto
+		for _, id := range fieldIDs {
+			if f, ok := originalByID[id]; ok && len(f.Values) > 0 {
+				original = append(original, f)
+			}
+		}
+		if len(original) == 0 {
+			return fmt.Errorf("%w (fields were cleared back to their original empty state)", cause)
+		}
+		if restoreErr := r.allure.BulkAddTestCaseCustomFields(ctx, projectID, []int64{args.TestCaseID}, original); restoreErr != nil {
+			return fmt.Errorf("%w (rollback also failed, custom fields may be left empty: %v)", cause, restoreErr)
+		}
+		return fmt.Errorf("%w (original values were restored)", cause)
+	}
+
 	// PATCH /api/testcase/{id}/cfv (the single-case "update" endpoint) is
 	// unconditionally broken on this API — even an empty-array body 500s,
 	// regardless of test case (github.com/MimoJanra/TestOpsMCP/issues/18).
@@ -1089,10 +1137,24 @@ func (r *Registry) updateTestCaseCustomFields(ctx context.Context, args updateTe
 	// clear each field first (bulk remove only supports whole-field clearing,
 	// not per-value removal), then set the desired values.
 	if err := r.allure.BulkRemoveTestCaseCustomFields(ctx, projectID, []int64{args.TestCaseID}, fieldIDs); err != nil {
-		return nil, fmt.Errorf("clear existing custom field values: %w", err)
+		return nil, restoreOriginalValues(fmt.Errorf("clear existing custom field values: %w", err))
 	}
-	if err := r.allure.BulkAddTestCaseCustomFields(ctx, projectID, []int64{args.TestCaseID}, fields); err != nil {
-		return nil, fmt.Errorf("set custom field values: %w", err)
+	// A field with no values in this request is a deliberate "clear" (see
+	// the tool description) — skip the add call entirely when nothing is
+	// left to set, since an all-empty cfv row set is otherwise indistinguishable
+	// from a caller mistake and best rejected upstream (bulk_add_test_case_custom_fields
+	// does exactly that), not silently swallowed by the client.
+	hasValuesToSet := false
+	for _, f := range fields {
+		if len(f.Values) > 0 {
+			hasValuesToSet = true
+			break
+		}
+	}
+	if hasValuesToSet {
+		if err := r.allure.BulkAddTestCaseCustomFields(ctx, projectID, []int64{args.TestCaseID}, fields); err != nil {
+			return nil, restoreOriginalValues(fmt.Errorf("set custom field values: %w", err))
+		}
 	}
 
 	return map[string]any{"status": "updated"}, nil

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-09-22 - Add Custom Field Management, Fix update_test_case_step Body Drop
+
+### Added
+
+- **13 new custom field management tools**, covering the three layers the API exposes beyond per-test-case values: field **definitions** (`create_custom_field`, `get_custom_field`, `update_custom_field`, `delete_custom_field`, `set_custom_field_archived`), **project attachment** (`list_project_custom_fields`, `get_project_custom_field`, `add_custom_fields_to_project`, `remove_custom_field_from_project`, `update_project_custom_field`), and a project's **value catalog** (`create_custom_field_value`, `update_custom_field_value`, `delete_custom_field_value`). Previously the server could only read and set values already defined on a field — there was no way to create a new custom field, attach it to a project, or add/rename/remove its selectable value options.
+
+### Fixed
+
+- **`update_test_case_custom_fields` could permanently wipe a field's values on a partial failure.** Its clear-then-set implementation (see 2.2.2) had no rollback: if the clear succeeded but the set failed (transient error, bad value on one field), the field was left empty with no way to recover the original value. The tool now snapshots each touched field's current values first and, on any failure, re-clears the affected fields (in case the failed call partially applied rows — the bulk endpoints aren't atomic across rows) and restores whichever ones previously had a value, on a best-effort basis; the returned error states whether the restore succeeded.
+- **`bulk_add_test_case_custom_fields` silently reported success while adding nothing** when a field's `values` list was empty (e.g. a caller bug that forgot to populate it) — this tool only adds values, so an empty list is now rejected with a clear error instead of being sent to the API as a no-op.
+- **`update_test_case_step` silently dropped `body` when `expected_result` was also set on a step that already had an expected result** — reported `{"status":"updated"}`, but only `expected_result` was actually saved. The branch that PATCHes the parent step's body only ran on a step's *first* expected result (when its expected-result container didn't exist yet); on every subsequent edit, body was never sent anywhere. Confirmed live: [#20](https://github.com/MimoJanra/TestOpsMCP/issues/20).
+- **`test_case_id` is now unconditionally required for `update_test_case_step`** (was only "recommended" for a body-only edit) — without it the tool can't detect an existing expected result and silently wipes it on a body-only edit, which is exactly what happened while working around the bug above.
+
 ## [2.2.2] - 2026-09-13 - Fix Custom Field Bulk Remove and Single-Case Update
 
 ### Fixed

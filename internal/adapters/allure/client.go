@@ -379,6 +379,128 @@ func (c *Client) ListCustomFieldValues(ctx context.Context, projectID, customFie
 	return result, nil
 }
 
+// ─── Custom field definitions ──────────────────────────────────────────────────
+
+// CreateCustomField creates a new custom field definition (org-wide, not yet
+// attached to any project — use AddCustomFieldsToProject for that).
+func (c *Client) CreateCustomField(ctx context.Context, req CustomFieldCreateDto) (*CustomFieldDto, error) {
+	var result CustomFieldDto
+	if err := c.doJSON(ctx, http.MethodPost, "/api/cf", req, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetCustomField returns a custom field definition by ID.
+func (c *Client) GetCustomField(ctx context.Context, id int64) (*CustomFieldDto, error) {
+	var result CustomFieldDto
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/cf/%d", id), nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// UpdateCustomField patches a custom field definition's name, required,
+// singleSelect, or locked flag. Only non-nil fields in req are sent.
+func (c *Client) UpdateCustomField(ctx context.Context, id int64, req CustomFieldPatchDto) (*CustomFieldDto, error) {
+	var result CustomFieldDto
+	if err := c.doJSON(ctx, http.MethodPatch, fmt.Sprintf("/api/cf/%d", id), req, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// DeleteCustomField permanently deletes a custom field definition. Prefer
+// SetCustomFieldArchived for a reversible removal.
+func (c *Client) DeleteCustomField(ctx context.Context, id int64) error {
+	return c.doRequest(ctx, http.MethodDelete, fmt.Sprintf("/api/cf/%d", id), nil, []int{http.StatusOK, http.StatusNoContent}...)
+}
+
+// SetCustomFieldArchived archives or unarchives a custom field (the API's
+// "soft delete" — reversible, unlike DeleteCustomField).
+func (c *Client) SetCustomFieldArchived(ctx context.Context, id int64, archived bool) (*CustomFieldDto, error) {
+	var result CustomFieldDto
+	u := fmt.Sprintf("/api/cf/%d/archived?archived=%t", id, archived)
+	if err := c.doJSON(ctx, http.MethodPost, u, nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ─── Custom field ↔ project attachment ─────────────────────────────────────────
+
+// ListProjectCustomFields lists the custom fields attached to a project, along
+// with their project-scoped settings (required, locked, default value).
+func (c *Client) ListProjectCustomFields(ctx context.Context, projectID int64, query string, page, size int) (map[string]any, error) {
+	u := fmt.Sprintf("/api/project/%d/cf?page=%d&size=%d", projectID, page, size)
+	if query != "" {
+		u += "&query=" + url.QueryEscape(query)
+	}
+	var result map[string]any
+	if err := c.doJSON(ctx, http.MethodGet, u, nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// GetProjectCustomField returns a single custom field's project-scoped
+// settings (required, locked, default value).
+func (c *Client) GetProjectCustomField(ctx context.Context, projectID, customFieldID int64) (*CustomFieldProjectDto, error) {
+	var result CustomFieldProjectDto
+	u := fmt.Sprintf("/api/cfproject?customFieldId=%d&projectId=%d", customFieldID, projectID)
+	if err := c.doJSON(ctx, http.MethodGet, u, nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// AddCustomFieldsToProject attaches existing custom field definitions to a project.
+func (c *Client) AddCustomFieldsToProject(ctx context.Context, projectID int64, customFieldIDs []int64) error {
+	u := fmt.Sprintf("/api/cfproject/add-to-project?projectId=%d", projectID)
+	return c.doRequest(ctx, http.MethodPost, u, ListSelectionDto{IDs: customFieldIDs}, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
+}
+
+// RemoveCustomFieldFromProject detaches a custom field from a project.
+func (c *Client) RemoveCustomFieldFromProject(ctx context.Context, projectID, customFieldID int64) error {
+	u := fmt.Sprintf("/api/cfproject/remove?customFieldId=%d&projectId=%d", customFieldID, projectID)
+	return c.doRequest(ctx, http.MethodDelete, u, nil, []int{http.StatusOK, http.StatusNoContent}...)
+}
+
+// UpdateProjectCustomField patches a custom field's project-scoped settings
+// (required, locked, default value) — the current replacement for the
+// deprecated POST /api/cfproject/required and /api/cfproject/default endpoints.
+func (c *Client) UpdateProjectCustomField(ctx context.Context, projectID, customFieldID int64, req CustomFieldProjectPatchDto) error {
+	u := fmt.Sprintf("/api/project/%d/cf/%d", projectID, customFieldID)
+	return c.doRequest(ctx, http.MethodPatch, u, req, []int{http.StatusOK, http.StatusNoContent}...)
+}
+
+// ─── Custom field values (project catalog) ─────────────────────────────────────
+
+// CreateCustomFieldValue creates a new selectable value option for a custom
+// field within a project (e.g. adding "Critical" to a Priority field).
+func (c *Client) CreateCustomFieldValue(ctx context.Context, projectID int64, req CustomFieldValueProjectCreateDto) (*CustomFieldValueProjectDto, error) {
+	var result CustomFieldValueProjectDto
+	u := fmt.Sprintf("/api/project/%d/cfv", projectID)
+	if err := c.doJSON(ctx, http.MethodPost, u, req, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// UpdateCustomFieldValue patches a custom field value's name, default, or
+// global flag. Per the API, test results already assigned this value are
+// unaffected by a rename.
+func (c *Client) UpdateCustomFieldValue(ctx context.Context, projectID, valueID int64, req CustomFieldValueProjectPatchDto) error {
+	u := fmt.Sprintf("/api/project/%d/cfv/%d", projectID, valueID)
+	return c.doRequest(ctx, http.MethodPatch, u, req, []int{http.StatusOK, http.StatusNoContent}...)
+}
+
+// DeleteCustomFieldValue deletes a custom field value option from a project.
+func (c *Client) DeleteCustomFieldValue(ctx context.Context, projectID, valueID int64) error {
+	u := fmt.Sprintf("/api/project/%d/cfv/%d", projectID, valueID)
+	return c.doRequest(ctx, http.MethodDelete, u, nil, []int{http.StatusOK, http.StatusNoContent}...)
+}
+
 // ─── Tags ────────────────────────────────────────────────────────────────────
 
 // GetTestCaseTags returns the tags of a test case.
@@ -674,6 +796,10 @@ func (c *Client) BulkAddTestCaseCustomFields(ctx context.Context, projectID int6
 			rows = append(rows, CustomFieldValueWithCfV2Dto{ID: v.ID, CustomField: f.CustomField})
 		}
 	}
+	// An all-empty cfv row set is rejected by the backend. Callers that
+	// intend a no-op add (e.g. every field in the request is being cleared,
+	// not set) must skip this call themselves — silently no-op'ing here
+	// would mask a caller mistake for callers that never intended an empty add.
 	return c.bulkPost(ctx, "/api/v2/test-case/bulk/cfv/add", TestCaseCfvBulkAddDto{
 		Selection: TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: testCaseIDs},
 		Cfv:       rows,

@@ -269,13 +269,30 @@ func TestCreateTestCaseStep_ValidatesBody(t *testing.T) {
 }
 
 func TestUpdateTestCaseStep_Handler(t *testing.T) {
-	r := newTestRegistryWithServer(t, jsonHandler(http.StatusOK, `{}`))
-	res, err := r.updateTestCaseStep(context.Background(), updateTestCaseStepArgs{StepID: 1, Body: "new"})
+	r := newTestRegistryWithServer(t, func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/api/testcase/100/step":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"scenarioSteps":{"1":{"id":1,"body":"old","expectedResultId":0}}}`))
+		case "/api/testcase/step/1":
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+	})
+	res, err := r.updateTestCaseStep(context.Background(), updateTestCaseStepArgs{StepID: 1, TestCaseID: 100, Body: "new"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if res.(map[string]any)["status"] != "updated" {
 		t.Errorf("unexpected result: %v", res)
+	}
+}
+
+func TestUpdateTestCaseStep_RequiresTestCaseID(t *testing.T) {
+	r := newTestRegistry(t)
+	if _, err := r.updateTestCaseStep(context.Background(), updateTestCaseStepArgs{StepID: 1, Body: "new"}); err == nil {
+		t.Fatal("expected error: test_case_id is always required")
 	}
 }
 
@@ -452,6 +469,60 @@ func TestUpdateTestCaseStep_SetExpectedResult_ReplacesExistingChild(t *testing.T
 	}
 }
 
+// TestUpdateTestCaseStep_SetExpectedResult_AlsoUpdatesBodyWhenContainerExists
+// guards a real bug confirmed live 2026-09-21: setting body and expected_result
+// together on a step that already has an expected-result container skipped
+// the branch that PATCHes the parent step's own body — expected_result was
+// saved, body silently wasn't, even though the API reported "updated".
+func TestUpdateTestCaseStep_SetExpectedResult_AlsoUpdatesBodyWhenContainerExists(t *testing.T) {
+	var sawPatch10, sawPatch30 bool
+
+	r := newTestRegistryWithServer(t, func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/api/testcase/100/step":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"scenarioSteps":{
+				"10":{"id":10,"body":"old body","expectedResultId":20},
+				"20":{"id":20,"body":"Expected Result","children":[30]},
+				"30":{"id":30,"body":"old expected"}
+			}}`))
+		case "/api/testcase/step/10":
+			sawPatch10 = true
+			if req.URL.Query().Get("withExpectedResult") != "true" {
+				t.Errorf("body update on a step with an existing container must send withExpectedResult=true, got query %q", req.URL.RawQuery)
+			}
+			var body map[string]any
+			_ = json.NewDecoder(req.Body).Decode(&body)
+			if body["body"] != "new body" {
+				t.Errorf("parent step PATCH body = %v, want \"new body\"", body["body"])
+			}
+			w.WriteHeader(http.StatusOK)
+		case "/api/testcase/step/30":
+			sawPatch30 = true
+			var body map[string]any
+			_ = json.NewDecoder(req.Body).Decode(&body)
+			if body["body"] != "new expected" {
+				t.Errorf("child step PATCH body = %v, want \"new expected\"", body["body"])
+			}
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+	})
+
+	if _, err := r.updateTestCaseStep(context.Background(), updateTestCaseStepArgs{
+		StepID: 10, TestCaseID: 100, Body: "new body", ExpectedResult: "new expected",
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !sawPatch10 {
+		t.Error("expected a PATCH to the parent step (10) updating its body")
+	}
+	if !sawPatch30 {
+		t.Error("expected a PATCH to the existing child entry (30) updating expected_result")
+	}
+}
+
 func TestUpdateTestCaseStep_RequiresAField(t *testing.T) {
 	r := newTestRegistry(t)
 	if _, err := r.updateTestCaseStep(context.Background(), updateTestCaseStepArgs{StepID: 1}); err == nil {
@@ -503,6 +574,9 @@ func TestUpdateTestCaseCustomFields_Handler(t *testing.T) {
 		case "/api/testcase/1/overview":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"id":1,"projectId":5}`))
+		case "/api/testcase/1/cfv":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[]`))
 		case "/api/v2/test-case/bulk/cfv/remove":
 			sawRemove = true
 			w.WriteHeader(http.StatusNoContent)
@@ -531,6 +605,122 @@ func TestUpdateTestCaseCustomFields_Handler(t *testing.T) {
 	}
 	if !sawAdd {
 		t.Error("expected a bulk cfv/add call to set the desired values")
+	}
+}
+
+func TestUpdateTestCaseCustomFields_SkipsAddWhenOnlyClearing(t *testing.T) {
+	var sawAdd bool
+	r := newTestRegistryWithServer(t, func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/api/testcase/1/overview":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":1,"projectId":5}`))
+		case "/api/testcase/1/cfv":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[{"customField":{"id":1,"name":"Priority"},"values":[{"id":99,"name":"Low"}]}]`))
+		case "/api/v2/test-case/bulk/cfv/remove":
+			w.WriteHeader(http.StatusNoContent)
+		case "/api/v2/test-case/bulk/cfv/add":
+			sawAdd = true
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+	})
+	args := updateTestCaseCustomFieldsArgs{TestCaseID: 1}
+	args.CustomFields = append(args.CustomFields, struct {
+		CustomFieldID int64                        `json:"custom_field_id"`
+		Values        []allure.CustomFieldValueDto `json:"values"`
+	}{CustomFieldID: 1, Values: nil}) // deliberately clearing, not setting
+
+	res, err := r.updateTestCaseCustomFields(context.Background(), args)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.(map[string]any)["status"] != "updated" {
+		t.Errorf("unexpected result: %v", res)
+	}
+	if sawAdd {
+		t.Error("expected no bulk cfv/add call when every field is being cleared, not set")
+	}
+}
+
+func TestUpdateTestCaseCustomFields_SnapshotFailureIsNonFatal(t *testing.T) {
+	r := newTestRegistryWithServer(t, func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/api/testcase/1/overview":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":1,"projectId":5}`))
+		case "/api/testcase/1/cfv":
+			w.WriteHeader(http.StatusInternalServerError)
+		case "/api/v2/test-case/bulk/cfv/remove":
+			w.WriteHeader(http.StatusNoContent)
+		case "/api/v2/test-case/bulk/cfv/add":
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+	})
+	args := updateTestCaseCustomFieldsArgs{TestCaseID: 1}
+	args.CustomFields = append(args.CustomFields, struct {
+		CustomFieldID int64                        `json:"custom_field_id"`
+		Values        []allure.CustomFieldValueDto `json:"values"`
+	}{CustomFieldID: 1, Values: []allure.CustomFieldValueDto{{ID: 10, Name: "High"}}})
+
+	res, err := r.updateTestCaseCustomFields(context.Background(), args)
+	if err != nil {
+		t.Fatalf("expected the update to still succeed when only the pre-flight snapshot fails: %v", err)
+	}
+	if res.(map[string]any)["status"] != "updated" {
+		t.Errorf("unexpected result: %v", res)
+	}
+}
+
+func TestUpdateTestCaseCustomFields_RestoresOnAddFailure(t *testing.T) {
+	var addCalls int
+	var lastAddBody map[string]any
+	r := newTestRegistryWithServer(t, func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/api/testcase/1/overview":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":1,"projectId":5}`))
+		case "/api/testcase/1/cfv":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[{"customField":{"id":1,"name":"Priority"},"values":[{"id":99,"name":"Low"}]}]`))
+		case "/api/v2/test-case/bulk/cfv/remove":
+			w.WriteHeader(http.StatusNoContent)
+		case "/api/v2/test-case/bulk/cfv/add":
+			addCalls++
+			if addCalls == 1 {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			_ = json.NewDecoder(req.Body).Decode(&lastAddBody)
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+	})
+	args := updateTestCaseCustomFieldsArgs{TestCaseID: 1}
+	args.CustomFields = append(args.CustomFields, struct {
+		CustomFieldID int64                        `json:"custom_field_id"`
+		Values        []allure.CustomFieldValueDto `json:"values"`
+	}{CustomFieldID: 1, Values: []allure.CustomFieldValueDto{{ID: 10, Name: "High"}}})
+
+	_, err := r.updateTestCaseCustomFields(context.Background(), args)
+	if err == nil {
+		t.Fatal("expected an error from the failed add call")
+	}
+	if addCalls != 2 {
+		t.Fatalf("addCalls = %d, want 2 (failed set + restore attempt)", addCalls)
+	}
+	cfv, _ := lastAddBody["cfv"].([]any)
+	if len(cfv) != 1 {
+		t.Fatalf("restore cfv rows = %d, want 1 (the original value)", len(cfv))
+	}
+	row := cfv[0].(map[string]any)
+	if row["id"] != float64(99) {
+		t.Errorf("restore row id = %v, want 99 (the original value id)", row["id"])
 	}
 }
 

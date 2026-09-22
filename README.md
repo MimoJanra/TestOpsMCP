@@ -26,7 +26,7 @@ Integrate **Allure TestOps** with Claude using the Model Context Protocol. Launc
 - Works with Claude Desktop, Claude Web, and custom MCP clients
 
 ### 🏭 Production-Grade
-- **117 tools** — complete Allure TestOps test case API coverage + full OpenAPI fallback (600+ endpoints)
+- **130 tools** — complete Allure TestOps test case API coverage + full OpenAPI fallback (600+ endpoints)
 - **MCP Prompts** — built-in templates (`analyze-test-failures`, `launch-report-summary`) for one-click workflows
 - **MCP Resources** — attach `allure://docs/quickstart` as context; widget resources for visual dashboards
 - **AI analysis** — `analyze_launch_failures` asks Claude to find root causes via MCP sampling
@@ -314,7 +314,7 @@ If you prefer running without Docker:
 
 ---
 
-## 🛠️ 117 Tools
+## 🛠️ 130 Tools
 
 ### Universal Tools
 - **`search_testops_operations`** — Search for any API operation by keyword
@@ -339,6 +339,9 @@ If you prefer running without Docker:
 
 ### Test Cases — Metadata
 `get_test_case_tags` • `set_test_case_tags` • `create_test_tag` • `get_test_case_issues` • `set_test_case_issues` • `get_test_case_examples` • `set_test_case_examples` • `get_test_case_custom_fields` • `update_test_case_custom_fields` • `list_custom_field_values` • `get_test_case_keys` • `set_test_case_keys` • `get_test_case_relations` • `set_test_case_relations` • `get_test_case_workflow`
+
+### Custom Fields — Definitions, Project Attachment & Values
+`create_custom_field` • `get_custom_field` • `update_custom_field` • `delete_custom_field` • `set_custom_field_archived` • `list_project_custom_fields` • `get_project_custom_field` • `add_custom_fields_to_project` • `remove_custom_field_from_project` • `update_project_custom_field` • `create_custom_field_value` • `update_custom_field_value` • `delete_custom_field_value`
 
 ### Test Cases — Members & Links
 `get_test_case_members` • `add_test_case_members` • `remove_test_case_members` • `get_test_case_external_links` • `add_test_case_external_link` • `delete_test_case_external_link`

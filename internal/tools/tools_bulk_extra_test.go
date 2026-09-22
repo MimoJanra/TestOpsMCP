@@ -313,6 +313,20 @@ func TestBulkCloneTestCases_AsyncFails(t *testing.T) {
 	}
 }
 
+func TestBulkAddTestCaseCustomFields_RejectsEmptyValues(t *testing.T) {
+	r := newBulkTestRegistry(t, bulkOKHandler)
+	_, err := r.bulkAddTestCaseCustomFields(context.Background(), bulkAddTestCaseCustomFieldsArgs{
+		ProjectID: 1, TestCaseIDs: []int64{1},
+		CustomFields: []struct {
+			CustomFieldID int64                        `json:"custom_field_id"`
+			Values        []allure.CustomFieldValueDto `json:"values"`
+		}{{CustomFieldID: 5, Values: nil}},
+	})
+	if err == nil {
+		t.Fatal("expected an error for an empty values list — this tool adds values, it shouldn't silently no-op")
+	}
+}
+
 // TestBulkTCSchema exercises the shared schema builder for both array and
 // scalar field shapes.
 func TestBulkTCSchema(t *testing.T) {

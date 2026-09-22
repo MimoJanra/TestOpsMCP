@@ -555,6 +555,82 @@ type CustomFieldWithValuesDto struct {
 	Values      []CustomFieldValueDto `json:"values"`
 }
 
+// IDOnlyDto references an entity by ID alone, e.g. as a nested field in a
+// create request that only needs to point at an existing object.
+type IDOnlyDto struct {
+	ID int64 `json:"id"`
+}
+
+// CustomFieldCreateDto is the request body for creating a new custom field definition.
+type CustomFieldCreateDto struct {
+	Name         string `json:"name"`
+	Required     bool   `json:"required"`
+	SingleSelect bool   `json:"singleSelect,omitempty"`
+}
+
+// CustomFieldPatchDto is the request body for updating a custom field
+// definition. Only non-nil fields are sent, since the API leaves omitted
+// fields unchanged.
+type CustomFieldPatchDto struct {
+	Name         *string `json:"name,omitempty"`
+	Required     *bool   `json:"required,omitempty"`
+	SingleSelect *bool   `json:"singleSelect,omitempty"`
+	Locked       *bool   `json:"locked,omitempty"`
+}
+
+// CustomFieldProjectDto describes a custom field as attached to a project,
+// including its project-scoped required/locked/default settings.
+type CustomFieldProjectDto struct {
+	ID                        int64          `json:"id"`
+	ProjectID                 int64          `json:"projectId"`
+	CustomField               CustomFieldDto `json:"customField"`
+	Name                      string         `json:"name,omitempty"`
+	Required                  bool           `json:"required,omitempty"`
+	Locked                    bool           `json:"locked,omitempty"`
+	DefaultCustomFieldValueID *int64         `json:"defaultCustomFieldValueId,omitempty"`
+}
+
+// CustomFieldProjectPatchDto updates a custom field's project-scoped settings
+// (required, locked, default value). Only non-nil fields are sent.
+type CustomFieldProjectPatchDto struct {
+	Required                  *bool  `json:"required,omitempty"`
+	Locked                    *bool  `json:"locked,omitempty"`
+	DefaultCustomFieldValueID *int64 `json:"defaultCustomFieldValueId,omitempty"`
+}
+
+// ListSelectionDto selects a set of IDs, optionally inverted (all except these).
+type ListSelectionDto struct {
+	IDs      []int64 `json:"ids"`
+	Inverted bool    `json:"inverted,omitempty"`
+}
+
+// CustomFieldValueProjectCreateDto is the request body for creating a new
+// custom field value option within a project.
+type CustomFieldValueProjectCreateDto struct {
+	CustomField IDOnlyDto `json:"customField"`
+	Name        string    `json:"name"`
+	Default     bool      `json:"default,omitempty"`
+}
+
+// CustomFieldValueProjectDto is a custom field value option as returned by
+// the project-scoped value endpoints. Not to be confused with
+// CustomFieldValueWithCfDto, which is an unrelated, differently-shaped DTO
+// used for setting values on launches/test results.
+type CustomFieldValueProjectDto struct {
+	ID          int64          `json:"id"`
+	Name        string         `json:"name,omitempty"`
+	Global      bool           `json:"global,omitempty"`
+	CustomField CustomFieldDto `json:"customField"`
+}
+
+// CustomFieldValueProjectPatchDto updates a custom field value's name,
+// default flag, or global flag. Only non-nil fields are sent.
+type CustomFieldValueProjectPatchDto struct {
+	Name    *string `json:"name,omitempty"`
+	Default *bool   `json:"default,omitempty"`
+	Global  *bool   `json:"global,omitempty"`
+}
+
 // ── Test Case Examples / Versions / Attachments ───────────────────────────────
 
 // TestCaseExampleParam is a single key-value parameter in a test case example row.

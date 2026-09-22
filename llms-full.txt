@@ -1,6 +1,6 @@
 # TestOps MCP — Full LLM Reference
 
-> MCP server that connects Claude to Allure TestOps. 117 curated tools + 600+ dynamic OpenAPI endpoints + 2 prompt templates + 4 resources.
+> MCP server that connects Claude to Allure TestOps. 130 curated tools + 600+ dynamic OpenAPI endpoints + 2 prompt templates + 4 resources.
 > Module: github.com/MimoJanra/TestOpsMCP | Go 1.27+ | Apache 2.0 | MCP protocol 2025-11-25
 
 ---
@@ -26,6 +26,7 @@ internal/
     tools_projects.go       — project management (3 tools)
     tools_analytics.go      — analytics (3 tools)
     tools_relations.go      — test case relations (9 tools)
+    tools_customfields.go   — custom field definitions, project attachment, value catalog (13 tools)
     tools_tasks.go          — async task management (3 tools)
     tools_analysis.go       — AI-powered analysis via sampling (1 tool)
     openapi_loader.go       — loads testops.json, builds searchable index
@@ -599,6 +600,57 @@ set (full replace, e.g. 'blocks', 'is blocked by'):
 ```json
 { "test_case_id": "integer (required)" }
 ```
+
+---
+
+### Custom Fields — Definitions, Project Attachment & Values (13 tools)
+
+Three layers: a custom field **definition** (org-wide, e.g. "Priority"), its **project attachment** (a project opts in, and sets required/locked/default there), and its **value catalog** within a project (the selectable options, e.g. "High"/"Low"). Setting values *on a test case* is `update_test_case_custom_fields` (above) — these tools manage the fields and their options, not test-case assignments.
+
+#### create_custom_field / get_custom_field / update_custom_field / delete_custom_field
+create: `{ "name": "string (required)", "required": "boolean (required)", "single_select": "boolean (optional)" }`
+get/delete: `{ "custom_field_id": integer }`
+update (all fields optional, only passed ones change):
+```json
+{
+  "custom_field_id": "integer (required)",
+  "name": "string (optional)",
+  "required": "boolean (optional)",
+  "single_select": "boolean (optional)",
+  "locked": "boolean (optional)"
+}
+```
+`delete_custom_field` is permanent — prefer `set_custom_field_archived` for a reversible removal.
+
+#### set_custom_field_archived
+```json
+{ "custom_field_id": "integer (required)", "archived": "boolean (required)" }
+```
+
+#### list_project_custom_fields / get_project_custom_field
+list: `{ "project_id": "integer (required)", "query": "string (optional)", "page": "integer (optional, default 0)", "size": "integer (optional, default 10)" }`
+get one: `{ "project_id": "integer (required)", "custom_field_id": "integer (required)" }` → project-scoped required/locked/default settings plus the field definition.
+
+#### add_custom_fields_to_project / remove_custom_field_from_project
+add: `{ "project_id": "integer (required)", "custom_field_ids": [N, ...] }`
+remove: `{ "project_id": "integer (required)", "custom_field_id": "integer (required)" }` (detaches only — doesn't delete the field definition or its values)
+
+#### update_project_custom_field
+The current replacement for the API's deprecated set-required/set-default endpoints. All fields optional, only passed ones change:
+```json
+{
+  "project_id": "integer (required)",
+  "custom_field_id": "integer (required)",
+  "required": "boolean (optional)",
+  "locked": "boolean (optional)",
+  "default_custom_field_value_id": "integer (optional)"
+}
+```
+
+#### create_custom_field_value / update_custom_field_value / delete_custom_field_value
+create: `{ "project_id": "integer (required)", "custom_field_id": "integer (required)", "name": "string (required)", "default": "boolean (optional)" }`
+update (all fields optional, only passed ones change): `{ "project_id": "integer (required)", "value_id": "integer (required)", "name": "string (optional)", "default": "boolean (optional)", "global": "boolean (optional)" }`
+delete: `{ "project_id": "integer (required)", "value_id": "integer (required)" }` — test cases currently set to this value lose it.
 
 ---
 

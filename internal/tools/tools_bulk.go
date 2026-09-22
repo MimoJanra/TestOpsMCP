@@ -551,6 +551,9 @@ func (r *Registry) bulkAddTestCaseCustomFields(ctx context.Context, args bulkAdd
 	}
 	cfv := make([]allure.CustomFieldWithValuesDto, len(args.CustomFields))
 	for i, cf := range args.CustomFields {
+		if len(cf.Values) == 0 {
+			return nil, fmt.Errorf("custom_fields[%d].values must not be empty — this tool adds values, it doesn't clear fields (use bulk_remove_test_case_custom_fields for that)", i)
+		}
 		for _, v := range cf.Values {
 			if v.Name == "" {
 				return nil, fmt.Errorf("custom_fields[%d].values: name must be set for value id %d (the API rejects id-only values) — get it via list_custom_field_values", i, v.ID)

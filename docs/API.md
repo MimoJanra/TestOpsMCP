@@ -14,7 +14,7 @@ Complete reference for Allure MCP Server tools and endpoints.
 
 ## Tools
 
-The server exposes **117 tools** across multiple categories covering launches, test results, test cases, bulk operations, analytics, async tasks, and AI analysis. See [llms-full.txt](../llms-full.txt) for the complete reference.
+The server exposes **130 tools** across multiple categories covering launches, test results, test cases, bulk operations, custom fields, analytics, async tasks, and AI analysis. See [llms-full.txt](../llms-full.txt) for the complete reference.
 
 ---
 
@@ -915,3 +915,122 @@ Fetches failed test results and uses MCP sampling to ask Claude for root-cause a
 ```
 
 If sampling is unavailable, returns `summary` of raw failures with an `error` field.
+
+---
+
+## Custom Field Management Tools
+
+Three layers: a custom field **definition** (org-wide, e.g. "Priority"), its **project attachment** (a project opts in, and sets required/locked/default there), and its **value catalog** within a project (the selectable options, e.g. "High"/"Low"). Setting values *on a test case* is `update_test_case_custom_fields` (see Test Cases Management Tools) — these tools manage the fields and their options, not test-case assignments.
+
+### `create_custom_field`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | string | ✓ | Field name (e.g. "Severity") |
+| `required` | boolean | ✓ | Whether a value must be set on every test case it's attached to |
+| `single_select` | boolean | | At most one value per test case (default false) |
+
+### `get_custom_field` / `delete_custom_field`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `custom_field_id` | integer | ✓ | Custom field ID |
+
+`delete_custom_field` is permanent — prefer `set_custom_field_archived` for a reversible removal.
+
+### `update_custom_field`
+
+All fields optional — only the ones passed are changed.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `custom_field_id` | integer | ✓ | Custom field ID |
+| `name` | string | | New field name |
+| `required` | boolean | | Whether a value must be set |
+| `single_select` | boolean | | At most one value per test case |
+| `locked` | boolean | | Lock the definition against further changes |
+
+### `set_custom_field_archived`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `custom_field_id` | integer | ✓ | Custom field ID |
+| `archived` | boolean | ✓ | `true` to archive, `false` to restore |
+
+### `list_project_custom_fields`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | integer | ✓ | Allure project ID |
+| `query` | string | | Filter by field name |
+| `page` | integer | | Page number (0-based), default 0 |
+| `size` | integer | | Items per page, default 10 |
+
+### `get_project_custom_field`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | integer | ✓ | Allure project ID |
+| `custom_field_id` | integer | ✓ | Custom field ID |
+
+Returns the field's project-scoped required/locked/default settings plus the field definition.
+
+### `add_custom_fields_to_project`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | integer | ✓ | Allure project ID |
+| `custom_field_ids` | integer[] | ✓ | IDs of existing custom field definitions to attach |
+
+### `remove_custom_field_from_project`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | integer | ✓ | Allure project ID |
+| `custom_field_id` | integer | ✓ | Custom field ID |
+
+Detaches the field from the project only — does not delete the field definition or its values.
+
+### `update_project_custom_field`
+
+The current replacement for the API's deprecated set-required/set-default endpoints. All fields optional — only the ones passed are changed.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | integer | ✓ | Allure project ID |
+| `custom_field_id` | integer | ✓ | Custom field ID |
+| `required` | boolean | | Whether a value must be set on this project's test cases |
+| `locked` | boolean | | Lock this project's use of the field |
+| `default_custom_field_value_id` | integer | | Value ID to use as the default in this project |
+
+### `create_custom_field_value`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | integer | ✓ | Allure project ID |
+| `custom_field_id` | integer | ✓ | Custom field to add the value to |
+| `name` | string | ✓ | The new value's display name |
+| `default` | boolean | | Make this the field's default value in this project |
+
+Use `list_custom_field_values` first to check the value doesn't already exist.
+
+### `update_custom_field_value`
+
+All fields optional — only the ones passed are changed. Existing test cases/results already assigned this value are unaffected.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | integer | ✓ | Allure project ID |
+| `value_id` | integer | ✓ | Custom field value ID |
+| `name` | string | | New display name |
+| `default` | boolean | | Make this the field's default value in this project |
+| `global` | boolean | | Share this value globally rather than scoping it to this project |
+
+### `delete_custom_field_value`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | integer | ✓ | Allure project ID |
+| `value_id` | integer | ✓ | Custom field value ID |
+
+Test cases currently set to this value will lose it.

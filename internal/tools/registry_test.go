@@ -141,6 +141,20 @@ func TestRegistry_HasExpectedTools(t *testing.T) {
 		"cancel_task",
 		// Analysis tools
 		"analyze_launch_failures",
+		// Custom field management tools
+		"create_custom_field",
+		"get_custom_field",
+		"update_custom_field",
+		"delete_custom_field",
+		"set_custom_field_archived",
+		"list_project_custom_fields",
+		"get_project_custom_field",
+		"add_custom_fields_to_project",
+		"remove_custom_field_from_project",
+		"update_project_custom_field",
+		"create_custom_field_value",
+		"update_custom_field_value",
+		"delete_custom_field_value",
 	} {
 		if r.GetTool(name) == nil {
 			t.Errorf("tool %q not registered", name)
@@ -154,11 +168,11 @@ func TestRegistry_HasExpectedTools(t *testing.T) {
 	// newTestRegistry uses a nil Allure client, so the 2 tools gated on r.allure
 	// != nil (configure_allure_token, get_launch_dashboard) never register here
 	// regardless of this count — see TestDocsToolCountMatchesRegistry for the
-	// fully-configured count (117) that end users actually see.
-	// Expected count: 113 base tools + 2 OpenAPI tools (if spec found)
-	expected_count := 113
+	// fully-configured count (130) that end users actually see.
+	// Expected count: 126 base tools + 2 OpenAPI tools (if spec found)
+	expected_count := 126
 	if has_search && has_execute {
-		expected_count = 115
+		expected_count = 128
 	}
 
 	if got := len(r.ListTools()); got != expected_count {

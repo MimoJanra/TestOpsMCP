@@ -381,6 +381,33 @@ func TestBulkAddTestCaseCustomFields_UsesV2FlattenedShape(t *testing.T) {
 	}
 }
 
+// TestBulkAddTestCaseCustomFields_SendsRequestEvenWithNoValues documents that
+// this client method does NOT guard against an all-empty cfv row set — that
+// decision belongs to each call site (some legitimately want a no-op skip,
+// others want an empty list treated as a caller mistake), not to this shared
+// method silently swallowing it for every caller.
+func TestBulkAddTestCaseCustomFields_SendsRequestEvenWithNoValues(t *testing.T) {
+	called := false
+	c, _ := newTestServerClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/uaa/oauth/token" {
+			jwtHandler(nil)(w, r)
+			return
+		}
+		called = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	err := c.BulkAddTestCaseCustomFields(context.Background(), 3, []int64{10}, []CustomFieldWithValuesDto{
+		{CustomField: CustomFieldDto{ID: 5}, Values: nil},
+	})
+	if err != nil {
+		t.Fatalf("BulkAddTestCaseCustomFields: %v", err)
+	}
+	if !called {
+		t.Error("expected the request to still be sent — the empty-rows guard was moved to call sites")
+	}
+}
+
 func TestGetLaunchStatistics_AggregatesItems(t *testing.T) {
 	c, _ := newTestServerClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/uaa/oauth/token" {
