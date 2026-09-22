@@ -303,8 +303,10 @@ func (r *Registry) registerBulkTools() {
 	})
 
 	r.register(&Tool{
-		Name:        "bulk_remove_test_case_custom_fields",
-		Description: "Bulk remove custom fields from multiple test cases by custom field IDs",
+		Name: "bulk_remove_test_case_custom_fields",
+		Description: "Bulk remove custom fields from multiple test cases by custom field IDs. Looks up each " +
+			"test case's currently-set value(s) for the given fields first — the underlying API removes by " +
+			"value ID, not field ID, so this does one lookup per test case before the actual removal.",
 		InputSchema: bulkTCSchema("custom_field_ids", "array", "Custom field IDs to remove", map[string]any{"type": "integer"}),
 		Handler:     Typed(r.bulkRemoveTestCaseCustomFields),
 	})
@@ -583,7 +585,43 @@ func (r *Registry) bulkRemoveTestCaseCustomFields(ctx context.Context, args bulk
 	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
-	if err := r.allure.BulkRemoveTestCaseCustomFields(ctx, args.ProjectID, args.TestCaseIDs, args.CustomFieldIDs); err != nil {
+	if len(args.CustomFieldIDs) == 0 {
+		return nil, fmt.Errorf("custom_field_ids must not be empty")
+	}
+
+	// The v2 endpoint's "ids" parameter means cfv VALUE ids, not custom field
+	// ids — passing a custom field id there is a silent no-op that reports
+	// success but leaves the value in place (confirmed live, #18). Different
+	// test cases can have different values set for the same field, so each
+	// one's current value id(s) must be resolved before removing anything.
+	fieldSet := make(map[int64]bool, len(args.CustomFieldIDs))
+	for _, id := range args.CustomFieldIDs {
+		fieldSet[id] = true
+	}
+	valueIDSet := make(map[int64]bool)
+	for _, tcID := range args.TestCaseIDs {
+		overview, err := r.allure.GetTestCaseOverview(ctx, tcID)
+		if err != nil {
+			return nil, fmt.Errorf("look up current custom field values for test case %d: %w", tcID, err)
+		}
+		for _, f := range customFieldsFromOverview(overview) {
+			if !fieldSet[f.CustomField.ID] {
+				continue
+			}
+			for _, v := range f.Values {
+				valueIDSet[v.ID] = true
+			}
+		}
+	}
+	if len(valueIDSet) == 0 {
+		return map[string]any{"status": "success", "count": 0}, nil
+	}
+	valueIDs := make([]int64, 0, len(valueIDSet))
+	for id := range valueIDSet {
+		valueIDs = append(valueIDs, id)
+	}
+
+	if err := r.allure.BulkRemoveTestCaseCustomFields(ctx, args.ProjectID, args.TestCaseIDs, valueIDs); err != nil {
 		return nil, fmt.Errorf("bulk remove custom fields: %w", err)
 	}
 	return map[string]any{"status": "success", "count": len(args.TestCaseIDs)}, nil

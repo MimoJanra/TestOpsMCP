@@ -542,16 +542,13 @@ func TestDeleteTestCaseStep_Handler(t *testing.T) {
 }
 
 func TestGetTestCaseCustomFields_Handler(t *testing.T) {
+	// Sourced from get_test_case's overview response (flat, one row per
+	// value), not the dedicated GET /cfv endpoint — see #18.
 	r := newTestRegistryWithServer(t, func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch req.URL.Path {
 		case "/api/testcase/1/overview":
-			_, _ = w.Write([]byte(`{"id":1,"projectId":5}`))
-		case "/api/testcase/1/cfv":
-			if req.URL.Query().Get("projectId") != "5" {
-				t.Errorf("expected projectId=5 query param, got %q", req.URL.RawQuery)
-			}
-			_, _ = w.Write([]byte(`[{"customField":{"id":1,"name":"Priority"},"values":[{"id":10,"name":"High"}]}]`))
+			_, _ = w.Write([]byte(`{"id":1,"projectId":5,"customFields":[{"customField":{"id":1,"name":"Priority"},"id":10,"name":"High"}]}`))
 		default:
 			t.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
 		}
@@ -565,20 +562,25 @@ func TestGetTestCaseCustomFields_Handler(t *testing.T) {
 	if len(fields) != 1 || fields[0]["custom_field_name"] != "Priority" {
 		t.Errorf("unexpected fields: %+v", fields)
 	}
+	values := fields[0]["values"].([]map[string]any)
+	if len(values) != 1 || values[0]["name"] != "High" {
+		t.Errorf("unexpected values: %+v", values)
+	}
 }
 
 func TestUpdateTestCaseCustomFields_Handler(t *testing.T) {
 	var sawRemove, sawAdd bool
+	var removeBody map[string]any
 	r := newTestRegistryWithServer(t, func(w http.ResponseWriter, req *http.Request) {
 		switch req.URL.Path {
 		case "/api/testcase/1/overview":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":1,"projectId":5}`))
-		case "/api/testcase/1/cfv":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`[]`))
+			// Field 1 already has a value (id 9) — exercises the remove call,
+			// which must target that VALUE id, not the field id (see #18).
+			_, _ = w.Write([]byte(`{"id":1,"projectId":5,"customFields":[{"customField":{"id":1,"name":"Priority"},"id":9,"name":"Old"}]}`))
 		case "/api/v2/test-case/bulk/cfv/remove":
 			sawRemove = true
+			_ = json.NewDecoder(req.Body).Decode(&removeBody)
 			w.WriteHeader(http.StatusNoContent)
 		case "/api/v2/test-case/bulk/cfv/add":
 			sawAdd = true
@@ -606,6 +608,10 @@ func TestUpdateTestCaseCustomFields_Handler(t *testing.T) {
 	if !sawAdd {
 		t.Error("expected a bulk cfv/add call to set the desired values")
 	}
+	ids, _ := removeBody["ids"].([]any)
+	if len(ids) != 1 || ids[0] != float64(9) {
+		t.Errorf("remove call ids = %v, want [9] (the existing value's id, not the field id 1)", ids)
+	}
 }
 
 func TestUpdateTestCaseCustomFields_SkipsAddWhenOnlyClearing(t *testing.T) {
@@ -614,10 +620,7 @@ func TestUpdateTestCaseCustomFields_SkipsAddWhenOnlyClearing(t *testing.T) {
 		switch req.URL.Path {
 		case "/api/testcase/1/overview":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":1,"projectId":5}`))
-		case "/api/testcase/1/cfv":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`[{"customField":{"id":1,"name":"Priority"},"values":[{"id":99,"name":"Low"}]}]`))
+			_, _ = w.Write([]byte(`{"id":1,"projectId":5,"customFields":[{"customField":{"id":1,"name":"Priority"},"id":99,"name":"Low"}]}`))
 		case "/api/v2/test-case/bulk/cfv/remove":
 			w.WriteHeader(http.StatusNoContent)
 		case "/api/v2/test-case/bulk/cfv/add":
@@ -645,37 +648,6 @@ func TestUpdateTestCaseCustomFields_SkipsAddWhenOnlyClearing(t *testing.T) {
 	}
 }
 
-func TestUpdateTestCaseCustomFields_SnapshotFailureIsNonFatal(t *testing.T) {
-	r := newTestRegistryWithServer(t, func(w http.ResponseWriter, req *http.Request) {
-		switch req.URL.Path {
-		case "/api/testcase/1/overview":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":1,"projectId":5}`))
-		case "/api/testcase/1/cfv":
-			w.WriteHeader(http.StatusInternalServerError)
-		case "/api/v2/test-case/bulk/cfv/remove":
-			w.WriteHeader(http.StatusNoContent)
-		case "/api/v2/test-case/bulk/cfv/add":
-			w.WriteHeader(http.StatusOK)
-		default:
-			t.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
-		}
-	})
-	args := updateTestCaseCustomFieldsArgs{TestCaseID: 1}
-	args.CustomFields = append(args.CustomFields, struct {
-		CustomFieldID int64                        `json:"custom_field_id"`
-		Values        []allure.CustomFieldValueDto `json:"values"`
-	}{CustomFieldID: 1, Values: []allure.CustomFieldValueDto{{ID: 10, Name: "High"}}})
-
-	res, err := r.updateTestCaseCustomFields(context.Background(), args)
-	if err != nil {
-		t.Fatalf("expected the update to still succeed when only the pre-flight snapshot fails: %v", err)
-	}
-	if res.(map[string]any)["status"] != "updated" {
-		t.Errorf("unexpected result: %v", res)
-	}
-}
-
 func TestUpdateTestCaseCustomFields_RestoresOnAddFailure(t *testing.T) {
 	var addCalls int
 	var lastAddBody map[string]any
@@ -683,10 +655,7 @@ func TestUpdateTestCaseCustomFields_RestoresOnAddFailure(t *testing.T) {
 		switch req.URL.Path {
 		case "/api/testcase/1/overview":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":1,"projectId":5}`))
-		case "/api/testcase/1/cfv":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`[{"customField":{"id":1,"name":"Priority"},"values":[{"id":99,"name":"Low"}]}]`))
+			_, _ = w.Write([]byte(`{"id":1,"projectId":5,"customFields":[{"customField":{"id":1,"name":"Priority"},"id":99,"name":"Low"}]}`))
 		case "/api/v2/test-case/bulk/cfv/remove":
 			w.WriteHeader(http.StatusNoContent)
 		case "/api/v2/test-case/bulk/cfv/add":

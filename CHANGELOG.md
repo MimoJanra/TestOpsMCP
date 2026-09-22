@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-09-22 - Fix AQL Syntax and Remaining Custom Field Value/Field-ID Confusion
+
 ### Fixed
 
 - **`search_test_cases`/`validate_test_case_query`'s documented AQL syntax was backwards.** The tool description claimed string literals must be single-quoted (`status = 'active'`) and double quotes cause a 400 — the actual Allure AQL grammar (per docs.qameta.io/allure-testops/advanced/aql/) requires **double**-quoted string literals, uses `~=` for partial match (not `~` alone), and references custom fields via `cf["Name"] = "value"` bracket notation. Every example in the old description, including the tool's own advertised syntax, was invalid AQL. Reported live: a query returning `valid: false` for every string-literal query tried, including the tool's own documented example. Corrected the description and all doc examples to the real, double-quoted syntax.
+- **`get_test_case_custom_fields` still returned empty `values` even with the `projectId` fix from 2.2.2** — the dedicated `GET /api/testcase/{id}/cfv` endpoint is unreliable on this API regardless of that param, confirmed by comparing against `get_test_case`'s own (correct) `customFields` field. Rewrote the tool to source from the test case's overview instead of that endpoint at all.
+- **`bulk_remove_test_case_custom_fields` still didn't remove anything after the 2.2.2 v1→v2 endpoint switch.** The v2 endpoint's `ids` parameter means cfv **value** ids, not custom field ids — passing a field id is a silent no-op (204, nothing removed). Confirmed live by calling the raw endpoint with the value id directly, which worked. The tool now resolves each test case's current value id(s) for the given field(s) via its overview before removing. `update_test_case_custom_fields`'s clear-then-set implementation, and its rollback snapshot (which was silently reading the same broken `/cfv` GET and would never have restored a real value), are fixed the same way.
 
 ## [2.3.0] - 2026-09-22 - Add Custom Field Management, Fix update_test_case_step Body Drop
 

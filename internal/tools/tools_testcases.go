@@ -1007,23 +1007,17 @@ func (r *Registry) getTestCaseCustomFields(ctx context.Context, args getTestCase
 
 	r.logger.Info("fetching test case custom fields", map[string]any{"test_case_id": args.TestCaseID})
 
-	// project_id is a required query param on the underlying API (per
-	// spec/testops.json) — the test case's overview already carries it.
+	// The dedicated GET /api/testcase/{id}/cfv endpoint is unreliable on this
+	// API: it returns empty values even for a field confirmed (via get_test_case)
+	// to have one, even with the required projectId query param supplied.
+	// get_test_case's overview response carries the same data correctly, so
+	// this is sourced from there instead. Confirmed live: github.com/MimoJanra/TestOpsMCP/issues/18.
 	overview, err := r.allure.GetTestCaseOverview(ctx, args.TestCaseID)
 	if err != nil {
-		return nil, fmt.Errorf("look up test case project: %w", err)
-	}
-	projectID := int64(nodeFloat(overview, "projectId"))
-	if projectID <= 0 {
-		return nil, fmt.Errorf("test case %d has no projectId in its overview", args.TestCaseID)
-	}
-
-	fields, err := r.allure.GetTestCaseCustomFields(ctx, args.TestCaseID, projectID)
-	if err != nil {
-		r.logger.Error("get test case custom fields", err, map[string]any{"test_case_id": args.TestCaseID})
 		return nil, fmt.Errorf("get test case custom fields: %w", err)
 	}
 
+	fields := customFieldsFromOverview(overview)
 	result := make([]map[string]any, len(fields))
 	for i, f := range fields {
 		values := make([]map[string]any, len(f.Values))
@@ -1041,6 +1035,38 @@ func (r *Registry) getTestCaseCustomFields(ctx context.Context, args getTestCase
 	}
 
 	return map[string]any{"custom_fields": result}, nil
+}
+
+// customFieldsFromOverview extracts a test case's current custom field values
+// from its overview response (map[string]any, as returned by
+// GetTestCaseOverview). The overview's "customFields" array is flat — one row
+// per value, each carrying its own nested "customField" — so rows are grouped
+// here by custom field ID to match the field-with-nested-values shape used
+// elsewhere (CustomFieldWithValuesDto).
+func customFieldsFromOverview(overview map[string]any) []allure.CustomFieldWithValuesDto {
+	raw, _ := overview["customFields"].([]any)
+	order := make([]int64, 0, len(raw))
+	byID := make(map[int64]*allure.CustomFieldWithValuesDto, len(raw))
+	for _, item := range raw {
+		row, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		cf, _ := row["customField"].(map[string]any)
+		fieldID := int64(nodeFloat(cf, "id"))
+		f, ok := byID[fieldID]
+		if !ok {
+			f = &allure.CustomFieldWithValuesDto{CustomField: allure.CustomFieldDto{ID: fieldID, Name: nodeString(cf, "name")}}
+			byID[fieldID] = f
+			order = append(order, fieldID)
+		}
+		f.Values = append(f.Values, allure.CustomFieldValueDto{ID: nodeInt64(row, "id"), Name: nodeString(row, "name")})
+	}
+	result := make([]allure.CustomFieldWithValuesDto, 0, len(order))
+	for _, id := range order {
+		result = append(result, *byID[id])
+	}
+	return result
 }
 
 type updateTestCaseCustomFieldsArgs struct {
@@ -1094,26 +1120,51 @@ func (r *Registry) updateTestCaseCustomFields(ctx context.Context, args updateTe
 	// is purely an optimistic safety net — if the lookup itself fails, fall
 	// back to the old best-effort (no rollback) behavior rather than
 	// aborting an update that would otherwise have succeeded.
+	// Sourced from the overview response, not GetTestCaseCustomFields (the
+	// dedicated GET /cfv endpoint) — that endpoint returns empty values even
+	// for a field confirmed to have one, which would make this snapshot
+	// silently useless (every field would look already-empty, so "restore"
+	// would never restore anything). Confirmed live: github.com/MimoJanra/TestOpsMCP/issues/18.
 	originalByID := make(map[int64]allure.CustomFieldWithValuesDto)
-	if existing, err := r.allure.GetTestCaseCustomFields(ctx, args.TestCaseID, projectID); err != nil {
-		r.logger.Warn("could not snapshot existing custom field values before update; rollback on failure will be unavailable", map[string]any{
-			"test_case_id": args.TestCaseID,
-			"error":        err.Error(),
-		})
-	} else {
-		for _, f := range existing {
-			originalByID[f.CustomField.ID] = f
+	for _, f := range customFieldsFromOverview(overview) {
+		originalByID[f.CustomField.ID] = f
+	}
+
+	// valueIDsForFields collects the cfv VALUE ids (not custom field ids)
+	// currently set for the given field IDs, per a snapshot map keyed by
+	// field ID. The v2 bulk remove endpoint's "ids" parameter means cfv value
+	// ids — passing a custom field id there is a silent no-op that leaves the
+	// value in place while still reporting success (confirmed live, #18).
+	valueIDsForFields := func(byID map[int64]allure.CustomFieldWithValuesDto, ids []int64) []int64 {
+		var out []int64
+		for _, id := range ids {
+			if f, ok := byID[id]; ok {
+				for _, v := range f.Values {
+					out = append(out, v.ID)
+				}
+			}
 		}
+		return out
 	}
 
 	// restoreOriginalValues is called on any failure below. The bulk
 	// endpoints don't guarantee atomicity across rows, so a failed call may
-	// have partially applied its changes — re-clear every touched field
-	// unconditionally before restoring whichever ones had a value prior to
-	// this update, rather than assuming the failed call had no effect.
+	// have partially applied its changes — re-fetch to find whatever value
+	// ids are actually present now (old ones, partially-applied new ones, or
+	// a mix) and clear those before restoring whichever fields had a value
+	// prior to this update, rather than assuming the failed call had no effect.
 	restoreOriginalValues := func(cause error) error {
-		if clearErr := r.allure.BulkRemoveTestCaseCustomFields(ctx, projectID, []int64{args.TestCaseID}, fieldIDs); clearErr != nil {
-			return fmt.Errorf("%w (rollback also failed, custom fields may be left in a partial state: %v)", cause, clearErr)
+		currentByID := originalByID
+		if freshOverview, err := r.allure.GetTestCaseOverview(ctx, args.TestCaseID); err == nil {
+			currentByID = make(map[int64]allure.CustomFieldWithValuesDto)
+			for _, f := range customFieldsFromOverview(freshOverview) {
+				currentByID[f.CustomField.ID] = f
+			}
+		}
+		if toClear := valueIDsForFields(currentByID, fieldIDs); len(toClear) > 0 {
+			if clearErr := r.allure.BulkRemoveTestCaseCustomFields(ctx, projectID, []int64{args.TestCaseID}, toClear); clearErr != nil {
+				return fmt.Errorf("%w (rollback also failed, custom fields may be left in a partial state: %v)", cause, clearErr)
+			}
 		}
 		var original []allure.CustomFieldWithValuesDto
 		for _, id := range fieldIDs {
@@ -1134,10 +1185,11 @@ func (r *Registry) updateTestCaseCustomFields(ctx context.Context, args updateTe
 	// unconditionally broken on this API — even an empty-array body 500s,
 	// regardless of test case (github.com/MimoJanra/TestOpsMCP/issues/18).
 	// Routed through the bulk v2 endpoints instead, with a single test case ID:
-	// clear each field first (bulk remove only supports whole-field clearing,
-	// not per-value removal), then set the desired values.
-	if err := r.allure.BulkRemoveTestCaseCustomFields(ctx, projectID, []int64{args.TestCaseID}, fieldIDs); err != nil {
-		return nil, restoreOriginalValues(fmt.Errorf("clear existing custom field values: %w", err))
+	// clear each field's existing values first, then set the desired ones.
+	if toClear := valueIDsForFields(originalByID, fieldIDs); len(toClear) > 0 {
+		if err := r.allure.BulkRemoveTestCaseCustomFields(ctx, projectID, []int64{args.TestCaseID}, toClear); err != nil {
+			return nil, restoreOriginalValues(fmt.Errorf("clear existing custom field values: %w", err))
+		}
 	}
 	// A field with no values in this request is a deliberate "clear" (see
 	// the tool description) — skip the add call entirely when nothing is

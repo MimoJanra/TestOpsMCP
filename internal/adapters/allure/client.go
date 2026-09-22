@@ -351,19 +351,6 @@ func (c *Client) UpdateTestCase(ctx context.Context, testCaseID int64, req Updat
 	return c.doRequest(ctx, http.MethodPatch, fmt.Sprintf("/api/testcase/%d", testCaseID), req, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
-// GetTestCaseCustomFields returns all custom field values for a test case.
-// projectID is required by the API (per spec/testops.json) — omitting it was
-// returning stale/empty values for some custom fields even though the test
-// case genuinely had values set (confirmed live: github.com/MimoJanra/TestOpsMCP/issues/18).
-func (c *Client) GetTestCaseCustomFields(ctx context.Context, testCaseID, projectID int64) ([]CustomFieldWithValuesDto, error) {
-	var result []CustomFieldWithValuesDto
-	u := fmt.Sprintf("/api/testcase/%d/cfv?projectId=%d", testCaseID, projectID)
-	if err := c.doJSON(ctx, http.MethodGet, u, nil, &result, []int{http.StatusOK}...); err != nil {
-		return nil, err
-	}
-	return result, nil
-}
-
 // ListCustomFieldValues lists the valid values defined for a custom field within a project
 // (e.g. the allowed Priority or Section options), so callers can pick a real value ID
 // instead of guessing one.
@@ -811,10 +798,15 @@ func (c *Client) BulkAddTestCaseCustomFields(ctx context.Context, projectID int6
 // Uses the v2 endpoint (/api/v2/test-case/bulk/cfv/remove): the v1 endpoint
 // (/api/testcase/bulk/cfv/remove), despite reporting success, silently leaves
 // the custom field value in place on this API's backend.
-func (c *Client) BulkRemoveTestCaseCustomFields(ctx context.Context, projectID int64, testCaseIDs []int64, cfIDs []int64) error {
+//
+// valueIDs are cfv VALUE ids, NOT custom field ids — confirmed live: passing
+// a custom field id here is also a silent no-op (204, value left in place).
+// Callers must resolve the test case's current value id(s) for a field first
+// (e.g. via a test case's overview) and pass those.
+func (c *Client) BulkRemoveTestCaseCustomFields(ctx context.Context, projectID int64, testCaseIDs []int64, valueIDs []int64) error {
 	return c.bulkPost(ctx, "/api/v2/test-case/bulk/cfv/remove", TestCaseCfvBulkRemoveDtoV2{
 		Selection: TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: testCaseIDs},
-		IDs:       cfIDs,
+		IDs:       valueIDs,
 	})
 }
 

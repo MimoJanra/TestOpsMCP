@@ -346,3 +346,51 @@ func TestBulkTCSchema(t *testing.T) {
 		t.Error("scalar field schema should not have items")
 	}
 }
+
+// TestBulkRemoveTestCaseCustomFields_ResolvesValueIDsPerTestCase guards
+// against #18: the v2 remove endpoint's "ids" means cfv VALUE ids, not custom
+// field ids, and different test cases can have different values set for the
+// same field — this must look up each one's current value id before removing.
+func TestBulkRemoveTestCaseCustomFields_ResolvesValueIDsPerTestCase(t *testing.T) {
+	var removeBody map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/uaa/oauth/token", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"test-jwt","expires_in":3600}`))
+	})
+	mux.HandleFunc("/api/testcase/1/overview", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":1,"customFields":[{"customField":{"id":5,"name":"Priority"},"id":100,"name":"High"}]}`))
+	})
+	mux.HandleFunc("/api/testcase/2/overview", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":2,"customFields":[{"customField":{"id":5,"name":"Priority"},"id":200,"name":"Medium"}]}`))
+	})
+	mux.HandleFunc("/api/v2/test-case/bulk/cfv/remove", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&removeBody)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	client := allure.NewClient(server.URL, "test-token", 5*time.Second)
+	r := NewRegistry(client, core.NewLogger(core.LevelError))
+
+	res, err := r.bulkRemoveTestCaseCustomFields(context.Background(), bulkRemoveTestCaseCustomFieldsArgs{
+		ProjectID: 1, TestCaseIDs: []int64{1, 2}, CustomFieldIDs: []int64{5},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.(map[string]any)["status"] != "success" {
+		t.Errorf("unexpected result: %v", res)
+	}
+
+	ids, _ := removeBody["ids"].([]any)
+	got := map[float64]bool{}
+	for _, id := range ids {
+		got[id.(float64)] = true
+	}
+	if len(got) != 2 || !got[100] || !got[200] {
+		t.Errorf("remove call ids = %v, want the two distinct value ids [100, 200] (not the field id 5)", ids)
+	}
+}
