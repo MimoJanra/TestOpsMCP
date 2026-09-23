@@ -118,7 +118,7 @@ func TestAddTestCaseMembers(t *testing.T) {
 
 func TestRemoveTestCaseMembers(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/testcase/bulk/member/remove", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v2/test-case/bulk/member/remove", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 	r := newRelationsTestRegistry(t, mux)

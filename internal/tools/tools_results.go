@@ -99,8 +99,10 @@ func (r *Registry) registerResultTools() {
 	})
 
 	r.register(&Tool{
-		Name:        "resolve_test_result",
-		Description: "Resolve a test result (mark as resolved/fixed)",
+		Name: "resolve_test_result",
+		Description: "Resolve a test result — mirrors the web UI's \"Change status\" dialog (Status/Category/Details). " +
+			"Get valid category ids via search_testops_operations (\"category\") + execute_testops_operation " +
+			"(GET /api/project/{project_id}/category).",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -112,6 +114,14 @@ func (r *Registry) registerResultTools() {
 					"type":        "string",
 					"enum":        []string{"failed", "broken", "passed", "skipped", "unknown"},
 					"description": "Resolution status to set",
+				},
+				"category_id": map[string]any{
+					"type":        "integer",
+					"description": "Category ID (optional) — as shown in the \"Category\" dropdown",
+				},
+				"message": map[string]any{
+					"type":        "string",
+					"description": "Details/reason text (optional) — as shown in the \"Details\" field",
 				},
 			},
 			"required": []string{"test_result_id", "status"},
@@ -384,6 +394,8 @@ func (r *Registry) muteTestResult(ctx context.Context, args muteTestResultArgs) 
 type resolveTestResultArgs struct {
 	TestResultID int64  `json:"test_result_id"`
 	Status       string `json:"status"`
+	CategoryID   int64  `json:"category_id"`
+	Message      string `json:"message"`
 }
 
 func (r *Registry) resolveTestResult(ctx context.Context, args resolveTestResultArgs) (any, error) {
@@ -396,7 +408,7 @@ func (r *Registry) resolveTestResult(ctx context.Context, args resolveTestResult
 
 	r.logger.Info("resolving test result", map[string]any{"test_result_id": args.TestResultID})
 
-	if err := r.allure.ResolveTestResult(ctx, args.TestResultID, args.Status); err != nil {
+	if err := r.allure.ResolveTestResult(ctx, args.TestResultID, args.Status, args.CategoryID, args.Message); err != nil {
 		r.logger.Error("resolve test result", err, map[string]any{"test_result_id": args.TestResultID})
 		return nil, fmt.Errorf("resolve test result: %w", err)
 	}

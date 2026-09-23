@@ -1,6 +1,6 @@
 # TestOps MCP — Full LLM Reference
 
-> MCP server that connects Claude to Allure TestOps. 131 curated tools + 600+ dynamic OpenAPI endpoints + 2 prompt templates + 4 resources.
+> MCP server that connects Claude to Allure TestOps. 132 curated tools + 600+ dynamic OpenAPI endpoints + 2 prompt templates + 4 resources.
 > Module: github.com/MimoJanra/TestOpsMCP | Go 1.27+ | Apache 2.0 | MCP protocol 2025-11-25
 
 ---
@@ -330,8 +330,15 @@ Returns: `{"status": "assigned"}`
 Returns: `{"status": "muted"}`
 
 #### resolve_test_result
+Mirrors the web UI's "Change status" dialog (Status/Category/Details). Get valid category ids via
+`execute_testops_operation` on `GET /api/project/{project_id}/category`.
 ```json
-{ "test_result_id": "integer (required)" }
+{
+  "test_result_id": "integer (required)",
+  "status": "string (required) — failed|broken|passed|skipped|unknown",
+  "category_id": "integer (optional)",
+  "message": "string (optional) — the \"Details\" field"
+}
 ```
 Returns: `{"status": "resolved"}`
 
@@ -823,32 +830,42 @@ Change history for a test case.
 
 ---
 
-### Test Cases — Folder Tree (4 tools)
+### Test Cases — Folder Tree (5 tools)
 
-Navigate and manage the test case folder tree.
+In Allure a "folder" is a value of a custom field, and it only exists within a named **tree** built from custom
+fields (e.g. the "Suites" tree groups by the Suite field; "Features" by Feature → Story). Every folder tool takes a
+`tree_id` (optional when the project has exactly one tree) and addresses positions by **node id**, not by path.
+All of these use the v2 tree API; the v1 path-based endpoints failed ("tree has no group at level 0").
+
+#### list_test_case_trees
+```json
+{"project_id": "integer (required)"}
+```
+Returns `{"trees": [{"id": 353, "name": "Suites"}, ...]}`.
 
 #### browse_test_case_tree
-Browse test cases at a given tree path. Start with empty path for root.
+One level of a tree: folders and test cases directly inside `parent_node_id` (tree root when omitted).
 ```json
-{"project_id": "integer (required)", "path": "[integer] (default [])", "page": "integer (default 0)", "size": "integer (default 50)"}
+{"project_id": "integer (required)", "tree_id": "integer (optional)", "parent_node_id": "integer (optional)", "page": "integer (default 0)", "size": "integer (default 50)"}
 ```
+Returns `tree_id`, `node_id`, `folders: [{id, name, test_case_count}]`, `test_cases: [{test_case_id, leaf_id, name, status}]`.
 
 #### get_test_case_tree_folders
-List subfolders inside a tree path. Returns folder names and IDs.
-```json
-{"project_id": "integer (required)", "path": "[integer] (default [])", "page": "integer (default 0)", "size": "integer (default 50)"}
-```
+Same as browse_test_case_tree, folders only.
 
 #### move_test_cases_to_folder
-Move test cases to a folder (drag-and-drop). Pass empty dest_path to move to root.
+Move test cases into folder `node_id` (tree root when omitted) — sets the test case's custom field value for that
+folder. Asynchronous. The API takes tree leaf ids, which change on every move; the tool resolves them from the test
+case ids right before moving. Test cases not present in the tree come back in `not_found_test_case_ids`.
 ```json
-{"project_id": "integer (required)", "test_case_ids": "[integer] (required)", "dest_path": "[integer] (default [])"}
+{"project_id": "integer (required)", "tree_id": "integer (optional)", "test_case_ids": "[integer] (required)", "node_id": "integer (optional)"}
 ```
 
 #### create_test_case_folder
-Create a new folder in the test case tree.
+Create a folder under `parent_node_id` (tree root when omitted). Returns `folder_id` (use it as `node_id` /
+`parent_node_id`) and the underlying `custom_field_value_id`.
 ```json
-{"project_id": "integer (required)", "name": "string (required)", "parent_path": "[integer] (default [])"}
+{"project_id": "integer (required)", "tree_id": "integer (optional)", "name": "string (required)", "parent_node_id": "integer (optional)"}
 ```
 
 ---
@@ -934,8 +951,9 @@ All accept `launch_id` (integer, required) and `test_result_ids` ([integer], req
 ```
 
 #### bulk_resolve_test_results
+Mirrors the web UI's "Change status" dialog (Status/Category/Details), applied to many results at once.
 ```json
-{ "launch_id": N, "test_result_ids": [...] }
+{ "launch_id": N, "test_result_ids": [...], "status": "string (required)", "category_id": "integer (optional)", "message": "string (optional)" }
 ```
 
 ---

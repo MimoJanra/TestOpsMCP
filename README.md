@@ -26,7 +26,7 @@ Integrate **Allure TestOps** with Claude using the Model Context Protocol. Launc
 - Works with Claude Desktop, Claude Web, and custom MCP clients
 
 ### 🏭 Production-Grade
-- **131 tools** — complete Allure TestOps test case API coverage + full OpenAPI fallback (600+ endpoints)
+- **132 tools** — complete Allure TestOps test case API coverage + full OpenAPI fallback (600+ endpoints)
 - **MCP Prompts** — built-in templates (`analyze-test-failures`, `launch-report-summary`) for one-click workflows
 - **MCP Resources** — attach `allure://docs/quickstart` as context; widget resources for visual dashboards
 - **AI analysis** — `analyze_launch_failures` asks Claude to find root causes via MCP sampling
@@ -314,7 +314,7 @@ If you prefer running without Docker:
 
 ---
 
-## 🛠️ 131 Tools
+## 🛠️ 132 Tools
 
 ### Universal Tools
 - **`search_testops_operations`** — Search for any API operation by keyword
@@ -356,7 +356,7 @@ If you prefer running without Docker:
 `get_test_case_audit` • `get_test_case_history` • `list_deleted_test_cases` • `list_muted_test_cases`
 
 ### Test Cases — Folder Tree
-`browse_test_case_tree` • `get_test_case_tree_folders` • `move_test_cases_to_folder` • `create_test_case_folder`
+`list_test_case_trees` • `browse_test_case_tree` • `get_test_case_tree_folders` • `move_test_cases_to_folder` • `create_test_case_folder`
 
 ### Bulk Test Case Operations
 `bulk_set_test_case_status` • `bulk_add_test_case_tags` • `bulk_remove_test_case_tags` • `bulk_clone_test_cases` • `bulk_mute_test_cases` • `bulk_delete_test_cases` • `bulk_move_test_cases` • `bulk_set_test_case_layer` • `bulk_add_test_case_members` • `bulk_remove_test_case_members` • `bulk_add_test_case_custom_fields` • `bulk_remove_test_case_custom_fields` • `bulk_add_test_case_external_links` • `bulk_add_test_case_issues` • `bulk_remove_test_case_issues` • `bulk_run_test_cases_new_launch` • `bulk_run_test_cases_existing_launch` • `bulk_create_test_plan`

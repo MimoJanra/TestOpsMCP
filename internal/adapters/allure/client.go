@@ -294,9 +294,9 @@ func (c *Client) GetTestCaseOverview(ctx context.Context, testCaseID int64) (map
 }
 
 func (c *Client) RunTestCase(ctx context.Context, testCaseID, launchID, projectID int64) error {
-	return c.doRequest(ctx, http.MethodPost, "/api/testcase/bulk/run/existing", RunTestCaseRequest{
+	return c.doRequest(ctx, http.MethodPost, "/api/v2/test-case/bulk/run/existing", RunTestCaseRequest{
 		LaunchId:  launchID,
-		Selection: TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: []int64{testCaseID}},
+		Selection: TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: []int64{testCaseID}},
 	}, []int{http.StatusOK, http.StatusAccepted}...)
 }
 
@@ -830,55 +830,55 @@ func (c *Client) BulkRemoveTestCaseCustomFields(ctx context.Context, projectID i
 
 // BulkAddTestCaseExternalLinks adds external links to multiple test cases.
 func (c *Client) BulkAddTestCaseExternalLinks(ctx context.Context, projectID int64, testCaseIDs []int64, links []ExternalLinkDto) error {
-	return c.bulkPost(ctx, "/api/testcase/bulk/externallink/add", BulkExternalLinkAddDto{
-		Selection: TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: testCaseIDs},
+	return c.bulkPost(ctx, "/api/v2/test-case/bulk/external-link/add", BulkExternalLinkAddDto{
+		Selection: TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: testCaseIDs},
 		Links:     links,
 	})
 }
 
 // BulkAddTestCaseIssues adds issues to multiple test cases.
 func (c *Client) BulkAddTestCaseIssues(ctx context.Context, projectID int64, testCaseIDs []int64, issues []IssueDto) error {
-	return c.bulkPost(ctx, "/api/testcase/bulk/issue/add", BulkIssueAddDto{
-		Selection: TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: testCaseIDs},
+	return c.bulkPost(ctx, "/api/v2/test-case/bulk/issue/add", BulkIssueAddDto{
+		Selection: TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: testCaseIDs},
 		Issues:    issues,
 	})
 }
 
 // BulkRemoveTestCaseIssues removes issues from multiple test cases.
 func (c *Client) BulkRemoveTestCaseIssues(ctx context.Context, projectID int64, testCaseIDs []int64, issueIDs []int64) error {
-	return c.bulkPost(ctx, "/api/testcase/bulk/issue/remove", BulkIssueRemoveDto{
-		Selection: TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: testCaseIDs},
+	return c.bulkPost(ctx, "/api/v2/test-case/bulk/issue/remove", BulkIssueRemoveDto{
+		Selection: TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: testCaseIDs},
 		IDs:       issueIDs,
 	})
 }
 
 // BulkSetTestCaseLayer sets the test layer for multiple test cases.
 func (c *Client) BulkSetTestCaseLayer(ctx context.Context, projectID int64, testCaseIDs []int64, layerID int64) error {
-	return c.bulkPost(ctx, "/api/testcase/bulk/layer/set", BulkLayerSetDto{
-		Selection: TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: testCaseIDs},
+	return c.bulkPost(ctx, "/api/v2/test-case/bulk/layer/set", BulkLayerSetDto{
+		Selection: TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: testCaseIDs},
 		LayerID:   layerID,
 	})
 }
 
 // BulkMoveTestCases moves multiple test cases to another project.
 func (c *Client) BulkMoveTestCases(ctx context.Context, projectID int64, testCaseIDs []int64, toProjectID int64) error {
-	return c.bulkPost(ctx, "/api/testcase/bulk/move", BulkMoveDto{
-		Selection:   TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: testCaseIDs},
+	return c.bulkPost(ctx, "/api/v2/test-case/bulk/move", BulkMoveDto{
+		Selection:   TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: testCaseIDs},
 		ToProjectID: toProjectID,
 	})
 }
 
 // BulkDeleteTestCases permanently deletes multiple test cases.
 func (c *Client) BulkDeleteTestCases(ctx context.Context, projectID int64, testCaseIDs []int64) error {
-	return c.bulkPost(ctx, "/api/testcase/bulk/remove", BulkDeleteDto{
-		Selection: TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: testCaseIDs},
+	return c.bulkPost(ctx, "/api/v2/test-case/bulk/remove", BulkDeleteDto{
+		Selection: TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: testCaseIDs},
 	})
 }
 
 // BulkRunTestCasesNewLaunch runs multiple test cases in a new launch.
 func (c *Client) BulkRunTestCasesNewLaunch(ctx context.Context, projectID int64, testCaseIDs []int64, launchName string, assignees []string) error {
-	return c.bulkPost(ctx, "/api/testcase/bulk/run/new", BulkRunNewLaunchDto{
-		Selection:  TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: testCaseIDs},
+	return c.bulkPost(ctx, "/api/v2/test-case/bulk/run/new", BulkRunNewLaunchDto{
+		Selection:  TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: testCaseIDs},
 		LaunchName: launchName,
 		Assignees:  assignees,
 	})
@@ -886,8 +886,8 @@ func (c *Client) BulkRunTestCasesNewLaunch(ctx context.Context, projectID int64,
 
 // BulkRunTestCasesExistingLaunch runs multiple test cases in an existing launch.
 func (c *Client) BulkRunTestCasesExistingLaunch(ctx context.Context, projectID int64, testCaseIDs []int64, launchID int64, assignees []string) error {
-	return c.bulkPost(ctx, "/api/testcase/bulk/run/existing", BulkRunExistingLaunchDto{
-		Selection: TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: testCaseIDs},
+	return c.bulkPost(ctx, "/api/v2/test-case/bulk/run/existing", BulkRunExistingLaunchDto{
+		Selection: TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: testCaseIDs},
 		LaunchID:  launchID,
 		Assignees: assignees,
 	})
@@ -895,8 +895,8 @@ func (c *Client) BulkRunTestCasesExistingLaunch(ctx context.Context, projectID i
 
 // BulkCreateTestPlan creates a test plan from multiple test cases.
 func (c *Client) BulkCreateTestPlan(ctx context.Context, projectID int64, testCaseIDs []int64, testPlanName string) error {
-	return c.bulkPost(ctx, "/api/testcase/bulk/testplan/create", BulkCreateTestPlanDto{
-		Selection:    TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: testCaseIDs},
+	return c.bulkPost(ctx, "/api/v2/test-case/bulk/test-plan/create", BulkCreateTestPlanDto{
+		Selection:    TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: testCaseIDs},
 		TestPlanName: testPlanName,
 	})
 }
@@ -908,8 +908,8 @@ func (c *Client) BulkMuteTestCases(ctx context.Context, projectID int64, testCas
 	if name == "" {
 		name = "Muted via MCP"
 	}
-	return c.bulkPost(ctx, "/api/testcase/bulk/mute/add", BulkMuteDto{
-		Selection: TestCaseTreeSelectionDto{ProjectID: projectID, LeafsInclude: testCaseIDs},
+	return c.bulkPost(ctx, "/api/v2/test-case/bulk/mute/add", BulkMuteDto{
+		Selection: TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: testCaseIDs},
 		Mute:      MuteDto{Name: name, Reason: reason},
 	})
 }
@@ -970,11 +970,8 @@ func (c *Client) DeleteTestCaseStep(ctx context.Context, stepID int64) error {
 }
 
 func (c *Client) BulkSetTestCaseStatus(ctx context.Context, projectID, statusID, workflowID int64, testCaseIDs []int64) error {
-	selection := TestCaseTreeSelectionDto{
-		ProjectID:    projectID,
-		LeafsInclude: testCaseIDs,
-	}
-	return c.doRequest(ctx, http.MethodPost, "/api/testcase/bulk/status/set", TestCaseBulkStatusDto{
+	selection := TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: testCaseIDs}
+	return c.doRequest(ctx, http.MethodPost, "/api/v2/test-case/bulk/status/set", TestCaseBulkStatusDto{
 		Selection:  selection,
 		StatusID:   statusID,
 		WorkflowID: workflowID,
@@ -982,11 +979,8 @@ func (c *Client) BulkSetTestCaseStatus(ctx context.Context, projectID, statusID,
 }
 
 func (c *Client) BulkAddTestCaseTags(ctx context.Context, projectID int64, testCaseIDs []int64, tags []TestTagDto) error {
-	selection := TestCaseTreeSelectionDto{
-		ProjectID:    projectID,
-		LeafsInclude: testCaseIDs,
-	}
-	return c.doRequest(ctx, http.MethodPost, "/api/testcase/bulk/tag/add", TestCaseBulkTagDto{
+	selection := TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: testCaseIDs}
+	return c.doRequest(ctx, http.MethodPost, "/api/v2/test-case/bulk/tag/add", TestCaseBulkTagDto{
 		Selection: selection,
 		Tags:      tags,
 	}, []int{http.StatusNoContent, http.StatusOK, http.StatusAccepted}...)
@@ -997,22 +991,16 @@ func (c *Client) BulkAddTestCaseTags(ctx context.Context, projectID int64, testC
 // objects — tags are global project-wide entities, so their id is stable and
 // callers must resolve names to ids first (see resolveTagIDs in tools_bulk.go).
 func (c *Client) BulkRemoveTestCaseTags(ctx context.Context, projectID int64, testCaseIDs []int64, tagIDs []int64) error {
-	selection := TestCaseTreeSelectionDto{
-		ProjectID:    projectID,
-		LeafsInclude: testCaseIDs,
-	}
-	return c.doRequest(ctx, http.MethodPost, "/api/testcase/bulk/tag/remove", TestCaseBulkEntityIdsDto{
+	selection := TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: testCaseIDs}
+	return c.doRequest(ctx, http.MethodPost, "/api/v2/test-case/bulk/tag/remove", TestCaseBulkEntityIdsDto{
 		Selection: selection,
 		IDs:       tagIDs,
 	}, []int{http.StatusNoContent, http.StatusOK, http.StatusAccepted}...)
 }
 
 func (c *Client) BulkAddTestCaseMembers(ctx context.Context, projectID int64, testCaseIDs []int64, members []MemberDto) error {
-	selection := TestCaseTreeSelectionDto{
-		ProjectID:    projectID,
-		LeafsInclude: testCaseIDs,
-	}
-	return c.doRequest(ctx, http.MethodPost, "/api/testcase/bulk/member/add", TestCaseBulkMemberDto{
+	selection := TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: testCaseIDs}
+	return c.doRequest(ctx, http.MethodPost, "/api/v2/test-case/bulk/member/add", TestCaseBulkMemberDto{
 		Selection: selection,
 		Members:   members,
 	}, []int{http.StatusNoContent, http.StatusOK, http.StatusAccepted}...)
@@ -1022,11 +1010,8 @@ func (c *Client) BulkAddTestCaseMembers(ctx context.Context, projectID int64, te
 // add, the remove endpoint takes member (user) ids (TestCaseBulkEntityIdsDto),
 // not full member objects.
 func (c *Client) BulkRemoveTestCaseMembers(ctx context.Context, projectID int64, testCaseIDs []int64, memberIDs []int64) error {
-	selection := TestCaseTreeSelectionDto{
-		ProjectID:    projectID,
-		LeafsInclude: testCaseIDs,
-	}
-	return c.doRequest(ctx, http.MethodPost, "/api/testcase/bulk/member/remove", TestCaseBulkEntityIdsDto{
+	selection := TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: testCaseIDs}
+	return c.doRequest(ctx, http.MethodPost, "/api/v2/test-case/bulk/member/remove", TestCaseBulkEntityIdsDto{
 		Selection: selection,
 		IDs:       memberIDs,
 	}, []int{http.StatusNoContent, http.StatusOK, http.StatusAccepted}...)
@@ -1061,7 +1046,16 @@ func (c *Client) BulkHideTestResults(ctx context.Context, launchID int64, testRe
 	}, []int{http.StatusNoContent, http.StatusOK, http.StatusAccepted}...)
 }
 
+// BulkMuteTestResults mutes multiple test results. Like MuteTestResult and
+// BulkMuteTestCases, the DB has a NOT NULL constraint on the mute reason's
+// name that the spec doesn't surface (TestResultBulkMuteDto marks it
+// optional) — omitting it 500s, so name always defaults to the reason text,
+// or "Muted via MCP" if no reason is given.
 func (c *Client) BulkMuteTestResults(ctx context.Context, launchID int64, testResultIDs []int64, reason string) error {
+	name := reason
+	if name == "" {
+		name = "Muted via MCP"
+	}
 	selection := TestResultTreeSelectionDto{
 		LaunchID:     launchID,
 		LeafsInclude: testResultIDs,
@@ -1069,6 +1063,7 @@ func (c *Client) BulkMuteTestResults(ctx context.Context, launchID int64, testRe
 	return c.doRequest(ctx, http.MethodPost, "/api/testresult/bulk/mute", TestResultBulkMuteDto{
 		Selection: selection,
 		Reason:    reason,
+		Name:      name,
 	}, []int{http.StatusNoContent, http.StatusOK, http.StatusAccepted}...)
 }
 
@@ -1082,14 +1077,19 @@ func (c *Client) BulkUnmuteTestResults(ctx context.Context, launchID int64, test
 	}, []int{http.StatusNoContent, http.StatusOK, http.StatusAccepted}...)
 }
 
-func (c *Client) BulkResolveTestResults(ctx context.Context, launchID int64, testResultIDs []int64, status string) error {
+// BulkResolveTestResults uses the v2 endpoint: v1 (/api/testresult/bulk/resolve)
+// accepts the same body, sets the status, but silently drops message
+// (confirmed live), so the "Details" text never lands.
+func (c *Client) BulkResolveTestResults(ctx context.Context, launchID int64, testResultIDs []int64, status string, categoryID int64, message string) error {
 	selection := TestResultTreeSelectionDto{
 		LaunchID:     launchID,
 		LeafsInclude: testResultIDs,
 	}
-	return c.doRequest(ctx, http.MethodPost, "/api/testresult/bulk/resolve", TestResultBulkResolveDto{
-		Selection: selection,
-		Status:    status,
+	return c.doRequest(ctx, http.MethodPost, "/api/v2/test-result/bulk/resolve", TestResultBulkResolveDto{
+		Selection:  selection,
+		Status:     status,
+		CategoryID: categoryID,
+		Message:    message,
 	}, []int{http.StatusNoContent, http.StatusOK, http.StatusAccepted}...)
 }
 
@@ -1238,8 +1238,18 @@ func (c *Client) CopyLaunch(ctx context.Context, launchID int64, launchName stri
 	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/launch/%d/copy", launchID), map[string]any{"launchName": launchName}, []int{http.StatusOK, http.StatusAccepted, http.StatusCreated, http.StatusNoContent}...)
 }
 
-func (c *Client) ResolveTestResult(ctx context.Context, testResultID int64, status string) error {
-	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testresult/%d/resolve", testResultID), map[string]any{"status": status}, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
+// ResolveTestResult sets a test result's status, optionally with a category
+// and a details/reason message — mirrors the web UI's "Change status" dialog
+// (Status/Category/Details fields). Goes through the v2 bulk endpoint with a
+// one-result selection: the v1 POST /api/testresult/{id}/resolve accepts a
+// message but silently drops it (confirmed live), so it needs the result's
+// launch id for the selection.
+func (c *Client) ResolveTestResult(ctx context.Context, testResultID int64, status string, categoryID int64, message string) error {
+	tr, err := c.GetTestResult(ctx, testResultID)
+	if err != nil {
+		return fmt.Errorf("look up test result launch: %w", err)
+	}
+	return c.BulkResolveTestResults(ctx, tr.LaunchID, []int64{testResultID}, status, categoryID, message)
 }
 
 func (c *Client) UnmuteTestResult(ctx context.Context, testResultID int64) error {
@@ -1327,12 +1337,9 @@ func (c *Client) AddTestCaseMembers(ctx context.Context, testCaseID int64, membe
 }
 
 func (c *Client) RemoveTestCaseMembers(ctx context.Context, projectID, testCaseID int64, memberIDs []int64) error {
-	return c.bulkPost(ctx, "/api/testcase/bulk/member/remove", map[string]any{
-		"ids": memberIDs,
-		"selection": TestCaseTreeSelectionDto{
-			ProjectID:    projectID,
-			LeafsInclude: []int64{testCaseID},
-		},
+	return c.bulkPost(ctx, "/api/v2/test-case/bulk/member/remove", map[string]any{
+		"ids":       memberIDs,
+		"selection": TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: []int64{testCaseID}},
 	})
 }
 
@@ -1400,11 +1407,8 @@ func (c *Client) RestoreTestCase(ctx context.Context, testCaseID int64) error {
 }
 
 func (c *Client) BulkCloneTestCases(ctx context.Context, projectID int64, testCaseIDs []int64) error {
-	selection := TestCaseTreeSelectionDto{
-		ProjectID:    projectID,
-		LeafsInclude: testCaseIDs,
-	}
-	return c.doRequest(ctx, http.MethodPost, "/api/testcase/bulk/clone", map[string]any{
+	selection := TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: testCaseIDs}
+	return c.doRequest(ctx, http.MethodPost, "/api/v2/test-case/bulk/clone", map[string]any{
 		"selection": selection,
 	}, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
 }
@@ -1435,56 +1439,64 @@ func (c *Client) HasToken() bool {
 // Test Case Tree
 // ---------------------------------------------------------------------------
 
-// BrowseTestCaseTree returns folders (groups) and test cases (leaves) at the
-// given tree path within a project. Pass an empty path to start at the root.
-func (c *Client) BrowseTestCaseTree(ctx context.Context, projectID int64, path []int64, page, size int) (map[string]any, error) {
-	q := fmt.Sprintf("/api/testcasetree/leaf?projectId=%d&page=%d&size=%d", projectID, page, size)
-	for _, p := range path {
-		q += fmt.Sprintf("&path=%d", p)
+// ListTestCaseTrees returns the project's named test case trees (e.g. "Suites",
+// "Features"). Folders only exist within a tree, so every folder operation
+// needs one of these ids.
+func (c *Client) ListTestCaseTrees(ctx context.Context, projectID int64) ([]TestCaseTreeDto, error) {
+	var page TestCaseTreePage
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/v2/tree?projectId=%d&size=100", projectID), nil, &page, []int{http.StatusOK}...); err != nil {
+		return nil, err
 	}
-	var result map[string]any
+	return page.Content, nil
+}
+
+// GetTestCaseTreeNode returns a tree node and one page of its children
+// (folders and test cases). parentNodeID 0 means the tree root. baseAql, when
+// set, limits the tree to branches containing matching test cases (a folder's
+// Count then counts only matches), which is how leaves are located without
+// walking the whole tree.
+func (c *Client) GetTestCaseTreeNode(ctx context.Context, projectID, treeID, parentNodeID int64, baseAql string, page, size int) (*TestCaseTreeNodeResponse, error) {
+	q := fmt.Sprintf("/api/v2/project/%d/test-case/tree/tree-node?treeId=%d&page=%d&size=%d", projectID, treeID, page, size)
+	if parentNodeID != 0 {
+		q += fmt.Sprintf("&parentNodeId=%d", parentNodeID)
+	}
+	if baseAql != "" {
+		q += "&baseAql=" + url.QueryEscape(baseAql)
+	}
+	var result TestCaseTreeNodeResponse
 	if err := c.doJSON(ctx, http.MethodGet, q, nil, &result, []int{http.StatusOK}...); err != nil {
 		return nil, err
 	}
-	return result, nil
+	return &result, nil
 }
 
-// GetTestCaseTreeGroups returns the sub-folders (groups) at the given tree path.
-func (c *Client) GetTestCaseTreeGroups(ctx context.Context, projectID int64, path []int64, page, size int) (map[string]any, error) {
-	q := fmt.Sprintf("/api/testcasetree/group?projectId=%d&page=%d&size=%d", projectID, page, size)
-	for _, p := range path {
-		q += fmt.Sprintf("&path=%d", p)
+// CreateTestCaseTreeGroup creates a folder in a tree. parentNodeID 0 creates it
+// at the tree root. The v1 POST /api/testcasetree/group took no tree id and
+// failed with "tree has no group at level 0".
+func (c *Client) CreateTestCaseTreeGroup(ctx context.Context, projectID, treeID, parentNodeID int64, name string) (*TestCaseTreeNodeDto, error) {
+	q := fmt.Sprintf("/api/v2/project/%d/test-case/tree/group?treeId=%d", projectID, treeID)
+	if parentNodeID != 0 {
+		q += fmt.Sprintf("&parentNodeId=%d", parentNodeID)
 	}
-	var result map[string]any
-	if err := c.doJSON(ctx, http.MethodGet, q, nil, &result, []int{http.StatusOK}...); err != nil {
-		return nil, err
-	}
-	return result, nil
-}
-
-// MoveTestCasesToFolder moves the given test cases to the destination tree path
-// (drag-and-drop reordering / folder assignment in the tree).
-func (c *Client) MoveTestCasesToFolder(ctx context.Context, projectID int64, testCaseIDs []int64, destPath []int64) error {
-	return c.doRequest(ctx, http.MethodPost, "/api/testcase/bulk/draganddrop", map[string]any{
-		"path": destPath,
-		"selection": map[string]any{
-			"projectId":    projectID,
-			"leafsInclude": testCaseIDs,
-		},
-	}, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
-}
-
-// CreateTestCaseFolder creates a new folder (group) at the given tree path.
-func (c *Client) CreateTestCaseFolder(ctx context.Context, projectID int64, parentPath []int64, name string) (map[string]any, error) {
-	q := fmt.Sprintf("/api/testcasetree/group?projectId=%d", projectID)
-	for _, p := range parentPath {
-		q += fmt.Sprintf("&path=%d", p)
-	}
-	var result map[string]any
+	var result TestCaseTreeNodeDto
 	if err := c.doJSON(ctx, http.MethodPost, q, map[string]any{"name": name}, &result, []int{http.StatusOK, http.StatusCreated}...); err != nil {
 		return nil, err
 	}
-	return result, nil
+	return &result, nil
+}
+
+// MoveTreeLeaves moves tree leaves (by leaf id, not test case id — see
+// TestCaseTreeNodeDto) into the given folder node. The move is asynchronous
+// (202).
+func (c *Client) MoveTreeLeaves(ctx context.Context, projectID, treeID int64, leafIDs []int64, nodeID int64) error {
+	return c.doRequest(ctx, http.MethodPost, "/api/v2/test-case/tree/bulk/drag-and-drop", map[string]any{
+		"nodeId": nodeID,
+		"selection": TestCaseTreeSelectionDtoV2{
+			ProjectID:     projectID,
+			TreeID:        treeID,
+			LeavesInclude: leafIDs,
+		},
+	}, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
 }
 
 // APIError represents a failed Allure API response. Code holds a machine-readable

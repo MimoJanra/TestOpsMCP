@@ -102,7 +102,7 @@ func TestBulkHandlers_HappyAndErrorPaths(t *testing.T) {
 					DisplayName   string `json:"display_name"`
 					URL           string `json:"url"`
 					IntegrationID int64  `json:"integration_id"`
-				}{{ID: 1, DisplayName: "BUG-1"}},
+				}{{ID: 1, DisplayName: "BUG-1", IntegrationID: 1}},
 			})
 		}},
 		{"bulkRemoveTestCaseIssues", func(r *Registry) (any, error) {
@@ -411,7 +411,7 @@ func TestBulkRemoveTestCaseTags_ResolvesNameToID(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`[{"id":7,"name":"smoke"},{"id":8,"name":"regression"}]`))
 	})
-	mux.HandleFunc("/api/testcase/bulk/tag/remove", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v2/test-case/bulk/tag/remove", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&removeBody)
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -437,10 +437,18 @@ func TestBulkRemoveTestCaseTags_ResolvesNameToID(t *testing.T) {
 	if _, hasTags := removeBody["tags"]; hasTags {
 		t.Errorf("remove body should not contain a tags field, got %v", removeBody)
 	}
+	// v2 selection shape: testCasesInclude, not v1's leafsInclude.
+	sel, _ := removeBody["selection"].(map[string]any)
+	if tc, _ := sel["testCasesInclude"].([]any); len(tc) != 1 || tc[0] != float64(1) {
+		t.Errorf("selection.testCasesInclude = %v, want [1]", sel["testCasesInclude"])
+	}
+	if _, v1 := sel["leafsInclude"]; v1 {
+		t.Errorf("selection must use the v2 shape, got v1 leafsInclude: %v", sel)
+	}
 }
 
 // TestBulkMuteTestCases_SendsMuteReason guards against POST
-// /api/testcase/bulk/mute/add's required "mute" object being omitted —
+// /api/v2/test-case/bulk/mute/add's required "mute" object being omitted —
 // the DB has a NOT NULL constraint on mute.name that isn't surfaced by the
 // spec, mirroring MuteTestResultRequest (see MuteTestResult).
 func TestBulkMuteTestCases_SendsMuteReason(t *testing.T) {
@@ -450,7 +458,7 @@ func TestBulkMuteTestCases_SendsMuteReason(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"access_token":"test-jwt","expires_in":3600}`))
 	})
-	mux.HandleFunc("/api/testcase/bulk/mute/add", func(w http.ResponseWriter, req *http.Request) {
+	mux.HandleFunc("/api/v2/test-case/bulk/mute/add", func(w http.ResponseWriter, req *http.Request) {
 		_ = json.NewDecoder(req.Body).Decode(&body)
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -478,5 +486,122 @@ func TestBulkMuteTestCases_SendsMuteReason(t *testing.T) {
 	}
 	if mute["reason"] != "flaky in CI" {
 		t.Errorf("mute.reason = %v, want %q", mute["reason"], "flaky in CI")
+	}
+}
+
+// TestBulkMuteTestResults_SendsMuteName guards against POST
+// /api/testresult/bulk/mute 500ing with a NOT NULL constraint on the mute
+// reason's name — TestResultBulkMuteDto marks "name" optional in the spec,
+// but omitting it (as bulk_mute_test_cases and mute_test_result also did
+// before their fixes) crashes the DB insert. Reported live: bulk_mute_test_results
+// 500'd while the single-result mute_test_result worked fine.
+func TestBulkMuteTestResults_SendsMuteName(t *testing.T) {
+	var body map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/uaa/oauth/token", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"test-jwt","expires_in":3600}`))
+	})
+	mux.HandleFunc("/api/testresult/bulk/mute", func(w http.ResponseWriter, req *http.Request) {
+		_ = json.NewDecoder(req.Body).Decode(&body)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	client := allure.NewClient(server.URL, "test-token", 5*time.Second)
+	r := NewRegistry(client, core.NewLogger(core.LevelError))
+
+	res, err := r.bulkMuteTestResults(context.Background(), bulkMuteTestResultsArgs{
+		LaunchID: 1, TestResultIDs: []int64{1}, Reason: "flaky in CI",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.(map[string]any)["status"] != "success" {
+		t.Errorf("unexpected result: %v", res)
+	}
+
+	if body["name"] == "" || body["name"] == nil {
+		t.Errorf("name must not be empty, got %v", body["name"])
+	}
+	if body["reason"] != "flaky in CI" {
+		t.Errorf("reason = %v, want %q", body["reason"], "flaky in CI")
+	}
+
+	// No reason given: name still must not be empty.
+	body = nil
+	if _, err := r.bulkMuteTestResults(context.Background(), bulkMuteTestResultsArgs{
+		LaunchID: 1, TestResultIDs: []int64{1},
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if body["name"] == "" || body["name"] == nil {
+		t.Errorf("name must not be empty when reason is omitted, got %v", body["name"])
+	}
+}
+
+// TestBulkResolveTestResults_SendsCategoryAndMessage guards against
+// category_id/message being silently dropped from bulk_resolve_test_results —
+// the web UI's "Change status" dialog has Status/Category/Details fields,
+// but TestResultBulkResolveDto previously only ever sent selection/status.
+func TestBulkResolveTestResults_SendsCategoryAndMessage(t *testing.T) {
+	var body map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/uaa/oauth/token", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"test-jwt","expires_in":3600}`))
+	})
+	// v2 on purpose: v1 /api/testresult/bulk/resolve silently drops message.
+	mux.HandleFunc("/api/v2/test-result/bulk/resolve", func(w http.ResponseWriter, req *http.Request) {
+		_ = json.NewDecoder(req.Body).Decode(&body)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	client := allure.NewClient(server.URL, "test-token", 5*time.Second)
+	r := NewRegistry(client, core.NewLogger(core.LevelError))
+
+	_, err := r.bulkResolveTestResults(context.Background(), bulkResolveTestResultsArgs{
+		LaunchID: 1, TestResultIDs: []int64{1, 2}, Status: "passed", CategoryID: 5, Message: "covered in launch #123",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if body["categoryId"] != float64(5) {
+		t.Errorf("categoryId = %v, want 5", body["categoryId"])
+	}
+	if body["message"] != "covered in launch #123" {
+		t.Errorf("message = %v, want %q", body["message"], "covered in launch #123")
+	}
+}
+
+// TestBulkAddTestCaseIssues_RefusesIncompleteIssue guards against the live
+// incident where an issue with no integration id / key made the API link every
+// existing issue in the instance (113 real tickets) onto the test case.
+func TestBulkAddTestCaseIssues_RefusesIncompleteIssue(t *testing.T) {
+	called := false
+	r := newBulkTestRegistry(t, func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	})
+	incomplete := []struct {
+		ID            int64  `json:"id"`
+		DisplayName   string `json:"display_name"`
+		URL           string `json:"url"`
+		IntegrationID int64  `json:"integration_id"`
+	}{
+		{URL: "https://example.com/issue/X-1"},
+		{DisplayName: "X-1"},
+		{IntegrationID: 1},
+	}
+	for i, iss := range incomplete {
+		args := bulkAddTestCaseIssuesArgs{ProjectID: 1, TestCaseIDs: []int64{1}}
+		args.Issues = append(args.Issues, iss)
+		if _, err := r.bulkAddTestCaseIssues(context.Background(), args); err == nil {
+			t.Errorf("case %d: expected error for incomplete issue %+v", i, iss)
+		}
+	}
+	if called {
+		t.Error("the API must not be called with an incomplete issue")
 	}
 }

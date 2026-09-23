@@ -7,11 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **All test-case bulk operations moved from v1 to v2 endpoints** (`/api/testcase/bulk/*` → `/api/v2/test-case/bulk/*`): clone, move, remove, mute, status, layer, tag add/remove, member add/remove, issue add/remove, external links, test plan create, run new/existing (also used by `run_test_case`). v1 has repeatedly returned success while doing nothing or 500'd in this project's Allure instance; each v2 endpoint was verified live on project 408 before switching. Tool parameters are unchanged — only the selection shape differs (`testCasesInclude` instead of `leafsInclude`).
+- **Folder tools rebuilt on the v2 tree API — parameters changed.** In Allure a folder is a custom field value that only exists within a named tree (e.g. "Suites", "Features"), and the v1 path-based endpoints never passed a tree, which is why `create_test_case_folder` failed with "tree has no group at level 0". `browse_test_case_tree`, `get_test_case_tree_folders`, `create_test_case_folder` and `move_test_cases_to_folder` now take `tree_id` (optional when the project has exactly one tree) and node ids (`parent_node_id` / `node_id`) instead of `path` / `parent_path` / `dest_path`. `move_test_cases_to_folder` resolves the API's tree leaf ids (which change on every move) from test case ids itself. All confirmed live.
+
+### Added
+
+- **`list_test_case_trees`** — lists a project's test case trees, to get the `tree_id` the folder tools need.
+
 ### Fixed
+
+- **`bulk_add_test_case_issues` could link every existing issue in the instance to a test case** — confirmed live: an issue sent without `integration_id`/key isn't rejected by the API, it attaches all issues (113 real tickets on one sandbox test case, since cleaned up; no Jira-side links were created). The tool now requires `integration_id` and `display_name` for every issue and refuses the call otherwise.
+- **`bulk_set_test_case_layer` rejected every built-in layer** with `layer_id must be positive` — built-in layer ids are negative (Unit/UI/API Tests = -1/-2/-3), same as the earlier `workflow_id` fix.
 
 - **`list_test_results`'s `status` filter silently did nothing** — reported live: a filtered request returned every status regardless of the value passed. `GET /api/testresult` has no `status` query parameter at all (only `launchId`/`page`/`size`/`sort` per the spec); sending one is just ignored. Now scans the launch's results client-side and paginates over the matches when `status` is set (capped at 20,000 scanned results; a `truncated` flag surfaces if the cap is hit). `analyze_launch_failures` had the exact same bug — it silently analyzed the first N results of *any* status, not the actual failures — and is fixed the same way.
 - **`list_test_results` pagination could skip or duplicate results at page boundaries** — the request only sorted by `createdDate,DESC` with no tiebreaker, so results sharing the same timestamp had no guaranteed stable order across separate page requests. Added an explicit `id,ASC` secondary sort.
 - **`list_test_results`'s `size` silently clamped to 100** with no indication in the tool description — confirmed live the API itself accepts far larger pages (`size=300` returns a full 300-item page, no server-side clamp). Raised the cap to 1000 and documented it.
+- **`bulk_mute_test_results` 500'd** while the single-result `mute_test_result` worked fine — same NOT NULL constraint on the mute reason's `name` as `mute_test_result`/`bulk_mute_test_cases` before their fixes, just missed in that earlier pass (`TestResultBulkMuteDto` marks `name` optional in the spec, but omitting it crashes the DB insert). Reported live. Now always sends `name` (defaulting to the reason text, or `"Muted via MCP"` if no reason given).
+
+### Added
+
+- **`resolve_test_result`/`bulk_resolve_test_results` gained `category_id` and `message` parameters** — the web UI's "Change status" dialog has Status/Category/Details fields, but the tools only ever sent `status`, silently dropping any category or reason text a caller tried to attach. Both fields were already present and optional in the real request schemas (`ResolveRequestV2Dto`/`TestResultBulkResolveDto`); the tools just never exposed them. Both tools now go through the v2 endpoint (`/api/v2/test-result/bulk/resolve`) — confirmed live that the v1 endpoints (`/api/testresult/{id}/resolve`, `/api/testresult/bulk/resolve`) accept `message` and return success but silently drop it; the single-result tool looks up the result's launch and sends a one-item selection.
 
 ## [2.4.0] - 2026-09-22 - Fix Bulk Operation DTOs, Test Case Relations, Examples Decode, and Member Roles
 

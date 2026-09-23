@@ -290,14 +290,14 @@ type MuteTestResultRequest struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-// RunTestCaseRequest is the body for POST /api/testcase/bulk/run/existing.
+// RunTestCaseRequest is the body for POST /api/v2/test-case/bulk/run/existing.
 // There is no top-level "testCaseIds" field — the API requires a full
 // TestCaseTreeSelectionDto (with its own required projectId), confirmed live:
 // omitting it 409s with {"field":"selection","must not be null"} even when
 // the test case is already in the launch.
 type RunTestCaseRequest struct {
-	LaunchId  int64                    `json:"launchId"`
-	Selection TestCaseTreeSelectionDto `json:"selection"`
+	LaunchId  int64                  `json:"launchId"`
+	Selection TestCaseSelectionDtoV2 `json:"selection"`
 }
 
 // ── Test Cases ────────────────────────────────────────────────────────────────
@@ -437,29 +437,29 @@ type CreateTestCaseRequest struct {
 
 // UpdateTestCaseRequest maps TestCasePatchV2Dto.
 type UpdateTestCaseRequest struct {
-	ID             int64                       `json:"id,omitempty"`
-	Name           string                      `json:"name,omitempty"`
-	Description    string                      `json:"description,omitempty"`
-	FullName       string                      `json:"fullName,omitempty"`
-	Precondition   string                      `json:"precondition,omitempty"`
-	ExpectedResult string                      `json:"expectedResult,omitempty"`
-	Automated      *bool                       `json:"automated,omitempty"`
-	External       *bool                       `json:"external,omitempty"`
-	Deleted        *bool                       `json:"deleted,omitempty"`
-	StatusID       *int64                      `json:"statusId,omitempty"`
-	TestLayerID    *int64                      `json:"testLayerId,omitempty"`
-	WorkflowID     *int64                      `json:"workflowId,omitempty"`
-	Tags           []TestTagDto                `json:"tags,omitempty"`
-	Members        []MemberDto                 `json:"members,omitempty"`
+	ID             int64        `json:"id,omitempty"`
+	Name           string       `json:"name,omitempty"`
+	Description    string       `json:"description,omitempty"`
+	FullName       string       `json:"fullName,omitempty"`
+	Precondition   string       `json:"precondition,omitempty"`
+	ExpectedResult string       `json:"expectedResult,omitempty"`
+	Automated      *bool        `json:"automated,omitempty"`
+	External       *bool        `json:"external,omitempty"`
+	Deleted        *bool        `json:"deleted,omitempty"`
+	StatusID       *int64       `json:"statusId,omitempty"`
+	TestLayerID    *int64       `json:"testLayerId,omitempty"`
+	WorkflowID     *int64       `json:"workflowId,omitempty"`
+	Tags           []TestTagDto `json:"tags,omitempty"`
+	Members        []MemberDto  `json:"members,omitempty"`
 	// Links is a pointer so a caller can distinguish "don't touch links" (nil)
 	// from "clear to no links" (pointer to an empty slice) — a plain
 	// []ExternalLinkDto with omitempty would serialize both cases identically
 	// (the field dropped entirely), silently no-op'ing the clear. See
 	// Client.DeleteTestCaseExternalLink, which relies on this to remove the
 	// last remaining link.
-	Links          *[]ExternalLinkDto          `json:"links,omitempty"`
-	Scenario       *ScenarioDto                `json:"scenario,omitempty"`
-	CustomFields   []CustomFieldValueWithCfDto `json:"customFields,omitempty"`
+	Links        *[]ExternalLinkDto          `json:"links,omitempty"`
+	Scenario     *ScenarioDto                `json:"scenario,omitempty"`
+	CustomFields []CustomFieldValueWithCfDto `json:"customFields,omitempty"`
 }
 
 // ScenarioDto is the top-level scenario object used in PATCH /api/testcase/{id}.
@@ -775,29 +775,29 @@ type TestCaseAuditListResponse struct {
 // ── Bulk test case DTOs ───────────────────────────────────────────────────────
 
 type TestCaseBulkStatusDto struct {
-	Selection  TestCaseTreeSelectionDto `json:"selection"`
-	StatusID   int64                    `json:"statusId"`
-	WorkflowID int64                    `json:"workflowId"`
+	Selection  TestCaseSelectionDtoV2 `json:"selection"`
+	StatusID   int64                  `json:"statusId"`
+	WorkflowID int64                  `json:"workflowId"`
 }
 
 type TestCaseBulkTagDto struct {
-	Selection TestCaseTreeSelectionDto `json:"selection"`
-	Tags      []TestTagDto             `json:"tags"`
+	Selection TestCaseSelectionDtoV2 `json:"selection"`
+	Tags      []TestTagDto           `json:"tags"`
 }
 
 type TestCaseBulkMemberDto struct {
-	Selection TestCaseTreeSelectionDto `json:"selection"`
-	Members   []MemberDto              `json:"members"`
+	Selection TestCaseSelectionDtoV2 `json:"selection"`
+	Members   []MemberDto            `json:"members"`
 }
 
 // TestCaseBulkEntityIdsDto is the request body for bulk remove endpoints that
 // detach existing entity instances (tag/member/etc.) by their own ids rather
-// than by re-sending the entity payload — e.g. POST /api/testcase/bulk/tag/remove
-// and POST /api/testcase/bulk/member/remove. `ids` are the ids of the
+// than by re-sending the entity payload — e.g. POST /api/v2/test-case/bulk/tag/remove
+// and POST /api/v2/test-case/bulk/member/remove. `ids` are the ids of the
 // tag/member attachments to remove, not test case ids (those live in Selection).
 type TestCaseBulkEntityIdsDto struct {
-	Selection TestCaseTreeSelectionDto `json:"selection"`
-	IDs       []int64                  `json:"ids"`
+	Selection TestCaseSelectionDtoV2 `json:"selection"`
+	IDs       []int64                `json:"ids"`
 }
 
 // ── Bulk test result DTOs ─────────────────────────────────────────────────────
@@ -814,9 +814,10 @@ type TestResultBulkMuteDto struct {
 }
 
 type TestResultBulkResolveDto struct {
-	Selection TestResultTreeSelectionDto `json:"selection"`
-	Status    string                     `json:"status"`
-	Issues    []interface{}              `json:"issues,omitempty"`
+	Selection  TestResultTreeSelectionDto `json:"selection"`
+	Status     string                     `json:"status"`
+	CategoryID int64                      `json:"categoryId,omitempty"`
+	Message    string                     `json:"message,omitempty"`
 }
 
 // TestResultBulkDto is the request body for selection-only bulk test result
@@ -860,6 +861,64 @@ type TestCaseSelectionDtoV2 struct {
 	FilterID         int64   `json:"filterId,omitempty"`
 }
 
+// ── Test case trees (v2) ──────────────────────────────────────────────────────
+//
+// A test case "tree" is a named grouping built from custom fields (e.g. the
+// "Suites" tree groups by the Suite field). Its folders are custom field
+// values and its leaves are test cases, so a folder only exists within a tree
+// and every tree operation needs a tree id.
+
+// TestCaseTreeDto is one named tree of a project (GET /api/v2/tree).
+type TestCaseTreeDto struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	ProjectID int64  `json:"projectId"`
+}
+
+// TestCaseTreePage is the paginated response of GET /api/v2/tree.
+type TestCaseTreePage struct {
+	Content []TestCaseTreeDto `json:"content"`
+}
+
+// TestCaseTreeNodeDto is one child of a tree node: a folder (Type "GROUP") or
+// a test case (Type "LEAF"). A leaf's ID is its position in the tree, not the
+// test case id, and it changes when the test case is moved.
+type TestCaseTreeNodeDto struct {
+	ID                 int64      `json:"id"`
+	Type               string     `json:"type"`
+	Name               string     `json:"name"`
+	Count              int        `json:"count"`
+	ParentNodeID       int64      `json:"parentNodeId"`
+	CustomFieldID      int64      `json:"customFieldId"`
+	CustomFieldValueID int64      `json:"customFieldValueId"`
+	TestCaseID         int64      `json:"testCaseId"`
+	Automated          bool       `json:"automated"`
+	Status             *StatusDto `json:"status,omitempty"`
+}
+
+// TestCaseTreeNodeResponse is GET /api/v2/project/{projectId}/test-case/tree/tree-node:
+// a node (the tree root when no parent is given) with one page of its children.
+type TestCaseTreeNodeResponse struct {
+	ID           int64  `json:"id"`
+	Name         string `json:"name"`
+	ParentNodeID int64  `json:"parentNodeId"`
+	Children     struct {
+		Content []TestCaseTreeNodeDto `json:"content"`
+		Last    bool                  `json:"last"`
+		Number  int                   `json:"number"`
+		Size    int                   `json:"size"`
+		Total   int                   `json:"totalElements"`
+	} `json:"children"`
+}
+
+// TestCaseTreeSelectionDtoV2 selects tree leaves (by leaf id) for
+// POST /api/v2/test-case/tree/bulk/drag-and-drop.
+type TestCaseTreeSelectionDtoV2 struct {
+	ProjectID     int64   `json:"projectId"`
+	TreeID        int64   `json:"treeId"`
+	LeavesInclude []int64 `json:"leavesInclude"`
+}
+
 // CustomFieldValueWithCfV2Dto is a single custom-field-value assignment in the
 // v2 bulk cfv shape: one row per value, with the owning custom field nested
 // inside (the inverse of CustomFieldWithValuesDto's field-with-nested-values shape).
@@ -887,62 +946,62 @@ type TestCaseCfvBulkRemoveDtoV2 struct {
 	IDs       []int64                `json:"ids"`
 }
 
-// BulkExternalLinkAddDto is the request body for POST /api/testcase/bulk/externallink/add.
+// BulkExternalLinkAddDto is the request body for POST /api/v2/test-case/bulk/external-link/add.
 type BulkExternalLinkAddDto struct {
-	Selection TestCaseTreeSelectionDto `json:"selection"`
-	Links     []ExternalLinkDto        `json:"links"`
+	Selection TestCaseSelectionDtoV2 `json:"selection"`
+	Links     []ExternalLinkDto      `json:"links"`
 }
 
-// BulkIssueAddDto is the request body for POST /api/testcase/bulk/issue/add.
+// BulkIssueAddDto is the request body for POST /api/v2/test-case/bulk/issue/add.
 type BulkIssueAddDto struct {
-	Selection TestCaseTreeSelectionDto `json:"selection"`
-	Issues    []IssueDto               `json:"issues"`
+	Selection TestCaseSelectionDtoV2 `json:"selection"`
+	Issues    []IssueDto             `json:"issues"`
 }
 
-// BulkIssueRemoveDto is the request body for POST /api/testcase/bulk/issue/remove.
+// BulkIssueRemoveDto is the request body for POST /api/v2/test-case/bulk/issue/remove.
 type BulkIssueRemoveDto struct {
-	Selection TestCaseTreeSelectionDto `json:"selection"`
-	IDs       []int64                  `json:"ids"`
+	Selection TestCaseSelectionDtoV2 `json:"selection"`
+	IDs       []int64                `json:"ids"`
 }
 
-// BulkLayerSetDto is the request body for POST /api/testcase/bulk/layer/set.
+// BulkLayerSetDto is the request body for POST /api/v2/test-case/bulk/layer/set.
 type BulkLayerSetDto struct {
-	Selection TestCaseTreeSelectionDto `json:"selection"`
-	LayerID   int64                    `json:"layerId"`
+	Selection TestCaseSelectionDtoV2 `json:"selection"`
+	LayerID   int64                  `json:"layerId"`
 }
 
-// BulkMoveDto is the request body for POST /api/testcase/bulk/move.
+// BulkMoveDto is the request body for POST /api/v2/test-case/bulk/move.
 // Maps TestCaseBulkChangeProjectDtoV2.
 type BulkMoveDto struct {
-	Selection   TestCaseTreeSelectionDto `json:"selection"`
-	ToProjectID int64                    `json:"toProjectId"`
-	CfMapping   map[string]any           `json:"cfMapping,omitempty"`
-	Strategy    string                   `json:"strategy,omitempty"`
+	Selection   TestCaseSelectionDtoV2 `json:"selection"`
+	ToProjectID int64                  `json:"toProjectId"`
+	CfMapping   map[string]any         `json:"cfMapping,omitempty"`
+	Strategy    string                 `json:"strategy,omitempty"`
 }
 
-// BulkDeleteDto is the request body for POST /api/testcase/bulk/remove.
+// BulkDeleteDto is the request body for POST /api/v2/test-case/bulk/remove.
 type BulkDeleteDto struct {
-	Selection TestCaseTreeSelectionDto `json:"selection"`
+	Selection TestCaseSelectionDtoV2 `json:"selection"`
 }
 
-// BulkRunNewLaunchDto is the request body for POST /api/testcase/bulk/run/new.
+// BulkRunNewLaunchDto is the request body for POST /api/v2/test-case/bulk/run/new.
 type BulkRunNewLaunchDto struct {
-	Selection  TestCaseTreeSelectionDto `json:"selection"`
-	LaunchName string                   `json:"launchName,omitempty"`
-	Assignees  []string                 `json:"assignees,omitempty"`
+	Selection  TestCaseSelectionDtoV2 `json:"selection"`
+	LaunchName string                 `json:"launchName,omitempty"`
+	Assignees  []string               `json:"assignees,omitempty"`
 }
 
-// BulkRunExistingLaunchDto is the request body for POST /api/testcase/bulk/run/existing.
+// BulkRunExistingLaunchDto is the request body for POST /api/v2/test-case/bulk/run/existing.
 type BulkRunExistingLaunchDto struct {
-	Selection TestCaseTreeSelectionDto `json:"selection"`
-	LaunchID  int64                    `json:"launchId"`
-	Assignees []string                 `json:"assignees,omitempty"`
+	Selection TestCaseSelectionDtoV2 `json:"selection"`
+	LaunchID  int64                  `json:"launchId"`
+	Assignees []string               `json:"assignees,omitempty"`
 }
 
-// BulkCreateTestPlanDto is the request body for POST /api/testcase/bulk/testplan/create.
+// BulkCreateTestPlanDto is the request body for POST /api/v2/test-case/bulk/test-plan/create.
 type BulkCreateTestPlanDto struct {
-	Selection    TestCaseTreeSelectionDto `json:"selection"`
-	TestPlanName string                   `json:"testPlanName"`
+	Selection    TestCaseSelectionDtoV2 `json:"selection"`
+	TestPlanName string                 `json:"testPlanName"`
 }
 
 // MuteDto is the mute reason payload nested under BulkMuteDto.Mute. The API
@@ -954,8 +1013,8 @@ type MuteDto struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-// BulkMuteDto is the request body for POST /api/testcase/bulk/mute/add.
+// BulkMuteDto is the request body for POST /api/v2/test-case/bulk/mute/add.
 type BulkMuteDto struct {
-	Selection TestCaseTreeSelectionDto `json:"selection"`
-	Mute      MuteDto                  `json:"mute"`
+	Selection TestCaseSelectionDtoV2 `json:"selection"`
+	Mute      MuteDto                `json:"mute"`
 }

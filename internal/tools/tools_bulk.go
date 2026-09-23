@@ -225,8 +225,10 @@ func (r *Registry) registerBulkTools() {
 	})
 
 	r.register(&Tool{
-		Name:        "bulk_resolve_test_results",
-		Description: "Mark multiple test results as resolved — closes their associated defects and signals the failures have been addressed.",
+		Name: "bulk_resolve_test_results",
+		Description: "Mark multiple test results as resolved — mirrors the web UI's \"Change status\" dialog " +
+			"(Status/Category/Details), applied to many results in one call. Get valid category ids via " +
+			"search_testops_operations (\"category\") + execute_testops_operation (GET /api/project/{project_id}/category).",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -245,6 +247,14 @@ func (r *Registry) registerBulkTools() {
 					"type":        "string",
 					"enum":        []string{"failed", "broken", "passed", "skipped", "unknown"},
 					"description": "Resolution status to set on all results",
+				},
+				"category_id": map[string]any{
+					"type":        "integer",
+					"description": "Category ID to set on all results (optional) — as shown in the \"Category\" dropdown",
+				},
+				"message": map[string]any{
+					"type":        "string",
+					"description": "Details/reason text to set on all results (optional) — as shown in the \"Details\" field",
 				},
 			},
 			"required": []string{"launch_id", "test_result_ids", "status"},
@@ -346,16 +356,19 @@ func (r *Registry) registerBulkTools() {
 	// ── Test case bulk: issues ────────────────────────────────────────────────
 
 	r.register(&Tool{
-		Name:        "bulk_add_test_case_issues",
-		Description: "Bulk add issues (bug tracker links) to multiple test cases",
+		Name: "bulk_add_test_case_issues",
+		Description: "Bulk add issues (bug tracker links) to multiple test cases. Every issue needs integration_id and " +
+			"display_name (the issue key, e.g. PROJ-123) — the API doesn't reject an issue without them, it links " +
+			"every existing issue in the instance instead, so the tool refuses such input.",
 		InputSchema: bulkTCSchema("issues", "array", "Issues to add", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"id":             map[string]any{"type": "integer"},
-				"display_name":   map[string]any{"type": "string"},
+				"display_name":   map[string]any{"type": "string", "description": "Issue key, e.g. PROJ-123 (required)"},
 				"url":            map[string]any{"type": "string"},
-				"integration_id": map[string]any{"type": "integer"},
+				"integration_id": map[string]any{"type": "integer", "description": "Bug tracker integration ID (required)"},
 			},
+			"required": []string{"integration_id", "display_name"},
 		}),
 		Handler: Typed(r.bulkAddTestCaseIssues),
 	})
@@ -689,8 +702,17 @@ func (r *Registry) bulkAddTestCaseIssues(ctx context.Context, args bulkAddTestCa
 	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
+	if len(args.Issues) == 0 {
+		return nil, fmt.Errorf("issues must not be empty")
+	}
 	issues := make([]allure.IssueDto, len(args.Issues))
 	for i, iss := range args.Issues {
+		// Confirmed live: the endpoint doesn't reject an issue with no
+		// integration/key — it links every existing issue in the instance
+		// (113 real tickets onto one test case). Refuse such input outright.
+		if iss.IntegrationID <= 0 || strings.TrimSpace(iss.DisplayName) == "" {
+			return nil, fmt.Errorf("issue %d: integration_id and display_name (the issue key, e.g. PROJ-123) are both required — without them the API links every existing issue instead of this one", i)
+		}
 		issues[i] = allure.IssueDto{ID: iss.ID, DisplayName: iss.DisplayName, URL: iss.URL, IntegrationID: iss.IntegrationID}
 	}
 	if err := r.allure.BulkAddTestCaseIssues(ctx, args.ProjectID, args.TestCaseIDs, issues); err != nil {
@@ -731,8 +753,9 @@ func (r *Registry) bulkSetTestCaseLayer(ctx context.Context, args bulkSetTestCas
 	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
-	if args.LayerID <= 0 {
-		return nil, fmt.Errorf("layer_id must be positive")
+	// Built-in layer ids are negative (Unit/UI/API Tests = -1/-2/-3).
+	if args.LayerID == 0 {
+		return nil, fmt.Errorf("layer_id must be set")
 	}
 	if err := r.allure.BulkSetTestCaseLayer(ctx, args.ProjectID, args.TestCaseIDs, args.LayerID); err != nil {
 		return nil, fmt.Errorf("bulk set layer: %w", err)
@@ -1138,6 +1161,8 @@ type bulkResolveTestResultsArgs struct {
 	LaunchID      int64   `json:"launch_id"`
 	TestResultIDs []int64 `json:"test_result_ids"`
 	Status        string  `json:"status"`
+	CategoryID    int64   `json:"category_id"`
+	Message       string  `json:"message"`
 }
 
 func (r *Registry) bulkResolveTestResults(ctx context.Context, args bulkResolveTestResultsArgs) (any, error) {
@@ -1153,7 +1178,7 @@ func (r *Registry) bulkResolveTestResults(ctx context.Context, args bulkResolveT
 
 	r.logger.Info("bulk resolving test results", map[string]any{"launch_id": args.LaunchID, "count": len(args.TestResultIDs)})
 
-	if err := r.allure.BulkResolveTestResults(ctx, args.LaunchID, args.TestResultIDs, args.Status); err != nil {
+	if err := r.allure.BulkResolveTestResults(ctx, args.LaunchID, args.TestResultIDs, args.Status, args.CategoryID, args.Message); err != nil {
 		r.logger.Error("bulk resolve test results", err, map[string]any{"launch_id": args.LaunchID})
 		return nil, fmt.Errorf("bulk resolve: %w", err)
 	}

@@ -183,12 +183,25 @@ func TestMuteUnmuteTestResult(t *testing.T) {
 	}
 }
 
-func TestResolveTestResult(t *testing.T) {
+// resolveMux serves the two calls resolve_test_result makes: the test result
+// lookup (for its launch id) and the v2 bulk resolve with a one-item selection.
+func resolveMux(body *map[string]any) *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/testresult/1/resolve", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+	mux.HandleFunc("/api/testresult/1", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":1,"launchId":7}`))
 	})
-	r := newRelationsTestRegistry(t, mux)
+	mux.HandleFunc("/api/v2/test-result/bulk/resolve", func(w http.ResponseWriter, req *http.Request) {
+		if body != nil {
+			_ = json.NewDecoder(req.Body).Decode(body)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	return mux
+}
+
+func TestResolveTestResult(t *testing.T) {
+	r := newRelationsTestRegistry(t, resolveMux(nil))
 
 	if _, err := r.resolveTestResult(context.Background(), resolveTestResultArgs{TestResultID: 1, Status: "passed"}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -198,5 +211,35 @@ func TestResolveTestResult(t *testing.T) {
 	}
 	if _, err := r.resolveTestResult(context.Background(), resolveTestResultArgs{TestResultID: 1}); err == nil {
 		t.Error("expected error for empty status")
+	}
+}
+
+// TestResolveTestResult_SendsCategoryAndMessage guards against
+// category_id/message being silently dropped — the web UI's "Change status"
+// dialog has Status/Category/Details fields, but the tool previously only
+// ever sent status, and the v1 single-result endpoint drops message anyway
+// (confirmed live), so this must go through v2 with a one-result selection.
+func TestResolveTestResult_SendsCategoryAndMessage(t *testing.T) {
+	var body map[string]any
+	r := newRelationsTestRegistry(t, resolveMux(&body))
+
+	_, err := r.resolveTestResult(context.Background(), resolveTestResultArgs{
+		TestResultID: 1, Status: "passed", CategoryID: 5, Message: "covered in launch #123",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if body["categoryId"] != float64(5) {
+		t.Errorf("categoryId = %v, want 5", body["categoryId"])
+	}
+	if body["message"] != "covered in launch #123" {
+		t.Errorf("message = %v, want %q", body["message"], "covered in launch #123")
+	}
+	sel, _ := body["selection"].(map[string]any)
+	if sel["launchId"] != float64(7) {
+		t.Errorf("selection.launchId = %v, want 7 (looked up from the test result)", sel["launchId"])
+	}
+	if ids, _ := sel["leafsInclude"].([]any); len(ids) != 1 || ids[0] != float64(1) {
+		t.Errorf("selection.leafsInclude = %v, want [1]", sel["leafsInclude"])
 	}
 }

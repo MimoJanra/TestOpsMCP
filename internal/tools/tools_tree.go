@@ -3,29 +3,48 @@ package tools
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/MimoJanra/TestOpsMCP/internal/adapters/allure"
 )
+
+// treeIDSchema is shared by every folder tool: in Allure a folder only exists
+// within a named tree (built from custom fields), and tree positions are node
+// ids, not paths.
+var treeIDSchema = map[string]any{
+	"type": "integer",
+	"description": "Tree ID from list_test_case_trees (e.g. the \"Suites\" tree). Optional when the project has " +
+		"exactly one tree.",
+}
 
 func (r *Registry) registerTreeTools() {
 	r.register(&Tool{
-		Name: "browse_test_case_tree",
-		Description: "Browse the test case folder tree at a given path — shows test cases at that level. " +
-			"Start with an empty path to see the root. Use the folder IDs from the result as the next path to go deeper. " +
-			"Use this to navigate folders before moving test cases or creating new ones in the right place.",
+		Name: "list_test_case_trees",
+		Description: "List the project's test case trees (e.g. \"Suites\", \"Features\"). Folders in Allure are values of " +
+			"custom fields and only exist within a tree, so every other folder tool needs a tree_id from here.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"project_id": map[string]any{
-					"type":        "integer",
-					"description": "Allure project ID",
-				},
-				"path": map[string]any{
-					"type":        "array",
-					"items":       map[string]any{"type": "integer"},
-					"description": "Tree path as a sequence of folder IDs (empty = root)",
-					"default":     []int{},
-				},
-				"page": map[string]any{"type": "integer", "description": "Page number (0-based)", "default": 0},
-				"size": map[string]any{"type": "integer", "description": "Items per page", "default": 50},
+				"project_id": map[string]any{"type": "integer", "description": "Allure project ID"},
+			},
+			"required": []string{"project_id"},
+		},
+		Handler: Typed(r.listTestCaseTrees),
+	})
+
+	r.register(&Tool{
+		Name: "browse_test_case_tree",
+		Description: "Browse one level of a test case tree: the folders and test cases directly inside a folder " +
+			"(or the tree root when parent_node_id is omitted). Use a folder's id as the next parent_node_id to go deeper.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"project_id":     map[string]any{"type": "integer", "description": "Allure project ID"},
+				"tree_id":        treeIDSchema,
+				"parent_node_id": map[string]any{"type": "integer", "description": "Folder node ID to list (omit for the tree root)"},
+				"page":           map[string]any{"type": "integer", "description": "Page number (0-based)", "default": 0},
+				"size":           map[string]any{"type": "integer", "description": "Items per page", "default": 50},
 			},
 			"required": []string{"project_id"},
 		},
@@ -34,24 +53,16 @@ func (r *Registry) registerTreeTools() {
 
 	r.register(&Tool{
 		Name: "get_test_case_tree_folders",
-		Description: "List subfolders (groups) inside a tree path. " +
-			"Use this to see the folder structure before navigating or moving test cases. " +
-			"Returns folder names and IDs needed for path-based operations.",
+		Description: "List only the folders directly inside a folder of a test case tree (or the tree root when " +
+			"parent_node_id is omitted). Returns folder node IDs for create_test_case_folder / move_test_cases_to_folder.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"project_id": map[string]any{
-					"type":        "integer",
-					"description": "Allure project ID",
-				},
-				"path": map[string]any{
-					"type":        "array",
-					"items":       map[string]any{"type": "integer"},
-					"description": "Tree path as a sequence of folder IDs (empty = root)",
-					"default":     []int{},
-				},
-				"page": map[string]any{"type": "integer", "description": "Page number (0-based)", "default": 0},
-				"size": map[string]any{"type": "integer", "description": "Items per page", "default": 50},
+				"project_id":     map[string]any{"type": "integer", "description": "Allure project ID"},
+				"tree_id":        treeIDSchema,
+				"parent_node_id": map[string]any{"type": "integer", "description": "Folder node ID to list (omit for the tree root)"},
+				"page":           map[string]any{"type": "integer", "description": "Page number (0-based)", "default": 0},
+				"size":           map[string]any{"type": "integer", "description": "Items per page", "default": 50},
 			},
 			"required": []string{"project_id"},
 		},
@@ -60,27 +71,16 @@ func (r *Registry) registerTreeTools() {
 
 	r.register(&Tool{
 		Name: "move_test_cases_to_folder",
-		Description: "Move test cases to a specific folder in the tree (drag-and-drop). " +
-			"Use browse_test_case_tree or get_test_case_tree_folders first to find the destination folder path. " +
-			"Pass an empty dest_path to move to the root.",
+		Description: "Move test cases into a folder of a test case tree (omit node_id to move them to the tree root). " +
+			"Moving sets the test case's custom field value for that folder. Asynchronous — the move lands shortly after " +
+			"the call returns.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"project_id": map[string]any{
-					"type":        "integer",
-					"description": "Allure project ID",
-				},
-				"test_case_ids": map[string]any{
-					"type":        "array",
-					"items":       map[string]any{"type": "integer"},
-					"description": "Test case IDs to move",
-				},
-				"dest_path": map[string]any{
-					"type":        "array",
-					"items":       map[string]any{"type": "integer"},
-					"description": "Destination folder path as a sequence of folder IDs (empty = root)",
-					"default":     []int{},
-				},
+				"project_id":    map[string]any{"type": "integer", "description": "Allure project ID"},
+				"tree_id":       treeIDSchema,
+				"test_case_ids": map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "Test case IDs to move"},
+				"node_id":       map[string]any{"type": "integer", "description": "Destination folder node ID (omit for the tree root)"},
 			},
 			"required": []string{"project_id", "test_case_ids"},
 		},
@@ -89,25 +89,15 @@ func (r *Registry) registerTreeTools() {
 
 	r.register(&Tool{
 		Name: "create_test_case_folder",
-		Description: "Create a new folder (group) in the test case tree. " +
-			"Use get_test_case_tree_folders to find the parent path where the folder should be created.",
+		Description: "Create a folder in a test case tree (at the tree root when parent_node_id is omitted). " +
+			"The folder is a new value of the tree's custom field at that level.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"project_id": map[string]any{
-					"type":        "integer",
-					"description": "Allure project ID",
-				},
-				"name": map[string]any{
-					"type":        "string",
-					"description": "Folder name",
-				},
-				"parent_path": map[string]any{
-					"type":        "array",
-					"items":       map[string]any{"type": "integer"},
-					"description": "Parent folder path as a sequence of folder IDs (empty = create at root)",
-					"default":     []int{},
-				},
+				"project_id":     map[string]any{"type": "integer", "description": "Allure project ID"},
+				"tree_id":        treeIDSchema,
+				"name":           map[string]any{"type": "string", "description": "Folder name"},
+				"parent_node_id": map[string]any{"type": "integer", "description": "Parent folder node ID (omit for the tree root)"},
 			},
 			"required": []string{"project_id", "name"},
 		},
@@ -117,54 +107,178 @@ func (r *Registry) registerTreeTools() {
 
 // ── handlers ─────────────────────────────────────────────────────────────────
 
+const treePageSize = 100
+
+// resolveTreeID returns treeID when set, otherwise the project's only tree.
+// With several trees there is no safe default, so it errors listing them.
+func (r *Registry) resolveTreeID(ctx context.Context, projectID, treeID int64) (int64, error) {
+	if treeID > 0 {
+		return treeID, nil
+	}
+	trees, err := r.allure.ListTestCaseTrees(ctx, projectID)
+	if err != nil {
+		return 0, fmt.Errorf("list test case trees: %w", err)
+	}
+	switch len(trees) {
+	case 0:
+		return 0, fmt.Errorf("project %d has no test case trees", projectID)
+	case 1:
+		return trees[0].ID, nil
+	}
+	names := make([]string, len(trees))
+	for i, t := range trees {
+		names[i] = fmt.Sprintf("%d (%s)", t.ID, t.Name)
+	}
+	return 0, fmt.Errorf("project %d has %d trees, pass tree_id: %s", projectID, len(trees), strings.Join(names, ", "))
+}
+
+type listTestCaseTreesArgs struct {
+	ProjectID int64 `json:"project_id"`
+}
+
+func (r *Registry) listTestCaseTrees(ctx context.Context, args listTestCaseTreesArgs) (any, error) {
+	if args.ProjectID <= 0 {
+		return nil, fmt.Errorf("project_id must be positive")
+	}
+	trees, err := r.allure.ListTestCaseTrees(ctx, args.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("list test case trees: %w", err)
+	}
+	items := make([]map[string]any, len(trees))
+	for i, t := range trees {
+		items[i] = map[string]any{"id": t.ID, "name": t.Name}
+	}
+	return map[string]any{"trees": items}, nil
+}
+
 type browseTestCaseTreeArgs struct {
-	ProjectID int64   `json:"project_id"`
-	Path      []int64 `json:"path"`
-	Page      int     `json:"page"`
-	Size      int     `json:"size"`
+	ProjectID    int64 `json:"project_id"`
+	TreeID       int64 `json:"tree_id"`
+	ParentNodeID int64 `json:"parent_node_id"`
+	Page         int   `json:"page"`
+	Size         int   `json:"size"`
+}
+
+// listTreeLevel fetches one level of a tree and splits it into folders and
+// test cases.
+func (r *Registry) listTreeLevel(ctx context.Context, args browseTestCaseTreeArgs) (treeID int64, node *allure.TestCaseTreeNodeResponse, folders, testCases []map[string]any, err error) {
+	if args.ProjectID <= 0 {
+		return 0, nil, nil, nil, fmt.Errorf("project_id must be positive")
+	}
+	treeID, err = r.resolveTreeID(ctx, args.ProjectID, args.TreeID)
+	if err != nil {
+		return 0, nil, nil, nil, err
+	}
+	size := args.Size
+	if size <= 0 {
+		size = 50
+	}
+	node, err = r.allure.GetTestCaseTreeNode(ctx, args.ProjectID, treeID, args.ParentNodeID, "", args.Page, size)
+	if err != nil {
+		return 0, nil, nil, nil, err
+	}
+	folders = []map[string]any{}
+	testCases = []map[string]any{}
+	for _, c := range node.Children.Content {
+		if c.Type == "GROUP" {
+			folders = append(folders, map[string]any{"id": c.ID, "name": c.Name, "test_case_count": c.Count})
+			continue
+		}
+		tc := map[string]any{"test_case_id": c.TestCaseID, "leaf_id": c.ID, "name": c.Name, "automated": c.Automated}
+		if c.Status != nil {
+			tc["status"] = c.Status.Name
+		}
+		testCases = append(testCases, tc)
+	}
+	return treeID, node, folders, testCases, nil
 }
 
 func (r *Registry) browseTestCaseTree(ctx context.Context, args browseTestCaseTreeArgs) (any, error) {
-	if args.ProjectID <= 0 {
-		return nil, fmt.Errorf("project_id must be positive")
-	}
-	size := args.Size
-	if size <= 0 {
-		size = 50
-	}
-	result, err := r.allure.BrowseTestCaseTree(ctx, args.ProjectID, args.Path, args.Page, size)
+	treeID, node, folders, testCases, err := r.listTreeLevel(ctx, args)
 	if err != nil {
 		return nil, fmt.Errorf("browse test case tree: %w", err)
 	}
-	return result, nil
+	return map[string]any{
+		"tree_id":    treeID,
+		"node_id":    node.ID,
+		"name":       node.Name,
+		"folders":    folders,
+		"test_cases": testCases,
+		"page":       node.Children.Number,
+		"total":      node.Children.Total,
+		"is_last":    node.Children.Last,
+	}, nil
 }
 
-type getTestCaseTreeFoldersArgs struct {
-	ProjectID int64   `json:"project_id"`
-	Path      []int64 `json:"path"`
-	Page      int     `json:"page"`
-	Size      int     `json:"size"`
-}
+type getTestCaseTreeFoldersArgs = browseTestCaseTreeArgs
 
 func (r *Registry) getTestCaseTreeFolders(ctx context.Context, args getTestCaseTreeFoldersArgs) (any, error) {
-	if args.ProjectID <= 0 {
-		return nil, fmt.Errorf("project_id must be positive")
-	}
-	size := args.Size
-	if size <= 0 {
-		size = 50
-	}
-	result, err := r.allure.GetTestCaseTreeGroups(ctx, args.ProjectID, args.Path, args.Page, size)
+	treeID, node, folders, _, err := r.listTreeLevel(ctx, args)
 	if err != nil {
 		return nil, fmt.Errorf("get tree folders: %w", err)
 	}
-	return result, nil
+	return map[string]any{
+		"tree_id": treeID,
+		"node_id": node.ID,
+		"name":    node.Name,
+		"folders": folders,
+		"page":    node.Children.Number,
+		"is_last": node.Children.Last,
+	}, nil
+}
+
+// resolveTreeLeaves finds the current leaf ids of the given test cases in a
+// tree. Leaf ids are tree positions and change whenever a test case moves, so
+// they are looked up fresh right before each move: the tree is filtered to
+// branches containing these test cases (baseAql) and only those are walked.
+// A test case can appear under several folders (multi-value custom field), so
+// each maps to a list.
+func (r *Registry) resolveTreeLeaves(ctx context.Context, projectID, treeID int64, testCaseIDs []int64) (map[int64][]int64, error) {
+	want := make(map[int64]bool, len(testCaseIDs))
+	ids := make([]string, len(testCaseIDs))
+	for i, id := range testCaseIDs {
+		want[id] = true
+		ids[i] = strconv.FormatInt(id, 10)
+	}
+	aql := "id in [" + strings.Join(ids, ", ") + "]"
+	found := make(map[int64][]int64)
+
+	var walk func(parent int64, depth int) error
+	walk = func(parent int64, depth int) error {
+		if depth > 50 {
+			return fmt.Errorf("test case tree is deeper than 50 levels")
+		}
+		for page := 0; ; page++ {
+			node, err := r.allure.GetTestCaseTreeNode(ctx, projectID, treeID, parent, aql, page, treePageSize)
+			if err != nil {
+				return err
+			}
+			for _, c := range node.Children.Content {
+				switch {
+				case c.Type == "LEAF" && want[c.TestCaseID]:
+					found[c.TestCaseID] = append(found[c.TestCaseID], c.ID)
+				case c.Type == "GROUP" && c.Count > 0:
+					if err := walk(c.ID, depth+1); err != nil {
+						return err
+					}
+				}
+			}
+			if node.Children.Last || len(node.Children.Content) == 0 {
+				return nil
+			}
+		}
+	}
+	if err := walk(0, 0); err != nil {
+		return nil, err
+	}
+	return found, nil
 }
 
 type moveTestCasesToFolderArgs struct {
 	ProjectID   int64   `json:"project_id"`
+	TreeID      int64   `json:"tree_id"`
 	TestCaseIDs []int64 `json:"test_case_ids"`
-	DestPath    []int64 `json:"dest_path"`
+	NodeID      int64   `json:"node_id"`
 }
 
 func (r *Registry) moveTestCasesToFolder(ctx context.Context, args moveTestCasesToFolderArgs) (any, error) {
@@ -174,28 +288,81 @@ func (r *Registry) moveTestCasesToFolder(ctx context.Context, args moveTestCases
 	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
-	if err := r.allure.MoveTestCasesToFolder(ctx, args.ProjectID, args.TestCaseIDs, args.DestPath); err != nil {
+	treeID, err := r.resolveTreeID(ctx, args.ProjectID, args.TreeID)
+	if err != nil {
+		return nil, err
+	}
+	nodeID := args.NodeID
+	if nodeID == 0 {
+		root, err := r.allure.GetTestCaseTreeNode(ctx, args.ProjectID, treeID, 0, "", 0, 1)
+		if err != nil {
+			return nil, fmt.Errorf("look up tree root: %w", err)
+		}
+		nodeID = root.ID
+	}
+
+	leaves, err := r.resolveTreeLeaves(ctx, args.ProjectID, treeID, args.TestCaseIDs)
+	if err != nil {
+		return nil, fmt.Errorf("locate test cases in tree %d: %w", treeID, err)
+	}
+	var leafIDs []int64
+	notFound := make([]int64, 0)
+	for _, id := range args.TestCaseIDs {
+		if l, ok := leaves[id]; ok {
+			leafIDs = append(leafIDs, l...)
+		} else {
+			notFound = append(notFound, id)
+		}
+	}
+	if len(leafIDs) == 0 {
+		return nil, fmt.Errorf("none of the test cases were found in tree %d: %v", treeID, notFound)
+	}
+
+	if err := r.allure.MoveTreeLeaves(ctx, args.ProjectID, treeID, leafIDs, nodeID); err != nil {
 		return nil, fmt.Errorf("move test cases to folder: %w", err)
 	}
-	return map[string]any{"status": "moved", "count": len(args.TestCaseIDs)}, nil
+	return map[string]any{
+		"status":                  "moving",
+		"tree_id":                 treeID,
+		"node_id":                 nodeID,
+		"count":                   len(args.TestCaseIDs) - len(notFound),
+		"not_found_test_case_ids": notFound,
+	}, nil
 }
 
 type createTestCaseFolderArgs struct {
-	ProjectID  int64   `json:"project_id"`
-	Name       string  `json:"name"`
-	ParentPath []int64 `json:"parent_path"`
+	ProjectID    int64  `json:"project_id"`
+	TreeID       int64  `json:"tree_id"`
+	Name         string `json:"name"`
+	ParentNodeID int64  `json:"parent_node_id"`
 }
 
 func (r *Registry) createTestCaseFolder(ctx context.Context, args createTestCaseFolderArgs) (any, error) {
 	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-	if args.Name == "" {
+	if strings.TrimSpace(args.Name) == "" {
 		return nil, fmt.Errorf("name must not be empty")
 	}
-	result, err := r.allure.CreateTestCaseFolder(ctx, args.ProjectID, args.ParentPath, args.Name)
+	treeID, err := r.resolveTreeID(ctx, args.ProjectID, args.TreeID)
 	if err != nil {
+		return nil, err
+	}
+	group, err := r.allure.CreateTestCaseTreeGroup(ctx, args.ProjectID, treeID, args.ParentNodeID, args.Name)
+	if err != nil {
+		// Each tree level is one custom field; a tree with N fields is N folders
+		// deep (confirmed live: "Suites" = Suite only, "Features" = Feature → Story).
+		if strings.Contains(err.Error(), "tree.no-cf-in-node") {
+			return nil, fmt.Errorf("tree %d has no folder level below node %d — each level of a tree is one custom field, and this tree has no field left at that depth; create the folder higher up or use a tree with more levels: %w", treeID, args.ParentNodeID, err)
+		}
 		return nil, fmt.Errorf("create test case folder: %w", err)
 	}
-	return result, nil
+	return map[string]any{
+		"folder_id":             group.ID,
+		"name":                  group.Name,
+		"tree_id":               treeID,
+		"parent_node_id":        group.ParentNodeID,
+		"custom_field_id":       group.CustomFieldID,
+		"custom_field_value_id": group.CustomFieldValueID,
+	}, nil
 }
