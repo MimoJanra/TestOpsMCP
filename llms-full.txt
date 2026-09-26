@@ -1,6 +1,6 @@
 # TestOps MCP — Full LLM Reference
 
-> MCP server that connects Claude to Allure TestOps. 132 curated tools + 600+ dynamic OpenAPI endpoints + 2 prompt templates + 4 resources.
+> MCP server that connects Claude to Allure TestOps. 148 curated tools + 600+ dynamic OpenAPI endpoints + 2 prompt templates + 4 resources.
 > Module: github.com/MimoJanra/TestOpsMCP | Go 1.27+ | Apache 2.0 | MCP protocol 2025-11-25
 
 ---
@@ -47,6 +47,8 @@ internal/
 **Stdio** (default, single user):
 - Reads JSON-RPC from stdin, writes to stdout
 - Session ID fixed as `"stdio"`
+- Max 32 MiB per JSON-RPC line; an oversized line is answered with a JSON-RPC error and the server keeps serving (it used to terminate the server)
+- Local file access (`upload_test_case_attachment` `file_path`, `get_test_case_attachment_content` `save_to`) is enabled only in this mode — set from the transport at startup, never from the request
 - Used for Claude Desktop local integration
 
 **HTTP + SSE** (multi-user team server):
@@ -56,7 +58,7 @@ internal/
 - `POST /messages?sessionId=<id>` — legacy JSON-RPC request for a session
 - Per-session `X-Allure-Token` header stored in Registry
 - Named user auth via `Authorization: Bearer <token>` (`MCP_AUTH_TOKENS=alice:tok,...`)
-- Heartbeat every 25 s, max 64 queued messages per session, 1 MiB max body
+- Heartbeat every 25 s, max 64 queued messages per session, 32 MiB max body (fits a 20 MiB attachment as base64)
 - Every non-notification request goes through panic recovery + audit middleware
 - Elicitation: server sends `elicitation/create` as JSON-RPC *request* (with `id`); client replies with a standard JSON-RPC response `{id, result: {action, content}}`
 - Sampling: server sends `sampling/createMessage` requests (with `id`); client replies with standard JSON-RPC response `{id, result: {role, content, stopReason}}`
@@ -117,9 +119,11 @@ Each HTTP session gets its own Allure API token. Priority:
 - **Pagination** — `tools/list`, `resources/list`, `prompts/list` return cursor-based pages (50 items). Response includes `nextCursor` when more pages exist. Pass `{"cursor":"50"}` in params to fetch page 2.
 - **Completion** — `completion/complete` returns argument suggestions. Supported args: `project_id` (lists real projects), `launch_id` (scans recent launches across first 5 projects)
 - **Resource subscriptions** — `resources/subscribe` / `resources/unsubscribe` per URI. Launch dashboard auto-starts a 10 s polling watcher on subscribe.
-- **Elicitation** — `elicitation/create` notification → user confirms in UI → `notifications/elicitation/complete`. Applied to `delete_test_case` and `bulk_delete_test_cases`.
+- **Elicitation** — `elicitation/create` notification → user confirms in UI → `notifications/elicitation/complete`. Applied to `delete_test_case`, `bulk_delete_test_cases`, `remove_test_cases_from_launch` (mode=delete), `delete_launch`, `delete_test_plan` and `delete_defect`.
 - **Sampling** — `sampling/createMessage` request → LLM via client → `sampling/createMessage/response`. Used by `analyze_launch_failures`.
 - **Capabilities advertised**: `tools`, `resources` (subscribe=true), `prompts`, `logging`, `elicitation`
+- **Client capabilities** — the server records the capabilities the client declares in `initialize`; sampling/elicitation requests to a client that didn't declare them fail immediately instead of blocking until timeout
+- **Argument validation** — every tool's schema `required` lists (top level and inside array items) are enforced before the handler runs
 
 ---
 
@@ -146,6 +150,8 @@ Search across 600+ OpenAPI-indexed Allure endpoints by intent keyword.
 ```
 Returns: `{"intent": "...", "results": [...], "total": 600+}`
 Each result: `{operation_id, method, path, summary, parameters}`
+Matching is token-based (multi-word intents match on their words), verbs hint the HTTP method (e.g. "delete" → DELETE),
+v2 paths and exact path segments rank higher, and an exact operation id returns that operation.
 
 #### execute_testops_operation
 Execute any endpoint discovered via `search_testops_operations`.
@@ -159,11 +165,13 @@ Execute any endpoint discovered via `search_testops_operations`.
   }
 }
 ```
-Path and query params are matched by name from the spec. Use `"body"` key for array payloads.
+Path and query params are matched by name from the spec. Use `"body"` key for array payloads. Large numbers are sent
+verbatim (not as `1.78e+12`); an array query param is repeated (`?id=1&id=2`). Binary responses are returned as
+`content_base64`.
 
 ---
 
-### Launch Management (14 tools)
+### Launch Management (17 tools)
 
 > **Async operations** — `run_allure_launch`, `copy_launch`, `merge_launches` return `{"task_id": "...", "message": "..."}` immediately and complete in the background. Use `get_task_status` to poll.
 
@@ -179,14 +187,15 @@ Task result on success: `{"launch_id": 123, "status": "started"}`
 ```json
 { "launch_id": "integer (required)" }
 ```
-Returns: `{"status": "RUNNING|DONE|FAILED|..."}`
+Returns: `{"launch_id": N, "status": "OPEN|CLOSED", "closed": bool, "statistic": {"total", "passed", "failed", "broken", "skipped", "unknown"}}`.
+The launch DTO has no status field (this used to always return null); a launch is open or closed, and its progress is the per-status result counts.
 
 #### get_launch_report
 Get pass/fail statistics for a launch.
 ```json
 { "launch_id": "integer (required)" }
 ```
-Returns: `{"total": N, "passed": N, "failed": N, "broken": N}`
+Returns: `{"total": N, "passed": N, "failed": N, "broken": N, "skipped": N, "unknown": N}`
 
 #### list_launches
 ```json
@@ -196,10 +205,10 @@ Returns: `{"total": N, "passed": N, "failed": N, "broken": N}`
   "size": "integer (default 10, max 100)"
 }
 ```
-Returns paginated list with id, name, status, project_id, start_time, end_time, environment, tags.
+Returns paginated list with id, name, status (`OPEN`/`CLOSED`), closed, project_id, created_date, tags. The list endpoint returns no start/end time or environment — use `get_launch_environment` / `get_launch_report`.
 
 #### get_launch_details
-Full launch object including uuid, description, report_web_url, tags.
+Launch metadata: id, name, status (`OPEN`/`CLOSED`), closed, autoclose, external, project_id, created_date, last_modified_date, tags, links, issues, and `statistic` (per-status counts).
 ```json
 { "launch_id": "integer (required)" }
 ```
@@ -230,7 +239,7 @@ Async. Returns task_id. `launch_name` required by the API even though optional i
 ```
 
 #### merge_launches
-Async. Returns task_id. Task result: `{"merged_launch_id": N, "status": "merged"}`
+Async. Returns task_id. Task result: `{"merged_launch_id": N, "status": "merged"}`. Destructive: the source launches are deleted. Refuses a target that is also a source (a self-merge deleted the launch) and duplicate ids; on partial failure reports which sources were already merged.
 ```json
 {
   "launch_ids": "[integer] (required)",
@@ -243,15 +252,6 @@ Async. Returns task_id. Task result: `{"merged_launch_id": N, "status": "merged"
 { "launch_id": "integer (required)" }
 ```
 Returns: `{"environment": {"KEY": "VALUE", ...}}`
-
-#### update_launch_environment
-```json
-{
-  "launch_id": "integer (required)",
-  "environment": {"KEY": "VALUE"} // object (required, non-empty)
-}
-```
-Returns: `{"status": "updated"}`
 
 #### add_test_cases_to_launch
 ```json
@@ -293,6 +293,19 @@ Removes test cases from a launch by resolving each `test_case_id` to its test re
 ```
 Returns paginated defect list.
 
+#### get_launch_dashboard
+Interactive launch dashboard widget (status, progress bar, pass/fail statistics) rendered inline in Claude Desktop / claude.ai. Only registered when an Allure client is configured.
+```json
+{ "launch_id": "integer (required)" }
+```
+
+#### delete_launch
+Permanently delete a launch and all its test results. Asks the user to confirm via elicitation.
+```json
+{ "launch_id": "integer (required)" }
+```
+Returns: `{"status": "deleted"}`
+
 ---
 
 ### Test Results (6 tools)
@@ -312,7 +325,7 @@ client-side and paginates over the matches, `page`/`size` applying to the filter
 results; a `truncated: true` in the response means the cap was hit before the full launch could be scanned.
 
 #### get_test_result
-Full result detail including uuid, full_name, description, parameters.
+Full result detail including uuid, full_name, description, parameters, tested_by, hidden, manual, category, layer, links.
 ```json
 { "test_result_id": "integer (required)" }
 ```
@@ -321,13 +334,13 @@ Full result detail including uuid, full_name, description, parameters.
 ```json
 { "test_result_id": "integer (required)", "username": "string (required)" }
 ```
-Returns: `{"status": "assigned"}`
+Returns: `{"status": "assigned"}`. The stored assignee is read back; the tool errors when Allure ignores the assignment (e.g. already resolved results).
 
 #### mute_test_result
 ```json
 { "test_result_id": "integer (required)", "reason": "string (optional)" }
 ```
-Returns: `{"status": "muted"}`
+Returns: `{"status": "muted"}`. The mute name column is limited to 255 characters: a longer reason is truncated for the name and kept whole as the reason.
 
 #### resolve_test_result
 Mirrors the web UI's "Change status" dialog (Status/Category/Details). Get valid category ids via
@@ -360,6 +373,7 @@ Returns: `{"status": "unmuted"}`
   "size": "integer (default 10)"
 }
 ```
+Each item includes `automation_status` (`"automated"`/`"manual"`; used to always be null).
 
 #### get_test_case
 Full test case: metadata, manual_scenario (steps), tags, members, custom fields, examples, and more.
@@ -368,16 +382,38 @@ Full test case: metadata, manual_scenario (steps), tags, members, custom fields,
 ```
 
 #### create_test_case
+Create a test case, optionally with all its content in one call. Only `project_id` and `name` are required.
+`status_id` and `workflow_id` must be passed together. A custom field item sets one value: `value_id` (existing value)
+or `name` (found or created by name). Tags given by an unknown name are created. Built-in ids are negative
+(e.g. status -1 Draft; custom fields Epic/Feature/Story/Suite -1..-5).
 ```json
 {
   "project_id": "integer (required)",
   "name": "string (required)",
-  "description": "string (optional)"
+  "description": "string (optional, markdown)",
+  "precondition": "string (optional)",
+  "expected_result": "string (optional)",
+  "full_name": "string (optional)",
+  "automated": "boolean (optional, default manual)",
+  "status_id": "integer (optional, requires workflow_id)",
+  "workflow_id": "integer (optional, requires status_id)",
+  "test_layer_id": "integer (optional)",
+  "tags": [{"id": N, "name": "..."}],
+  "links": [{"name": "...", "type": "...", "url": "... (required)"}],
+  "members": [{"id": "N (required, project member id)", "name": "..."}],
+  "custom_fields": [{"custom_field_id": "N (required)", "value_id": N, "name": "..."}],
+  "steps": [{"body": "string (required)", "expected_result": "string", "steps": ["...sub-steps, same shape"]}]
 }
 ```
+Returns the new test case id and `steps_created`.
 
 #### update_test_case
-All fields optional except test_case_id.
+All fields optional except test_case_id; only the fields you pass change. `""` clears a text field and `[]` clears
+tags/members/links (both used to be silently ignored); tags, members and links replace the whole list.
+`manual_scenario` REPLACES all current steps (including their attachments): the scenario is built through the step
+API with real text and expected results (it used to store every body as `<empty>`). `{"steps": []}` removes all steps.
+The legacy flat shape `{"steps": [{"type": "body"|"expected", "body": "..."}]}` is still accepted. To change a single
+step use `update_test_case_step`.
 ```json
 {
   "test_case_id": "integer (required)",
@@ -395,7 +431,7 @@ All fields optional except test_case_id.
   "tags": [{"id": N, "name": "..."}],
   "members": [{"id": N, "name": "..."}],
   "links": [{"name": "...", "type": "...", "url": "..."}],
-  "manual_scenario": {"steps": [...]}
+  "manual_scenario": {"steps": [{"body": "string (required)", "expected_result": "string", "steps": ["...sub-steps"]}]}
 }
 ```
 
@@ -423,7 +459,7 @@ Start a run for a single test case in an existing launch.
 ```
 
 #### search_test_cases
-AQL query (per docs.qameta.io/allure-testops/advanced/aql/) — string literals MUST be double-quoted, not single-quoted; partial match is `~=`, not `~`; custom fields use `cf["Name"] = "value"`. Examples: `name ~= "login"`, `status = "active"`, `tag = "smoke"`, `cf["Priority"] = "Medium"`.
+AQL query (per docs.qameta.io/allure-testops/advanced/aql/). Values are case-sensitive (`status = "active"` matches nothing; use `"Active"`) — string literals MUST be double-quoted, not single-quoted; partial match is `~=`, not `~`; custom fields use `cf["Name"] = "value"`. Examples: `name ~= "login"`, `status = "active"`, `tag = "smoke"`, `cf["Priority"] = "Medium"`.
 ```json
 {
   "project_id": "integer (required)",
@@ -452,20 +488,25 @@ Validate AQL/RQL without executing.
 
 ---
 
-### Test Cases — Steps & Scenario (8 tools)
+### Test Cases — Steps & Scenario (10 tools)
 
 #### create_test_case_step
+Appended to the end by default. `after_id`/`before_id` insert next to a step; the parent of a nested anchor is
+resolved automatically. `expected_result` is the same as a follow-up `update_test_case_step`.
 ```json
 {
   "test_case_id": "integer (required)",
-  "name": "string (required) — step name",
+  "body": "string (required) — step text",
   "expected_result": "string (optional)",
-  "parent_id": "integer (optional) — for nested steps"
+  "parent_id": "integer (optional) — nest under this step",
+  "after_id": "integer (optional) — insert after this step",
+  "before_id": "integer (optional) — insert before this step"
 }
 ```
 
 #### update_test_case_step
-Setting `expected_result` always requires `test_case_id` — the API models expected results as a separate linked step (not a plain field on the action step); the tool finds or creates the child entry the web UI actually displays. `test_case_id` is also recommended on a body-only edit so an existing expected result isn't wiped. See [#16](https://github.com/MimoJanra/TestOpsMCP/issues/16) for the underlying tree structure.
+Setting `expected_result` always requires `test_case_id` — the API models expected results as a separate linked step (not a plain field on the action step); the tool finds or creates the child entry the web UI actually displays. `test_case_id` is also recommended on a body-only edit so an existing expected result isn't wiped. Setting an expected result keeps the body's rich-text formatting. A file or
+table node's body cannot be edited (the API would drop the attachment) — the tool refuses. See [#16](https://github.com/MimoJanra/TestOpsMCP/issues/16) for the underlying tree structure.
 ```json
 {
   "step_id": "integer (required)",
@@ -481,19 +522,26 @@ Setting `expected_result` always requires `test_case_id` — the API models expe
 ```
 
 #### move_test_case_step
+At least one of `after_id`, `before_id`, `parent_id` is required (without a position the API silently un-nested the
+step). Pass `test_case_id` with `after_id`/`before_id` so the anchor's parent is resolved — the API 404s on a nested
+anchor without it. To move a sub-step to the top level, anchor it to a top-level step.
 ```json
 {
   "step_id": "integer (required)",
+  "test_case_id": "integer (recommended) — resolves the anchor's parent",
   "after_id": "integer (optional) — place after this step",
   "before_id": "integer (optional) — place before this step",
-  "parent_id": "integer (optional) — nest under this step"
+  "parent_id": "integer (optional) — new parent; alone it appends to that parent"
 }
 ```
 
 #### copy_test_case_step
+Duplicates a step with its sub-steps, expected result and attachments. Returns the copy's `step_id` when
+`test_case_id` is given.
 ```json
 {
   "step_id": "integer (required)",
+  "test_case_id": "integer (recommended) — resolves the anchor's parent, returns the new step_id",
   "after_id": "integer (optional)",
   "before_id": "integer (optional)",
   "parent_id": "integer (optional)"
@@ -513,18 +561,34 @@ Get steps captured from the last automated run.
 ```
 
 #### detach_test_case_automation
-Convert automated test case back to manual.
+Convert automated test case back to manual. Omitted `status_id`/`workflow_id` keep the current ones (they used to be
+sent as 0, which failed).
 ```json
 {
   "test_case_id": "integer (required)",
-  "status_id": "integer (optional)",
-  "workflow_id": "integer (optional)"
+  "status_id": "integer (optional; built-in ids are negative, e.g. -1 Draft)",
+  "workflow_id": "integer (optional)",
+  "use_scenario_from_test_result": "boolean (optional) — copy the latest automated run's steps into the manual scenario"
 }
+```
+
+#### get_test_case_steps
+Normalized step list including every step's ID (needed for move/copy/delete_test_case_step). An empty
+`scenarioSteps` with `hasManualScenario: false` on `get_test_case` means the content may live in the legacy
+`scenario` field.
+```json
+{ "test_case_id": "integer (required)" }
+```
+
+#### get_test_case_scenario
+Readable scenario: ordered steps with names, keywords, expected results and nesting (same data as `get_test_case_steps`).
+```json
+{ "test_case_id": "integer (required)" }
 ```
 
 ---
 
-### Test Cases — Metadata (14 tools)
+### Test Cases — Metadata (15 tools)
 
 #### get_test_case_tags / set_test_case_tags
 get: `{ "test_case_id": integer }`
@@ -532,9 +596,10 @@ set (full replace):
 ```json
 {
   "test_case_id": "integer (required)",
-  "tags": [{"id": N, "name": "..."}]  // pass complete desired list; a tag needs either id (existing) or name (new)
+  "tags": [{"id": N, "name": "..."}]  // pass complete desired list; [] removes all
 }
 ```
+A tag needs either `id` (existing) or `name` — a name that doesn't exist yet creates the tag (no 409; tags are global, not per project).
 
 #### create_test_tag
 Creates a new project-wide tag by name and returns its id. Use when you need a tag that doesn't exist yet, then attach the returned id via `set_test_case_tags` or `bulk_add_test_case_tags`.
@@ -544,23 +609,25 @@ Creates a new project-wide tag by name and returns its id. Use when you need a t
 → `{ "id": N, "name": "..." }`
 
 #### get_test_case_issues / set_test_case_issues
-get: `{ "test_case_id": integer }`
-set (full replace):
+get: `{ "test_case_id": integer }` → each issue has `id`, `display_name` (the issue key; used to always be empty), `url`,
+`integration_id`, `closed`, `summary`, `status`.
+set (full replace; `integration_id` and `display_name` are required per issue — the key is sent to the API as `name`,
+without which every call 500'd):
 ```json
 {
   "test_case_id": "integer (required)",
   "issues": [{
     "id": N,
-    "display_name": "PROJ-123",
+    "display_name": "PROJ-123 (required)",
     "url": "https://...",
-    "integration_id": N,
+    "integration_id": "N (required)",
     "closed": false
   }]
 }
 ```
 
 #### get_test_case_examples / set_test_case_examples
-get: `{ "test_case_id": integer }`
+get: `{ "test_case_id": integer }` → all rows (used to be capped at 10)
 set (parametrized data table):
 ```json
 {
@@ -595,7 +662,7 @@ Lists the valid values defined for a custom field within a project (e.g. allowed
 
 #### get_test_case_keys / set_test_case_keys
 get: `{ "test_case_id": integer }`
-set (Jira/Azure keys, full replace):
+set (Jira/Azure keys, full replace; each key needs `integration_id` and `name` — the API silently drops a key without them, so the tool refuses it):
 ```json
 {
   "test_case_id": "integer (required)",
@@ -638,7 +705,9 @@ update (all fields optional, only passed ones change):
   "locked": "boolean (optional)"
 }
 ```
-`delete_custom_field` is permanent — prefer `set_custom_field_archived` for a reversible removal.
+`delete_custom_field` is permanent — prefer `set_custom_field_archived` for a reversible removal. `locked` does not block
+edits through the API. Built-in fields have negative ids (Epic/Feature/Story/Suite/Component) and are accepted by
+`get_custom_field`, `get/update_project_custom_field`, `create_custom_field_value` and `list_custom_field_values`.
 
 #### set_custom_field_archived
 ```json
@@ -647,10 +716,10 @@ update (all fields optional, only passed ones change):
 
 #### list_project_custom_fields / get_project_custom_field
 list: `{ "project_id": "integer (required)", "query": "string (optional)", "page": "integer (optional, default 0)", "size": "integer (optional, default 10)" }`
-get one: `{ "project_id": "integer (required)", "custom_field_id": "integer (required)" }` → project-scoped required/locked/default settings plus the field definition.
+get one: `{ "project_id": "integer (required)", "custom_field_id": "integer (required)" }` → project-scoped required/locked/default settings plus the field definition. A field not attached to the project returns a clear error (used to be "decode response: EOF").
 
 #### add_custom_fields_to_project / remove_custom_field_from_project
-add: `{ "project_id": "integer (required)", "custom_field_ids": [N, ...] }`
+add: `{ "project_id": "integer (required)", "custom_field_ids": [N, ...] }` → reports ids that were not attached (the API silently ignores unknown ids)
 remove: `{ "project_id": "integer (required)", "custom_field_id": "integer (required)" }` (detaches only — doesn't delete the field definition or its values)
 
 #### update_project_custom_field
@@ -669,6 +738,7 @@ The current replacement for the API's deprecated set-required/set-default endpoi
 create: `{ "project_id": "integer (required)", "custom_field_id": "integer (required)", "name": "string (required)", "default": "boolean (optional)" }`
 update (all fields optional, only passed ones change): `{ "project_id": "integer (required)", "value_id": "integer (required)", "name": "string (optional)", "default": "boolean (optional)", "global": "boolean (optional)" }`
 delete: `{ "project_id": "integer (required)", "value_id": "integer (required)" }` — test cases currently set to this value lose it.
+Renaming a value gives it a new id; test cases follow. `global: true` is irreversible.
 
 ---
 
@@ -678,24 +748,28 @@ delete: `{ "project_id": "integer (required)", "value_id": "integer (required)" 
 ```json
 { "test_case_id": "integer (required)" }
 ```
+Returns each member's id, name and `role`.
 
 #### add_test_case_members
-`role` is required per member (API 400s with a misleading "Some role users not found" if omitted) — get valid role
-ids via `execute_testops_operation` on `GET /api/role` (commonly `-1` "Owner", `-2` "Lead"). The member `id` must be an
-existing collaborator on the test case's project (an org-wide user id is not enough) — find one via
-`execute_testops_operation` on `GET /api/member/suggest?projectId=`.
+Additive: existing members are kept (v2 bulk member/add; this used to replace all members). `role` is optional — the
+project's role scheme decides the stored role. The member `id` must be an existing collaborator on the test case's
+project (an org-wide user id fails with "Some role users not found") — find one via `execute_testops_operation` on
+`GET /api/member/suggest?projectId=`.
 ```json
 {
   "test_case_id": "integer (required)",
-  "members": [{"id": N, "name": "...", "role": {"id": -1, "name": "Owner"}}]
+  "members": [{"id": "N (required)", "name": "...", "role": {"id": -1, "name": "Owner"}}]
 }
 ```
 
 #### remove_test_case_members
+`project_id` is optional (looked up from the test case); a `project_id` that doesn't match the test case's project is
+refused (it used to be a silent no-op).
 ```json
 {
   "test_case_id": "integer (required)",
-  "member_ids": [N, N]
+  "member_ids": [N, N],
+  "project_id": "integer (optional)"
 }
 ```
 
@@ -745,7 +819,50 @@ existing collaborator on the test case's project (an org-wide user id is not eno
 
 ---
 
-### Test Cases — Versions & Attachments (7 tools)
+### Defects (5 tools)
+
+Project-level defects. Link one to a test case with `add_test_case_defect`. `delete_defect` asks the user to confirm.
+
+#### list_defects
+Newest first.
+```json
+{
+  "project_id": "integer (required)",
+  "name_filter": "string (optional) — name substring",
+  "status": "string (optional) — open|closed",
+  "page": "integer (default 0)",
+  "size": "integer (default 20, max 100)"
+}
+```
+Returns `{"defects": [{id, name, closed, created_date}], "page", "total", "is_last"}`.
+
+#### get_defect
+```json
+{ "defect_id": "integer (required)" }
+```
+Returns name, description, open/closed state and linked `issue` (`id`, `key`, `url`) when present.
+
+#### create_defect
+```json
+{ "project_id": "integer (required)", "name": "string (required)", "description": "string (optional)" }
+```
+Returns `{"id", "name", "project_id"}`.
+
+#### update_defect
+Only the fields you pass change; `closed: true` closes, `false` reopens.
+```json
+{ "defect_id": "integer (required)", "name": "string (optional)", "description": "string (optional)", "closed": "boolean (optional)" }
+```
+
+#### delete_defect
+Permanent; test cases and results only lose the link. Prefer `update_defect` with `closed: true`.
+```json
+{ "defect_id": "integer (required)" }
+```
+
+---
+
+### Test Cases — Versions & Attachments (10 tools)
 
 #### list_test_case_versions
 ```json
@@ -783,6 +900,33 @@ existing collaborator on the test case's project (an org-wide user id is not eno
   "page": "integer (default 0)",
   "size": "integer (default 20)"
 }
+```
+Each attachment: `id`, `name`, `content_type`, `size` (real content length), `missed`.
+
+#### get_test_case_attachment_content
+Download an attachment. Text content (text/*, JSON, CSV, XML) is returned as `content`, anything else as
+`content_base64`. `save_to` writes the file to disk instead — local stdio mode only, and the file must not exist yet
+(never overwrites). Max 20 MiB.
+```json
+{ "attachment_id": "integer (required)", "save_to": "string (optional, stdio only)" }
+```
+Returns `attachment_id`, `content_type`, `size`, and `content` / `content_base64` / `saved_to`.
+
+#### upload_test_case_attachment
+Upload a file to a test case; with `step_id` also show it in that step (the step's "File" block in the web UI —
+a child scenario node holding the attachment). `target`: `step` (default) or `expected_result` (the step must already
+have an expected result). `file_path` works only in local stdio mode — on a shared HTTP server it would read the
+server's disk, so pass `content_base64` + `file_name` there. Max 20 MiB (the base64 form must fit in one 32 MiB MCP message). No v2 endpoint exists for this upload.
+```json
+{"test_case_id": "integer (required)", "file_path": "string", "content_base64": "string", "file_name": "string", "content_type": "string (optional, guessed)", "step_id": "integer (optional)", "target": "step|expected_result"}
+```
+Returns `attachment_id`, `name`, `content_type`, `content_length`, and `node_id` when attached to a step.
+
+#### add_test_case_step_table
+Add a table to a step (the step's "Table" block). In Allure a step table is a CSV attachment shown in the step, so
+this uploads `rows` as `text/csv` and attaches it.
+```json
+{"test_case_id": "integer (required)", "step_id": "integer (required)", "rows": "[[string]] (required)", "name": "string (default \"Table\")", "target": "step|expected_result"}
 ```
 
 #### delete_test_case_attachment
@@ -830,7 +974,7 @@ Change history for a test case.
 
 ---
 
-### Test Cases — Folder Tree (5 tools)
+### Test Cases — Folder Tree (7 tools)
 
 In Allure a "folder" is a value of a custom field, and it only exists within a named **tree** built from custom
 fields (e.g. the "Suites" tree groups by the Suite field; "Features" by Feature → Story). Every folder tool takes a
@@ -848,15 +992,19 @@ One level of a tree: folders and test cases directly inside `parent_node_id` (tr
 ```json
 {"project_id": "integer (required)", "tree_id": "integer (optional)", "parent_node_id": "integer (optional)", "page": "integer (default 0)", "size": "integer (default 50)"}
 ```
-Returns `tree_id`, `node_id`, `folders: [{id, name, test_case_count}]`, `test_cases: [{test_case_id, leaf_id, name, status}]`.
+Returns `tree_id`, `node_id`, `folders: [{id, name, test_case_count, custom_field_value_id}]`, `test_cases: [{test_case_id, leaf_id, name, status}]`, `total`.
+Listing is sorted with tiebreakers (name, createdDate, testCaseId) so paging doesn't duplicate or skip same-named items.
 
 #### get_test_case_tree_folders
-Same as browse_test_case_tree, folders only.
+Same parameters as browse_test_case_tree, folders only. `page`/`size` apply to the folder list: the tool collects all
+folders of the level first (the API interleaves folders with test cases, so pages used to come back empty). Returns `total`.
 
 #### move_test_cases_to_folder
 Move test cases into folder `node_id` (tree root when omitted) — sets the test case's custom field value for that
 folder. Asynchronous. The API takes tree leaf ids, which change on every move; the tool resolves them from the test
-case ids right before moving. Test cases not present in the tree come back in `not_found_test_case_ids`.
+case ids right before moving. Test cases not present in the tree come back in `not_found_test_case_ids`. `node_id`
+must be a folder of the tree — a leaf id, unknown id or another tree's folder is refused (it used to silently strip
+the test cases' folders).
 ```json
 {"project_id": "integer (required)", "tree_id": "integer (optional)", "test_case_ids": "[integer] (required)", "node_id": "integer (optional)"}
 ```
@@ -867,10 +1015,28 @@ Create a folder under `parent_node_id` (tree root when omitted). Returns `folder
 ```json
 {"project_id": "integer (required)", "tree_id": "integer (optional)", "name": "string (required)", "parent_node_id": "integer (optional)"}
 ```
+`parent_node_id` is validated the same way as `move_test_cases_to_folder`'s `node_id`.
+
+#### rename_test_case_folder
+Rename a folder in place: it keeps its node id and its test cases follow. Same-named folders elsewhere in the tree are
+not affected.
+```json
+{"project_id": "integer (required)", "tree_id": "integer (optional)", "node_id": "integer (required)", "name": "string (required)"}
+```
+Returns `{"status": "renamed", "node_id", "tree_id"}`.
+
+#### delete_test_case_folder
+Delete a folder. Its test cases are not deleted — they lose this folder assignment. Also removes the folder's backing
+custom field value unless another (same-named) folder shares it; then the folder stays empty and `status` is
+`"emptied"` with a `warning`. Do not use `delete_custom_field_value` for this: one value can back several folders.
+```json
+{"project_id": "integer (required)", "tree_id": "integer (optional)", "node_id": "integer (required)"}
+```
+Returns `{"status": "deleted"|"emptied", "node_id", "tree_id", "warning"?}`.
 
 ---
 
-### Bulk Test Case Operations (14 tools)
+### Bulk Test Case Operations (15 tools)
 
 All bulk test case tools accept `project_id` (integer, required) and `test_case_ids` ([integer], required).
 
@@ -885,14 +1051,17 @@ All bulk test case tools accept `project_id` (integer, required) and `test_case_
 ```
 
 #### bulk_clone_test_cases
+Async (background task). The API clones asynchronously (202, no body) and does not return the new ids — find the
+clones with `list_test_cases`/`search_test_cases`; a `name_suffix` makes them easy to spot. Status resets to Draft.
 ```json
-{ "project_id": N, "test_case_ids": [...] }
+{ "project_id": N, "test_case_ids": [...], "name_suffix": "string (optional)", "ignore_tags": "boolean (optional)" }
 ```
 
 #### bulk_mute_test_cases
 ```json
 { "project_id": N, "test_case_ids": [...], "reason": "string (optional, defaults to \"Muted via MCP\")" }
 ```
+A reason over 255 characters is truncated for the mute name and kept whole as the reason.
 
 #### bulk_delete_test_cases
 ```json
@@ -926,7 +1095,8 @@ remove: `{ "project_id": N, "test_case_ids": [...], "custom_field_ids": [N] }`
 ```
 
 #### bulk_add_test_case_issues / bulk_remove_test_case_issues
-add: `{ "project_id": N, "test_case_ids": [...], "issues": [{"id": N, "display_name": "PROJ-1", "url": "...", "integration_id": N}] }`
+add: `integration_id` and `display_name` are required per issue (an issue without them links every issue in the
+instance, so the tool refuses it) — `{ "project_id": N, "test_case_ids": [...], "issues": [{"id": N, "display_name": "PROJ-1", "url": "...", "integration_id": N}] }`
 remove: `{ "project_id": N, "test_case_ids": [...], "issue_ids": [N] }`
 
 ---
@@ -936,16 +1106,19 @@ remove: `{ "project_id": N, "test_case_ids": [...], "issue_ids": [N] }`
 All accept `launch_id` (integer, required) and `test_result_ids` ([integer], required).
 
 #### bulk_assign_test_results
+Several assignees are distributed round-robin; omitting assignees unassigns. Not-run results are skipped.
 ```json
 { "launch_id": N, "test_result_ids": [...], "assignees": ["username1"] }
 ```
 
 #### bulk_mute_test_results
+A reason over 255 characters is truncated for the mute name and kept whole as the reason.
 ```json
 { "launch_id": N, "test_result_ids": [...], "reason": "string (optional)" }
 ```
 
 #### bulk_unmute_test_results
+Also removes the test cases' mute records, so they leave the project's muted list.
 ```json
 { "launch_id": N, "test_result_ids": [...] }
 ```
@@ -961,11 +1134,12 @@ Mirrors the web UI's "Change status" dialog (Status/Category/Details), applied t
 ### Bulk Launch / Plan Operations (3 tools)
 
 #### bulk_run_test_cases_new_launch
+Async; the task result includes the new `launch_id`.
 ```json
 {
   "project_id": N,
   "test_case_ids": [...],
-  "launch_name": "string (optional)",
+  "launch_name": "string (required)",
   "assignees": ["username"] (optional)
 }
 ```
@@ -988,6 +1162,44 @@ Mirrors the web UI's "Change status" dialog (Status/Category/Details), applied t
   "test_plan_name": "string (required)"
 }
 ```
+Returns `test_plan_id`, `name`, `test_cases_count`.
+
+---
+
+### Test Plans (5 tools)
+
+Create plans with `bulk_create_test_plan`; add a plan to an existing launch with `add_test_plan_to_launch`.
+
+#### list_test_plans
+Newest first.
+```json
+{ "project_id": "integer (required)", "name": "string (optional) — name filter", "page": "integer (default 0)", "size": "integer (default 20, max 100)" }
+```
+Returns id, name and test case count per plan.
+
+#### get_test_plan
+```json
+{ "test_plan_id": "integer (required)" }
+```
+Returns name, project, test case count and the AQL it selects by (`base_rql`).
+
+#### run_test_plan
+Start a new launch from the plan's test cases.
+```json
+{ "test_plan_id": "integer (required)", "launch_name": "string (required)" }
+```
+Returns `{"status": "started", "launch_id": N}`.
+
+#### rename_test_plan
+```json
+{ "test_plan_id": "integer (required)", "name": "string (required)" }
+```
+
+#### delete_test_plan
+Test cases and past launches are not affected. Asks the user to confirm.
+```json
+{ "test_plan_id": "integer (required)" }
+```
 
 ---
 
@@ -997,7 +1209,8 @@ Mirrors the web UI's "Change status" dialog (Status/Category/Details), applied t
 ```json
 { "page": "integer (default 0)", "size": "integer (default 10, max 100)" }
 ```
-Returns: `{"projects": [{"id": N, "name": "...", "code": "..."}], "page", "size", "total", "is_last"}`
+Returns: `{"projects": [{"id": N, "name": "...", "code": "..."}], "page", "size", "total", "is_last"}`. `code` is the
+project abbreviation (API field `abbr`; it used to always be empty).
 
 #### find_project
 ```json
@@ -1122,7 +1335,8 @@ No parameters. Returns: `{"tasks": [...], "count": N}` — only tasks with statu
 ```json
 { "task_id": "string (required)" }
 ```
-Returns: `{"status": "cancelled", "task_id": "..."}` — signals the background goroutine via context cancellation.
+Returns: `{"status": "cancelled", "task_id": "..."}` — signals the background goroutine via context cancellation. A
+cancelled task stays cancelled; if the work finishes later, its outcome is reported in the task's message.
 
 ---
 
@@ -1138,7 +1352,8 @@ Fetches failed test results from a launch and uses MCP sampling (asks Claude via
   "max_failures": "integer (optional, default 20, max 50)"
 }
 ```
-Returns: `{"launch_id": N, "failures": N, "analysis": "...<Claude's analysis>..."}`
+Returns: `{"launch_id": N, "failures": N, "analysis": "...<Claude's analysis>..."}`. Analyzes failed and broken results;
+errors on a nonexistent launch.
 If sampling unavailable: returns `summary` of raw failures with `error` field.
 
 ---
@@ -1174,6 +1389,8 @@ Tools return errors as MCP error responses. Common causes:
 - Audit log records every request: user, session, remote addr, method, tool, status, duration
 - Use HTTPS in production (nginx/Caddy reverse proxy)
 - Set `CORS_ALLOWED_ORIGIN` to specific origin (not `*`) in production
+- Request bodies are capped at 32 MiB; a reverse proxy must allow that much (`client_max_body_size 32m`) for attachment uploads
+- `file_path` (upload) and `save_to` (download) are stdio-only; `save_to` never overwrites an existing file (O_EXCL)
 
 ---
 

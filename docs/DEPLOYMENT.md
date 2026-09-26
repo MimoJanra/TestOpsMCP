@@ -282,6 +282,10 @@ server {
     limit_req_zone $binary_remote_addr zone=api_limit:10m rate=10r/s;
     limit_req zone=api_limit burst=20 nodelay;
 
+    # Request body limit: the server accepts up to 32 MiB per JSON-RPC message
+    # (a 20 MiB attachment upload as base64). nginx's default of 1m rejects uploads.
+    client_max_body_size 32m;
+
     # SSE endpoint
     location /sse {
         proxy_pass http://testops_mcp_backend;
@@ -353,6 +357,8 @@ server {
 }
 ```
 
+The server rejects bodies over 32 MiB with `413`; `client_max_body_size` must be at least `32m` for `upload_test_case_attachment` with `content_base64` to work through the proxy. On a Kubernetes nginx ingress use the annotation `nginx.ingress.kubernetes.io/proxy-body-size: "32m"`.
+
 Enable and reload:
 
 ```bash
@@ -386,11 +392,17 @@ allure-mcp.example.com {
 }
 ```
 
+Caddy sets no request body limit by default; if you add a `request_body { max_size ... }` directive, allow at least 32MB.
+
 Run:
 
 ```bash
 caddy run
 ```
+
+### Local file parameters
+
+`file_path` (`upload_test_case_attachment`) and `save_to` (`get_test_case_attachment_content`) read and write the server's own disk, so they are only enabled in stdio mode. On a shared HTTP server they are refused: clients upload with `content_base64` + `file_name` and receive downloads as `content` / `content_base64` in the response. See [SECURITY.md](SECURITY.md#local-file-access).
 
 ---
 
@@ -667,4 +679,5 @@ location /sse {
 - [ ] MCP_AUTH_TOKENS configured with strong per-user tokens
 - [ ] Audit log volume mounted and retention days configured
 - [ ] CORS_ALLOWED_ORIGIN restricted (not `*`)
+- [ ] Reverse proxy body limit allows 32 MiB (`client_max_body_size 32m`) for attachment uploads
 - [ ] Secrets not in `.env` (use secret manager)

@@ -67,6 +67,7 @@ func main() {
 	if *httpMode {
 		runHTTP(mcpServer, cfg, logger)
 	} else {
+		registry.AllowLocalFiles()
 		runStdio(mcpServer, logger)
 	}
 }

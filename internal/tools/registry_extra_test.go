@@ -2,8 +2,10 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -311,5 +313,41 @@ func TestExecuteTestOpsOperationHandler(t *testing.T) {
 	}
 	if result == nil {
 		t.Error("expected a non-nil result from the fake server")
+	}
+}
+
+func TestValidateRequired(t *testing.T) {
+	schema := map[string]any{
+		"type":     "object",
+		"required": []string{"test_case_id", "relations"},
+		"properties": map[string]any{
+			"test_case_id": map[string]any{"type": "integer"},
+			"relations": map[string]any{
+				"type":  "array",
+				"items": map[string]any{"type": "object", "required": []string{"target_id"}},
+			},
+		},
+	}
+	for _, tc := range []struct {
+		input   string
+		wantErr string
+	}{
+		{`{"test_case_id":1,"relations":[]}`, ""},
+		{`{"test_case_id":1,"relations":[{"target_id":2}]}`, ""},
+		{`{"test_case_id":1}`, `"relations"`},
+		{`{"test_case_id":1,"relations":null}`, `"relations"`},
+		{`{"test_case_id":1,"relations":[{"type":"x"}]}`, `"relations[0].target_id"`},
+		{`[1]`, "JSON object"},
+	} {
+		err := validateRequired(schema, json.RawMessage(tc.input))
+		if tc.wantErr == "" {
+			if err != nil {
+				t.Errorf("%s: unexpected error %v", tc.input, err)
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+			t.Errorf("%s: error = %v, want it to mention %s", tc.input, err, tc.wantErr)
+		}
 	}
 }

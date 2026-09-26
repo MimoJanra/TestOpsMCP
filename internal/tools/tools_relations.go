@@ -92,11 +92,9 @@ func (r *Registry) registerRelationTools() {
 
 	r.register(&Tool{
 		Name: "add_test_case_members",
-		Description: "Add team members to a test case. Each member needs a role — the API rejects a member with no role " +
-			"with a misleading 400 (\"Some role users not found\"). Get valid role ids/names via search_testops_operations " +
-			"(\"role\") + execute_testops_operation (GET /api/role) — commonly -1 \"Owner\" and -2 \"Lead\". The member id " +
-			"must also be an existing collaborator on this test case's project (an org-wide user id is not enough) — " +
-			"find one via execute_testops_operation on GET /api/member/suggest with projectId.",
+		Description: "Add members to a test case, keeping the existing ones. The member id is a project member id — find one via " +
+			"execute_testops_operation on GET /api/member/suggest with projectId (an org-wide user id that isn't a project member fails with " +
+			"\"Some role users not found\"). role is optional: the project's role scheme decides the stored role (confirmed live).",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -106,23 +104,22 @@ func (r *Registry) registerRelationTools() {
 				},
 				"members": map[string]any{
 					"type":        "array",
-					"description": "Members to add (each needs id and role; name is informational only)",
+					"description": "Members to add",
 					"items": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
-							"id":   map[string]any{"type": "integer", "description": "Project collaborator's user ID"},
+							"id":   map[string]any{"type": "integer", "description": "Project member ID"},
 							"name": map[string]any{"type": "string"},
 							"role": map[string]any{
 								"type":        "object",
-								"description": "Required. The role to assign, e.g. {\"id\": -1, \"name\": \"Owner\"}",
+								"description": "Optional role, e.g. {\"id\": -1, \"name\": \"Owner\"}",
 								"properties": map[string]any{
 									"id":   map[string]any{"type": "integer"},
 									"name": map[string]any{"type": "string"},
 								},
-								"required": []string{"id"},
 							},
 						},
-						"required": []string{"id", "role"},
+						"required": []string{"id"},
 					},
 				},
 			},
@@ -133,13 +130,13 @@ func (r *Registry) registerRelationTools() {
 
 	r.register(&Tool{
 		Name:        "remove_test_case_members",
-		Description: "Remove team members from a test case",
+		Description: "Remove members from a test case (ids as returned by get_test_case_members).",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"project_id": map[string]any{
 					"type":        "integer",
-					"description": "Allure project ID (required by the API)",
+					"description": "Allure project ID (optional — looked up from the test case; if passed it must match)",
 				},
 				"test_case_id": map[string]any{
 					"type":        "integer",
@@ -153,7 +150,7 @@ func (r *Registry) registerRelationTools() {
 					"description": "Member IDs to remove",
 				},
 			},
-			"required": []string{"project_id", "test_case_id", "member_ids"},
+			"required": []string{"test_case_id", "member_ids"},
 		},
 		Handler: Typed(r.removeTestCaseMembers),
 	})
@@ -327,10 +324,14 @@ func (r *Registry) getTestCaseMembers(ctx context.Context, args getTestCaseMembe
 
 	items := make([]map[string]any, len(members))
 	for i, m := range members {
-		items[i] = map[string]any{
+		item := map[string]any{
 			"id":   m.ID,
 			"name": m.Name,
 		}
+		if m.Role != nil {
+			item["role"] = map[string]any{"id": m.Role.ID, "name": m.Role.Name}
+		}
+		items[i] = item
 	}
 
 	return map[string]any{"members": items}, nil
@@ -349,9 +350,13 @@ func (r *Registry) addTestCaseMembers(ctx context.Context, args addTestCaseMembe
 		return nil, fmt.Errorf("members must not be empty")
 	}
 	for i, m := range args.Members {
-		if m.Role == nil || m.Role.ID == 0 {
-			return nil, fmt.Errorf("member %d: role is required (e.g. {\"id\": -1, \"name\": \"Owner\"}) — the API 400s with a misleading \"Some role users not found\" if it's omitted", i)
+		if m.ID <= 0 {
+			return nil, fmt.Errorf("member %d: id must be positive", i)
 		}
+	}
+	projectID, err := r.testCaseProjectID(ctx, args.TestCaseID)
+	if err != nil {
+		return nil, err
 	}
 
 	r.logger.Info("adding members to test case", map[string]any{
@@ -359,7 +364,9 @@ func (r *Registry) addTestCaseMembers(ctx context.Context, args addTestCaseMembe
 		"count":        len(args.Members),
 	})
 
-	if err := r.allure.AddTestCaseMembers(ctx, args.TestCaseID, args.Members); err != nil {
+	// v2 bulk add appends; the v1 POST /api/testcase/{id}/members this used
+	// to call replaced every existing member (confirmed live).
+	if err := r.allure.BulkAddTestCaseMembers(ctx, projectID, []int64{args.TestCaseID}, args.Members); err != nil {
 		r.logger.Error("add test case members", err, map[string]any{"test_case_id": args.TestCaseID})
 		return nil, fmt.Errorf("add test case members: %w", err)
 	}
@@ -374,14 +381,20 @@ type removeTestCaseMembersArgs struct {
 }
 
 func (r *Registry) removeTestCaseMembers(ctx context.Context, args removeTestCaseMembersArgs) (any, error) {
-	if args.ProjectID <= 0 {
-		return nil, fmt.Errorf("project_id must be positive")
-	}
 	if args.TestCaseID <= 0 {
 		return nil, fmt.Errorf("test_case_id must be positive")
 	}
 	if len(args.MemberIDs) == 0 {
 		return nil, fmt.Errorf("member_ids must not be empty")
+	}
+	// A selection with the wrong project matches nothing, and the API still
+	// answers 204 — so resolve the real project instead of trusting the caller.
+	projectID, err := r.testCaseProjectID(ctx, args.TestCaseID)
+	if err != nil {
+		return nil, err
+	}
+	if args.ProjectID != 0 && args.ProjectID != projectID {
+		return nil, fmt.Errorf("test case %d belongs to project %d, not %d", args.TestCaseID, projectID, args.ProjectID)
 	}
 
 	r.logger.Info("removing members from test case", map[string]any{
@@ -389,7 +402,7 @@ func (r *Registry) removeTestCaseMembers(ctx context.Context, args removeTestCas
 		"count":        len(args.MemberIDs),
 	})
 
-	if err := r.allure.RemoveTestCaseMembers(ctx, args.ProjectID, args.TestCaseID, args.MemberIDs); err != nil {
+	if err := r.allure.RemoveTestCaseMembers(ctx, projectID, args.TestCaseID, args.MemberIDs); err != nil {
 		r.logger.Error("remove test case members", err, map[string]any{"test_case_id": args.TestCaseID})
 		return nil, fmt.Errorf("remove test case members: %w", err)
 	}
@@ -484,4 +497,19 @@ func (r *Registry) deleteTestCaseExternalLink(ctx context.Context, args deleteTe
 	}
 
 	return map[string]any{"status": "link_deleted"}, nil
+}
+
+// testCaseProjectID looks up the project a test case belongs to. v2 bulk
+// endpoints need it in the selection and silently match nothing without the
+// right one.
+func (r *Registry) testCaseProjectID(ctx context.Context, testCaseID int64) (int64, error) {
+	overview, err := r.allure.GetTestCaseOverview(ctx, testCaseID)
+	if err != nil {
+		return 0, fmt.Errorf("look up test case %d: %w", testCaseID, err)
+	}
+	projectID := int64(nodeFloat(overview, "projectId"))
+	if projectID <= 0 {
+		return 0, fmt.Errorf("test case %d has no projectId in its overview", testCaseID)
+	}
+	return projectID, nil
 }

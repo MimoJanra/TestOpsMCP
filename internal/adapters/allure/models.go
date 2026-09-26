@@ -1,5 +1,7 @@
 package allure
 
+import "encoding/json"
+
 // ── Helper / sub-object DTOs ──────────────────────────────────────────────────
 
 // CategoryDto represents a test result category.
@@ -52,9 +54,18 @@ type WorkflowRowDto struct {
 }
 
 // CustomFieldValueWithCfDto is used in create/patch to set a custom field value.
+// One entry per value: {id: valueId, customField: {id: fieldId}}. An entry
+// with a name and no id finds or creates the value by name (confirmed live;
+// the earlier {customFieldId, values: [...]} shape 500'd).
 type CustomFieldValueWithCfDto struct {
-	CustomFieldID int64   `json:"customFieldId"`
-	Values        []int64 `json:"values"`
+	ID          int64          `json:"id,omitempty"`
+	Name        string         `json:"name,omitempty"`
+	CustomField CustomFieldRef `json:"customField"`
+}
+
+// CustomFieldRef references a custom field by id.
+type CustomFieldRef struct {
+	ID int64 `json:"id"`
 }
 
 // ── Launch ────────────────────────────────────────────────────────────────────
@@ -382,13 +393,13 @@ type ProjectListResponse struct {
 type ProjectItem struct {
 	ID   int64  `json:"id"`
 	Name string `json:"name"`
-	Code string `json:"code"`
+	Code string `json:"abbr"` // the API calls a project's code "abbr"
 }
 
 type ProjectDetailsResponse struct {
 	ID          int64  `json:"id"`
 	Name        string `json:"name"`
-	Code        string `json:"code"`
+	Code        string `json:"abbr"`
 	Description string `json:"description"`
 }
 
@@ -436,30 +447,33 @@ type CreateTestCaseRequest struct {
 }
 
 // UpdateTestCaseRequest maps TestCasePatchV2Dto.
+//
+// Text fields and lists are pointers so a caller can distinguish "don't touch"
+// (nil) from "clear" (pointer to "" or an empty slice): with plain values and
+// omitempty both serialize identically and the clear is silently dropped
+// (confirmed live for description, precondition and tags).
 type UpdateTestCaseRequest struct {
-	ID             int64        `json:"id,omitempty"`
-	Name           string       `json:"name,omitempty"`
-	Description    string       `json:"description,omitempty"`
-	FullName       string       `json:"fullName,omitempty"`
-	Precondition   string       `json:"precondition,omitempty"`
-	ExpectedResult string       `json:"expectedResult,omitempty"`
-	Automated      *bool        `json:"automated,omitempty"`
-	External       *bool        `json:"external,omitempty"`
-	Deleted        *bool        `json:"deleted,omitempty"`
-	StatusID       *int64       `json:"statusId,omitempty"`
-	TestLayerID    *int64       `json:"testLayerId,omitempty"`
-	WorkflowID     *int64       `json:"workflowId,omitempty"`
-	Tags           []TestTagDto `json:"tags,omitempty"`
-	Members        []MemberDto  `json:"members,omitempty"`
+	ID             int64         `json:"id,omitempty"`
+	Name           string        `json:"name,omitempty"`
+	Description    *string       `json:"description,omitempty"`
+	FullName       *string       `json:"fullName,omitempty"`
+	Precondition   *string       `json:"precondition,omitempty"`
+	ExpectedResult *string       `json:"expectedResult,omitempty"`
+	Automated      *bool         `json:"automated,omitempty"`
+	External       *bool         `json:"external,omitempty"`
+	Deleted        *bool         `json:"deleted,omitempty"`
+	StatusID       *int64        `json:"statusId,omitempty"`
+	TestLayerID    *int64        `json:"testLayerId,omitempty"`
+	WorkflowID     *int64        `json:"workflowId,omitempty"`
+	Tags           *[]TestTagDto `json:"tags,omitempty"`
+	Members        *[]MemberDto  `json:"members,omitempty"`
 	// Links is a pointer so a caller can distinguish "don't touch links" (nil)
 	// from "clear to no links" (pointer to an empty slice) — a plain
 	// []ExternalLinkDto with omitempty would serialize both cases identically
 	// (the field dropped entirely), silently no-op'ing the clear. See
 	// Client.DeleteTestCaseExternalLink, which relies on this to remove the
 	// last remaining link.
-	Links        *[]ExternalLinkDto          `json:"links,omitempty"`
-	Scenario     *ScenarioDto                `json:"scenario,omitempty"`
-	CustomFields []CustomFieldValueWithCfDto `json:"customFields,omitempty"`
+	Links *[]ExternalLinkDto `json:"links,omitempty"`
 }
 
 // ScenarioDto is the top-level scenario object used in PATCH /api/testcase/{id}.
@@ -483,15 +497,25 @@ type ExternalLinkDto struct {
 	URL  string `json:"url,omitempty"`
 }
 
+// ScenarioStepCreateRequest creates a scenario node. A node carries either text
+// (Body) or an attachment (AttachmentID): in the web UI a step's file and
+// table blocks are child nodes holding an attachment id — a table is just a
+// CSV attachment (confirmed live on project 408).
 type ScenarioStepCreateRequest struct {
-	TestCaseID int64  `json:"testCaseId"`
-	Body       string `json:"body,omitempty"`
-	ParentID   int64  `json:"parentId,omitempty"`
+	TestCaseID   int64  `json:"testCaseId"`
+	Body         string `json:"body,omitempty"`
+	ParentID     int64  `json:"parentId,omitempty"`
+	AttachmentID int64  `json:"attachmentId,omitempty"`
 }
 
 type ScenarioStepPatchRequest struct {
-	Body           string `json:"body,omitempty"`
-	ExpectedResult string `json:"expectedResult,omitempty"`
+	Body string `json:"body,omitempty"`
+	// BodyJSON is the rich-text document the web UI renders. Sending plain
+	// Body flattens any formatting (bold, lists, code), so when a call must
+	// resend the body without changing it, send the stored BodyJSON instead
+	// (confirmed live on project 408).
+	BodyJSON       json.RawMessage `json:"bodyJson,omitempty"`
+	ExpectedResult string          `json:"expectedResult,omitempty"`
 }
 
 type ScenarioStepCreatedResponse struct {
@@ -697,8 +721,18 @@ type TestCaseAttachmentDto struct {
 	ID          int64  `json:"id"`
 	Name        string `json:"name,omitempty"`
 	ContentType string `json:"contentType,omitempty"`
-	Size        int64  `json:"size,omitempty"`
-	CreatedDate int64  `json:"createdDate,omitempty"`
+	// Size is the content length; the API has no size/createdDate fields
+	// (confirmed live — they always decoded as 0).
+	Size   int64 `json:"contentLength,omitempty"`
+	Missed bool  `json:"missed,omitempty"`
+}
+
+// TestCaseAttachmentRowDto is one attachment returned by the upload endpoint.
+type TestCaseAttachmentRowDto struct {
+	ID            int64  `json:"id"`
+	Name          string `json:"name"`
+	ContentType   string `json:"contentType"`
+	ContentLength int64  `json:"contentLength"`
 }
 
 // TestCaseAttachmentListResponse is the paged response for test case attachments.
@@ -1017,4 +1051,46 @@ type MuteDto struct {
 type BulkMuteDto struct {
 	Selection TestCaseSelectionDtoV2 `json:"selection"`
 	Mute      MuteDto                `json:"mute"`
+}
+
+// TestPlanDto is a test plan (GET /api/testplan/{id}).
+type TestPlanDto struct {
+	ID               int64  `json:"id"`
+	Name             string `json:"name"`
+	ProjectID        int64  `json:"projectId"`
+	TestCasesCount   int64  `json:"testCasesCount"`
+	BaseRql          string `json:"baseRql,omitempty"`
+	CreatedBy        string `json:"createdBy,omitempty"`
+	CreatedDate      int64  `json:"createdDate,omitempty"`
+	LastModifiedDate int64  `json:"lastModifiedDate,omitempty"`
+}
+
+// TestPlanListResponse is a page of test plans.
+type TestPlanListResponse struct {
+	Content []TestPlanDto `json:"content"`
+	Last    bool          `json:"last"`
+	Number  int           `json:"number"`
+	Size    int           `json:"size"`
+	Total   int           `json:"totalElements"`
+}
+
+// DefectDto is a project defect (GET /api/defect/{id}).
+type DefectDto struct {
+	ID               int64     `json:"id"`
+	Name             string    `json:"name"`
+	Description      string    `json:"description,omitempty"`
+	ProjectID        int64     `json:"projectId"`
+	Closed           bool      `json:"closed"`
+	CreatedDate      int64     `json:"createdDate,omitempty"`
+	LastModifiedDate int64     `json:"lastModifiedDate,omitempty"`
+	Issue            *IssueDto `json:"issue,omitempty"`
+}
+
+// DefectListResponse is a page of defects.
+type DefectListResponse struct {
+	Content []DefectDto `json:"content"`
+	Last    bool        `json:"last"`
+	Number  int         `json:"number"`
+	Size    int         `json:"size"`
+	Total   int         `json:"totalElements"`
 }

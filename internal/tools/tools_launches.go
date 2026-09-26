@@ -399,13 +399,23 @@ func (r *Registry) getLaunchStatus(ctx context.Context, args getLaunchStatusArgs
 
 	r.logger.Info("fetching launch status", map[string]any{"launch_id": args.LaunchID})
 
-	status, err := r.allure.GetLaunchStatus(ctx, args.LaunchID)
+	// The launch DTO has no status field (the old lookup always returned
+	// null): a launch is open or closed, and its progress is the per-status
+	// result counts.
+	details, err := r.allure.GetLaunchDetails(ctx, args.LaunchID)
 	if err != nil {
 		r.logger.Error("get launch status", err, map[string]any{"launch_id": args.LaunchID})
 		return nil, fmt.Errorf("get launch status: %w", err)
 	}
-
-	return map[string]any{"status": status}, nil
+	result := map[string]any{
+		"launch_id": args.LaunchID,
+		"status":    launchState(details.Closed),
+		"closed":    details.Closed,
+	}
+	if stats, err := r.allure.GetLaunchStatistics(ctx, args.LaunchID); err == nil {
+		result["statistic"] = statisticMap(stats)
+	}
+	return result, nil
 }
 
 type getLaunchReportArgs struct {
@@ -425,12 +435,37 @@ func (r *Registry) getLaunchReport(ctx context.Context, args getLaunchReportArgs
 		return nil, fmt.Errorf("get launch statistics: %w", err)
 	}
 
+	return statisticMap(stats), nil
+}
+
+// statisticMap reports every status bucket. skipped and unknown (not yet run,
+// or set by closing the launch) used to be dropped (confirmed live).
+func statisticMap(stats *allure.StatisticsResponse) map[string]any {
 	return map[string]any{
-		"total":  stats.Total,
-		"passed": stats.Passed,
-		"failed": stats.Failed,
-		"broken": stats.Broken,
-	}, nil
+		"total":   stats.Total,
+		"passed":  stats.Passed,
+		"failed":  stats.Failed,
+		"broken":  stats.Broken,
+		"skipped": stats.Skipped,
+		"unknown": stats.Unknown,
+	}
+}
+
+func launchState(closed bool) string {
+	if closed {
+		return "CLOSED"
+	}
+	return "OPEN"
+}
+
+// requireLaunch fails for a launch id that doesn't exist: close/reopen on one
+// return success from the API while doing nothing (confirmed live).
+func (r *Registry) requireLaunch(ctx context.Context, launchID int64) (*allure.LaunchDetailsResponse, error) {
+	details, err := r.allure.GetLaunchDetails(ctx, launchID)
+	if err != nil {
+		return nil, fmt.Errorf("look up launch %d: %w", launchID, err)
+	}
+	return details, nil
 }
 
 type closeLaunchArgs struct {
@@ -443,6 +478,9 @@ func (r *Registry) closeLaunch(ctx context.Context, args closeLaunchArgs) (any, 
 	}
 
 	r.logger.Info("closing launch", map[string]any{"launch_id": args.LaunchID})
+	if _, err := r.requireLaunch(ctx, args.LaunchID); err != nil {
+		return nil, err
+	}
 
 	if err := r.allure.CloseLaunch(ctx, args.LaunchID); err != nil {
 		r.logger.Error("close launch", err, map[string]any{"launch_id": args.LaunchID})
@@ -462,6 +500,9 @@ func (r *Registry) reopenLaunch(ctx context.Context, args reopenLaunchArgs) (any
 	}
 
 	r.logger.Info("reopening launch", map[string]any{"launch_id": args.LaunchID})
+	if _, err := r.requireLaunch(ctx, args.LaunchID); err != nil {
+		return nil, err
+	}
 
 	if err := r.allure.ReopenLaunch(ctx, args.LaunchID); err != nil {
 		r.logger.Error("reopen launch", err, map[string]any{"launch_id": args.LaunchID})
@@ -510,15 +551,16 @@ func (r *Registry) listLaunches(ctx context.Context, args listLaunchesArgs) (any
 				"name": tag.Name,
 			}
 		}
+		// The list endpoint returns no status/start/end/environment (they
+		// always came back null/0); closed is what it has.
 		items[i] = map[string]any{
-			"id":          launch.ID,
-			"name":        launch.Name,
-			"status":      launch.Status,
-			"project_id":  launch.ProjectID,
-			"start_time":  launch.StartTime,
-			"end_time":    launch.EndTime,
-			"environment": launch.Environment,
-			"tags":        tags,
+			"id":           launch.ID,
+			"name":         launch.Name,
+			"status":       launchState(launch.Closed),
+			"closed":       launch.Closed,
+			"project_id":   launch.ProjectID,
+			"created_date": launch.CreatedDate,
+			"tags":         tags,
 		}
 	}
 
@@ -556,19 +598,24 @@ func (r *Registry) getLaunchDetails(ctx context.Context, args getLaunchDetailsAr
 		}
 	}
 
-	return map[string]any{
-		"id":             details.ID,
-		"uuid":           details.UUID,
-		"name":           details.Name,
-		"status":         normalizeLaunchStatus(details.Status),
-		"project_id":     details.ProjectID,
-		"start_time":     details.StartTime,
-		"end_time":       details.EndTime,
-		"environment":    details.Environment,
-		"tags":           tags,
-		"description":    details.Description,
-		"report_web_url": details.ReportWebUrl,
-	}, nil
+	result := map[string]any{
+		"id":                 details.ID,
+		"name":               details.Name,
+		"status":             launchState(details.Closed),
+		"closed":             details.Closed,
+		"autoclose":          details.AutoClose,
+		"external":           details.External,
+		"project_id":         details.ProjectID,
+		"created_date":       details.CreatedDate,
+		"last_modified_date": details.LastModifiedDate,
+		"tags":               tags,
+		"links":              details.Links,
+		"issues":             details.Issues,
+	}
+	if stats, err := r.allure.GetLaunchStatistics(ctx, args.LaunchID); err == nil {
+		result["statistic"] = statisticMap(stats)
+	}
+	return result, nil
 }
 
 type getLaunchEnvironmentArgs struct {
@@ -674,6 +721,17 @@ func (r *Registry) mergeLaunches(ctx context.Context, args mergeLaunchesArgs) (a
 	if len(args.FromLaunchIDs) == 0 {
 		return nil, fmt.Errorf("from_launch_ids must not be empty")
 	}
+	seen := map[int64]bool{}
+	for _, from := range args.FromLaunchIDs {
+		// Merging a launch into itself deletes it (confirmed live).
+		if from == args.ToLaunchID {
+			return nil, fmt.Errorf("from_launch_ids must not contain to_launch_id %d — merging a launch into itself deletes it", from)
+		}
+		if seen[from] {
+			return nil, fmt.Errorf("from_launch_ids contains %d twice", from)
+		}
+		seen[from] = true
+	}
 
 	r.logger.Info("merging launches async", map[string]any{
 		"to_launch_id": args.ToLaunchID,
@@ -683,13 +741,16 @@ func (r *Registry) mergeLaunches(ctx context.Context, args mergeLaunchesArgs) (a
 	task, taskCtx := r.taskStore.Create("merge_launches", ctx)
 	r.taskStore.Run(task.ID, taskCtx, func(taskCtx context.Context) {
 		to := args.ToLaunchID
+		var merged []int64
 		for _, from := range args.FromLaunchIDs {
 			mergedID, err := r.allure.MergeLaunches(taskCtx, from, to)
 			if err != nil {
 				r.logger.Error("merge launches", err, map[string]any{"from": from, "to": to})
-				r.taskStore.Update(task.ID, tasks.StatusFailed, "", nil, fmt.Errorf("merge %d into %d: %w", from, to, err))
+				// Earlier sources are already merged and deleted; say so.
+				r.taskStore.Update(task.ID, tasks.StatusFailed, "", nil, fmt.Errorf("merge %d into %d: %w (already merged and deleted before this failure: %v)", from, to, err, merged))
 				return
 			}
+			merged = append(merged, from)
 			to = mergedID
 		}
 		r.taskStore.Update(task.ID, tasks.StatusSucceeded, "", map[string]any{

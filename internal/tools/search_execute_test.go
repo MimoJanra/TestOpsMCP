@@ -104,3 +104,21 @@ func TestExecuteOperation_NonDestructiveIgnoresConfirm(t *testing.T) {
 		t.Fatalf("expected GET without confirm to proceed, got error: %v", err)
 	}
 }
+
+func TestFormatParamValue(t *testing.T) {
+	for _, tc := range []struct {
+		in   interface{}
+		want string
+	}{
+		{float64(1780000000000), "1780000000000"},
+		{float64(-5), "-5"},
+		{1.5, "1.5"},
+		{true, "true"},
+		{"x y", "x y"},
+		{nil, ""},
+	} {
+		if got := formatParamValue(tc.in); got != tc.want {
+			t.Errorf("formatParamValue(%v) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

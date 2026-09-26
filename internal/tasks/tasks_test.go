@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -293,4 +294,20 @@ func TestStartJanitor_StopsOnContextCancel(t *testing.T) {
 	// Give the goroutine a moment to observe cancellation; run with -race to
 	// catch any concurrent-access issues in the janitor loop.
 	time.Sleep(50 * time.Millisecond)
+}
+
+func TestUpdateAfterCancelKeepsCancelled(t *testing.T) {
+	s := NewStore()
+	task, _ := s.Create("t", context.Background())
+	if !s.Cancel(task.ID) {
+		t.Fatal("cancel failed")
+	}
+	s.Update(task.ID, StatusSucceeded, "", map[string]any{"ok": true}, nil)
+	got, _ := s.Get(task.ID)
+	if got.Status != StatusCancelled {
+		t.Errorf("status = %s, want cancelled", got.Status)
+	}
+	if !strings.Contains(got.Message, "succeeded") {
+		t.Errorf("message = %q, want it to report the late outcome", got.Message)
+	}
 }

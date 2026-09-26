@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -49,57 +50,91 @@ func (sh *StdioHandler) Run() error {
 		}
 	}()
 
-	scanner := bufio.NewScanner(io.Reader(os.Stdin))
-	scanner.Buffer(make([]byte, 4096), 1<<20) // 1 MiB max line
+	reader := bufio.NewReaderSize(os.Stdin, 64<<10)
 
 	var wg sync.WaitGroup
-	for scanner.Scan() {
-		// Copy: scanner.Bytes() is reused on the next Scan(), but json.Unmarshal
-		// lets json.RawMessage fields (Params, Result) alias into it — and the
-		// request is read again later, in a goroutine, well after Scan() moves on.
-		line := append([]byte(nil), scanner.Bytes()...)
-
-		var req JSONRPCRequest
-		if err := json.Unmarshal(line, &req); err != nil {
-			sh.logger.Error("parse JSON-RPC request", err, nil)
+	for {
+		line, tooLong, readErr := readLine(reader, maxMessageBody)
+		if readErr != nil && readErr != io.EOF {
+			wg.Wait()
+			sh.logger.Error("stdio read error", readErr, nil)
+			return readErr
+		}
+		if tooLong {
+			// Answer and keep serving: a bufio.Scanner would stop at the first
+			// oversized line and take the whole server (and client) down.
+			sh.logger.Warn("stdio message too large", map[string]any{"limit_bytes": maxMessageBody})
 			sh.respond(&JSONRPCResponse{
 				JSONRPC: "2.0",
 				ID:      nil,
-				Error:   &JSONRPCError{Code: ErrCodeParse, Message: "Parse error"},
+				Error:   &JSONRPCError{Code: ErrCodeInvalidRequest, Message: fmt.Sprintf("message exceeds %d bytes", maxMessageBody)},
 			})
-			continue
+		} else if len(bytes.TrimSpace(line)) > 0 {
+			sh.handleLine(ctx, &wg, line)
 		}
-
-		if req.JSONRPC != "2.0" {
-			sh.logger.Error("invalid JSON-RPC version", nil, map[string]any{"version": req.JSONRPC})
-			sh.respond(&JSONRPCResponse{
-				JSONRPC: "2.0",
-				ID:      req.ID,
-				Error:   &JSONRPCError{Code: ErrCodeInvalidRequest, Message: "Invalid Request"},
-			})
-			continue
+		if readErr == io.EOF {
+			break
 		}
-
-		// Dispatch on its own goroutine: a tool call that blocks awaiting an
-		// elicitation/sampling reply (delivered as a later stdin line, routed
-		// through the same session by handleJSONRPCResponse) would otherwise
-		// deadlock against this very read loop.
-		wg.Add(1)
-		go func(req JSONRPCRequest) {
-			defer wg.Done()
-			resp := sh.registry.dispatch(ctx, &req)
-			if resp != nil {
-				sh.respond(resp)
-			}
-		}(req)
 	}
 	wg.Wait()
-
-	if err := scanner.Err(); err != nil {
-		sh.logger.Error("stdio read error", err, nil)
-		return err
-	}
 	return nil
+}
+
+// readLine reads one newline-terminated line of at most limit bytes. A longer
+// line is consumed to its end and reported as tooLong instead of returned.
+func readLine(r *bufio.Reader, limit int) (line []byte, tooLong bool, err error) {
+	for {
+		chunk, isPrefix, e := r.ReadLine()
+		if !tooLong {
+			if len(line)+len(chunk) > limit {
+				tooLong, line = true, nil
+			} else {
+				line = append(line, chunk...)
+			}
+		}
+		if e != nil {
+			return line, tooLong, e
+		}
+		if !isPrefix {
+			return line, tooLong, nil
+		}
+	}
+}
+
+func (sh *StdioHandler) handleLine(ctx context.Context, wg *sync.WaitGroup, line []byte) {
+	var req JSONRPCRequest
+	if err := json.Unmarshal(line, &req); err != nil {
+		sh.logger.Error("parse JSON-RPC request", err, nil)
+		sh.respond(&JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      nil,
+			Error:   &JSONRPCError{Code: ErrCodeParse, Message: "Parse error"},
+		})
+		return
+	}
+
+	if req.JSONRPC != "2.0" {
+		sh.logger.Error("invalid JSON-RPC version", nil, map[string]any{"version": req.JSONRPC})
+		sh.respond(&JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error:   &JSONRPCError{Code: ErrCodeInvalidRequest, Message: "Invalid Request"},
+		})
+		return
+	}
+
+	// Dispatch on its own goroutine: a tool call that blocks awaiting an
+	// elicitation/sampling reply (delivered as a later stdin line, routed
+	// through the same session by handleJSONRPCResponse) would otherwise
+	// deadlock against this very read loop.
+	wg.Add(1)
+	go func(req JSONRPCRequest) {
+		defer wg.Done()
+		resp := sh.registry.dispatch(ctx, &req)
+		if resp != nil {
+			sh.respond(resp)
+		}
+	}(req)
 }
 
 func (sh *StdioHandler) respond(resp *JSONRPCResponse) {

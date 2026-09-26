@@ -12,7 +12,7 @@ import (
 
 const (
 	taskTimeout   = 30 * time.Minute
-	taskRetention = 1 * time.Hour  // how long finished tasks are kept before purge
+	taskRetention = 1 * time.Hour // how long finished tasks are kept before purge
 	janitorPeriod = 5 * time.Minute
 )
 
@@ -88,6 +88,18 @@ func (s *Store) Update(id string, status Status, msg string, result any, taskErr
 	defer s.mu.Unlock()
 	t, ok := s.tasks[id]
 	if !ok {
+		return
+	}
+	if t.Status == StatusCancelled && status != StatusWorking {
+		// The work finished after cancel_task: keep the cancelled status the
+		// caller already saw, but say how the API call actually ended — its
+		// change may have been applied anyway.
+		t.Message = fmt.Sprintf("cancelled, but the operation had already ended as %s", status)
+		if taskErr != nil {
+			t.Error = taskErr.Error()
+		}
+		t.Result = result
+		t.UpdatedAt = time.Now()
 		return
 	}
 	t.Status = status

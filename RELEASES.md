@@ -185,12 +185,14 @@ xattr -d com.apple.quarantine ./testops-darwin-amd64
 
 ## 📚 Available Tools
 
-Over **114 MCP tools** for Allure TestOps integration:
+**148 MCP tools** for Allure TestOps integration:
 
 - Launch management (create, run\*, close, reopen, copy\*, merge\*) — \*async
 - Test case operations (create, update, delete†, clone, restore, versions, audit) — †with confirmation
 - Test result handling (assign, mute, resolve, unmute, bulk operations)
 - Custom fields, tags, issues, members, external links
+- Test case folders (tree browse, create, move, rename, delete), steps, attachments (upload/download, max 20 MiB) and step tables
+- Test plans (create, list, run, rename, delete†) and project defects (create, update, close, delete†)
 - Relations and integration keys (Jira, Azure DevOps, etc.)
 - Bulk operations (mass clone\*, bulk updates, bulk delete†, bulk run\*) — \*async, †with confirmation
 - Analytics and reporting

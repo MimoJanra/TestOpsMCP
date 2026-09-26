@@ -255,8 +255,11 @@ func TestBulkRunTestCasesNewLaunch_Async(t *testing.T) {
 
 func TestBulkRunTestCasesNewLaunch_AsyncFails(t *testing.T) {
 	r := newBulkTestRegistry(t, bulkErrHandler)
+	if _, err := r.bulkRunTestCasesNewLaunch(context.Background(), bulkRunTestCasesNewLaunchArgs{ProjectID: 1, TestCaseIDs: []int64{1}}); err == nil {
+		t.Error("expected error without launch_name")
+	}
 	result, err := r.bulkRunTestCasesNewLaunch(context.Background(), bulkRunTestCasesNewLaunchArgs{
-		ProjectID: 1, TestCaseIDs: []int64{1},
+		ProjectID: 1, TestCaseIDs: []int64{1}, LaunchName: "run",
 	})
 	if err != nil {
 		t.Fatalf("unexpected synchronous error: %v", err)

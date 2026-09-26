@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-Get TestOps MCP Server running in 5 minutes. Protocol 2025-11-25 — 104 tools.
+Get TestOps MCP Server running in 5 minutes. Protocol 2025-11-25 — 148 tools.
 
 ## Choose Your Path
 

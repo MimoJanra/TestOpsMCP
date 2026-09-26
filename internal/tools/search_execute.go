@@ -3,11 +3,14 @@ package tools
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -147,10 +150,13 @@ func (r *Registry) executeOperation(ctx context.Context, op *Operation, params i
 					case "path":
 						pathParams[name] = value
 					case "query":
-						if v, ok := value.(string); ok {
-							queryParams.Set(name, v)
+						// Arrays repeat the parameter (?id=1&id=2), the form Spring expects.
+						if arr, ok := value.([]interface{}); ok {
+							for _, v := range arr {
+								queryParams.Add(name, formatParamValue(v))
+							}
 						} else {
-							queryParams.Set(name, fmt.Sprintf("%v", value))
+							queryParams.Set(name, formatParamValue(value))
 						}
 					case "body":
 						bodyData = value
@@ -172,7 +178,7 @@ func (r *Registry) executeOperation(ctx context.Context, op *Operation, params i
 
 	// Replace path parameters (URL-encode values to prevent path injection).
 	for key, value := range pathParams {
-		reqURL = strings.ReplaceAll(reqURL, "{"+key+"}", url.PathEscape(fmt.Sprintf("%v", value)))
+		reqURL = strings.ReplaceAll(reqURL, "{"+key+"}", url.PathEscape(formatParamValue(value)))
 	}
 
 	// Add query parameters
@@ -234,11 +240,20 @@ func (r *Registry) executeOperation(ctx context.Context, op *Operation, params i
 					"status_code":  resp.StatusCode,
 				}
 			}
-		} else {
+		} else if isTextContentType(contentType) {
 			result = map[string]interface{}{
 				"raw_response": string(respBody),
 				"status_code":  resp.StatusCode,
 				"content_type": contentType,
+			}
+		} else {
+			// Binary (e.g. attachment content): a Go string of arbitrary bytes
+			// is mangled into U+FFFD by JSON encoding, so return base64.
+			result = map[string]interface{}{
+				"content_base64": base64.StdEncoding.EncodeToString(respBody),
+				"size":           len(respBody),
+				"status_code":    resp.StatusCode,
+				"content_type":   contentType,
 			}
 		}
 	} else {
@@ -248,4 +263,31 @@ func (r *Registry) executeOperation(ctx context.Context, op *Operation, params i
 	}
 
 	return result, nil
+}
+
+// formatParamValue renders a JSON-decoded value for a URL. JSON numbers decode
+// to float64, and %v prints large ones in exponent form (1.78e+12), which the
+// API rejects — timestamps and ids must stay plain integers.
+func formatParamValue(v interface{}) string {
+	switch t := v.(type) {
+	case string:
+		return t
+	case float64:
+		if t == math.Trunc(t) && math.Abs(t) < 1e18 {
+			return strconv.FormatInt(int64(t), 10)
+		}
+		return strconv.FormatFloat(t, 'f', -1, 64)
+	case bool:
+		return strconv.FormatBool(t)
+	case nil:
+		return ""
+	default:
+		return fmt.Sprintf("%v", t)
+	}
+}
+
+func isTextContentType(ct string) bool {
+	ct = strings.ToLower(ct)
+	return strings.HasPrefix(ct, "text/") || strings.Contains(ct, "json") ||
+		strings.Contains(ct, "xml") || strings.Contains(ct, "csv") || strings.Contains(ct, "javascript")
 }

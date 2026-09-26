@@ -26,7 +26,7 @@ Integrate **Allure TestOps** with Claude using the Model Context Protocol. Launc
 - Works with Claude Desktop, Claude Web, and custom MCP clients
 
 ### 🏭 Production-Grade
-- **132 tools** — complete Allure TestOps test case API coverage + full OpenAPI fallback (600+ endpoints)
+- **148 tools** — complete Allure TestOps test case API coverage + full OpenAPI fallback (600+ endpoints)
 - **MCP Prompts** — built-in templates (`analyze-test-failures`, `launch-report-summary`) for one-click workflows
 - **MCP Resources** — attach `allure://docs/quickstart` as context; widget resources for visual dashboards
 - **AI analysis** — `analyze_launch_failures` asks Claude to find root causes via MCP sampling
@@ -314,7 +314,7 @@ If you prefer running without Docker:
 
 ---
 
-## 🛠️ 132 Tools
+## 🛠️ 148 Tools
 
 ### Universal Tools
 - **`search_testops_operations`** — Search for any API operation by keyword
@@ -324,7 +324,7 @@ If you prefer running without Docker:
 - **`configure_allure_token`** — Set token in chat (if not in config)
 
 ### Launch Management
-`run_allure_launch`\* • `get_launch_status` • `get_launch_report` • `list_launches` • `get_launch_details` • `close_launch` • `reopen_launch` • `update_launch` • `copy_launch`\* • `merge_launches`\* • `get_launch_environment` • `add_test_cases_to_launch` • `add_test_plan_to_launch` • `remove_test_cases_from_launch`
+`run_allure_launch`\* • `get_launch_status` • `get_launch_report` • `get_launch_dashboard` • `list_launches` • `get_launch_details` • `close_launch` • `reopen_launch` • `update_launch` • `copy_launch`\* • `merge_launches`\* • `delete_launch` • `get_launch_environment` • `add_test_cases_to_launch` • `add_test_plan_to_launch` • `remove_test_cases_from_launch`
 
 > \* async — returns `task_id` immediately; track with `get_task_status`
 
@@ -335,7 +335,7 @@ If you prefer running without Docker:
 `list_test_cases` • `get_test_case` • `create_test_case` • `update_test_case` • `delete_test_case` • `clone_test_case` • `restore_test_case` • `run_test_case` • `search_test_cases` • `suggest_test_cases` • `validate_test_case_query`
 
 ### Test Cases — Steps & Scenario
-`create_test_case_step` • `update_test_case_step` • `delete_test_case_step` • `move_test_case_step` • `copy_test_case_step` • `delete_test_case_scenario` • `get_test_case_scenario_from_run` • `detach_test_case_automation`
+`get_test_case_steps` • `get_test_case_scenario` • `create_test_case_step` • `update_test_case_step` • `delete_test_case_step` • `move_test_case_step` • `copy_test_case_step` • `delete_test_case_scenario` • `get_test_case_scenario_from_run` • `detach_test_case_automation`
 
 ### Test Cases — Metadata
 `get_test_case_tags` • `set_test_case_tags` • `create_test_tag` • `get_test_case_issues` • `set_test_case_issues` • `get_test_case_examples` • `set_test_case_examples` • `get_test_case_custom_fields` • `update_test_case_custom_fields` • `list_custom_field_values` • `get_test_case_keys` • `set_test_case_keys` • `get_test_case_relations` • `set_test_case_relations` • `get_test_case_workflow`
@@ -349,17 +349,23 @@ If you prefer running without Docker:
 ### Test Cases — Defects
 `add_test_case_defect` • `remove_test_case_defect` • `get_test_case_defects` • `get_launch_defects`
 
+### Defects
+`list_defects` • `get_defect` • `create_defect` • `update_defect` • `delete_defect`
+
 ### Test Cases — Versions & Attachments
-`list_test_case_versions` • `create_test_case_version` • `restore_test_case_version` • `get_test_case_version_data` • `delete_test_case_version` • `get_test_case_attachments` • `delete_test_case_attachment`
+`list_test_case_versions` • `create_test_case_version` • `restore_test_case_version` • `get_test_case_version_data` • `delete_test_case_version` • `get_test_case_attachments` • `get_test_case_attachment_content` • `upload_test_case_attachment` • `add_test_case_step_table` • `delete_test_case_attachment`
 
 ### Test Cases — Audit & State
 `get_test_case_audit` • `get_test_case_history` • `list_deleted_test_cases` • `list_muted_test_cases`
 
 ### Test Cases — Folder Tree
-`list_test_case_trees` • `browse_test_case_tree` • `get_test_case_tree_folders` • `move_test_cases_to_folder` • `create_test_case_folder`
+`list_test_case_trees` • `browse_test_case_tree` • `get_test_case_tree_folders` • `move_test_cases_to_folder` • `create_test_case_folder` • `rename_test_case_folder` • `delete_test_case_folder`
 
 ### Bulk Test Case Operations
 `bulk_set_test_case_status` • `bulk_add_test_case_tags` • `bulk_remove_test_case_tags` • `bulk_clone_test_cases` • `bulk_mute_test_cases` • `bulk_delete_test_cases` • `bulk_move_test_cases` • `bulk_set_test_case_layer` • `bulk_add_test_case_members` • `bulk_remove_test_case_members` • `bulk_add_test_case_custom_fields` • `bulk_remove_test_case_custom_fields` • `bulk_add_test_case_external_links` • `bulk_add_test_case_issues` • `bulk_remove_test_case_issues` • `bulk_run_test_cases_new_launch` • `bulk_run_test_cases_existing_launch` • `bulk_create_test_plan`
+
+### Test Plans
+`list_test_plans` • `get_test_plan` • `run_test_plan` • `rename_test_plan` • `delete_test_plan`
 
 ### Projects & Analytics
 `list_projects` • `find_project` • `get_project` • `get_project_stats` • `get_launch_trend_analytics` • `get_launch_duration_analytics` • `get_test_success_rate`

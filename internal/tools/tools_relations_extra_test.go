@@ -94,16 +94,31 @@ func TestGetTestCaseMembers(t *testing.T) {
 	}
 }
 
+func overviewHandler(projectID int64) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"projectId": projectID})
+	}
+}
+
 func TestAddTestCaseMembers(t *testing.T) {
+	var body map[string]any
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/testcase/1/members", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/testcase/1/overview", overviewHandler(7))
+	mux.HandleFunc("/api/v2/test-case/bulk/member/add", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&body)
 		w.WriteHeader(http.StatusNoContent)
 	})
 	r := newRelationsTestRegistry(t, mux)
 
-	args := addTestCaseMembersArgs{TestCaseID: 1, Members: []allure.MemberDto{{ID: 1, Name: "Alice", Role: &allure.RoleDto{ID: -1, Name: "Owner"}}}}
+	// No role: the API accepts members without one (confirmed live).
+	args := addTestCaseMembersArgs{TestCaseID: 1, Members: []allure.MemberDto{{ID: 1, Name: "Alice"}}}
 	if _, err := r.addTestCaseMembers(context.Background(), args); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	sel, _ := body["selection"].(map[string]any)
+	if sel["projectId"] != float64(7) {
+		t.Errorf("selection = %v, want the test case's project 7", sel)
 	}
 	if _, err := r.addTestCaseMembers(context.Background(), addTestCaseMembersArgs{TestCaseID: 0, Members: args.Members}); err == nil {
 		t.Error("expected error for non-positive test_case_id")
@@ -111,13 +126,11 @@ func TestAddTestCaseMembers(t *testing.T) {
 	if _, err := r.addTestCaseMembers(context.Background(), addTestCaseMembersArgs{TestCaseID: 1}); err == nil {
 		t.Error("expected error for empty members")
 	}
-	if _, err := r.addTestCaseMembers(context.Background(), addTestCaseMembersArgs{TestCaseID: 1, Members: []allure.MemberDto{{ID: 1, Name: "Alice"}}}); err == nil {
-		t.Error("expected error for member missing a role")
-	}
 }
 
 func TestRemoveTestCaseMembers(t *testing.T) {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/testcase/1/overview", overviewHandler(1))
 	mux.HandleFunc("/api/v2/test-case/bulk/member/remove", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -127,8 +140,13 @@ func TestRemoveTestCaseMembers(t *testing.T) {
 	if _, err := r.removeTestCaseMembers(context.Background(), args); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, err := r.removeTestCaseMembers(context.Background(), removeTestCaseMembersArgs{TestCaseID: 1, MemberIDs: []int64{5}}); err == nil {
-		t.Error("expected error for non-positive project_id")
+	// project_id is optional (looked up), but a wrong one is refused rather
+	// than silently matching nothing.
+	if _, err := r.removeTestCaseMembers(context.Background(), removeTestCaseMembersArgs{TestCaseID: 1, MemberIDs: []int64{5}}); err != nil {
+		t.Errorf("unexpected error without project_id: %v", err)
+	}
+	if _, err := r.removeTestCaseMembers(context.Background(), removeTestCaseMembersArgs{ProjectID: 999, TestCaseID: 1, MemberIDs: []int64{5}}); err == nil {
+		t.Error("expected error for a project_id that doesn't match the test case")
 	}
 	if _, err := r.removeTestCaseMembers(context.Background(), removeTestCaseMembersArgs{ProjectID: 1, MemberIDs: []int64{5}}); err == nil {
 		t.Error("expected error for non-positive test_case_id")

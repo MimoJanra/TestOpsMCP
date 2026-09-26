@@ -284,40 +284,38 @@ func TestOperationsIndex_SearchAndScore(t *testing.T) {
 	})
 }
 
-func TestMatchesQueryAndScoreMatch(t *testing.T) {
-	op := &Operation{
-		OperationID: "create_launch",
-		Summary:     "Create a new launch",
-		Description: "Starts a new test launch run",
-		Path:        "/api/launch",
-		Tags:        []string{"launches", "write"},
-	}
+func TestSearchTokens(t *testing.T) {
+	idx := &OperationsIndex{operations: map[string]*Operation{
+		"create_16":     {OperationID: "create_16", Method: "POST", Path: "/api/testcase/step", Summary: "Create step"},
+		"deleteById_1":  {OperationID: "deleteById_1", Method: "DELETE", Path: "/api/testcase/step/{id}", Summary: "Delete step"},
+		"create_launch": {OperationID: "create_launch", Method: "POST", Path: "/api/launch", Summary: "Create a new launch", Tags: []string{"launches"}},
+		"findAll_25":    {OperationID: "findAll_25", Method: "GET", Path: "/api/project/{projectId}/category", Summary: "Find all categories"},
+	}}
 
-	if !matchesQuery(op, "launch") {
-		t.Error("expected match on operation id substring")
+	// Multi-word intents used to match nothing (whole-phrase substring).
+	if got := idx.Search("create test case step"); len(got) == 0 || got[0].OperationID != "create_16" {
+		t.Errorf("create test case step -> %v, want create_16 first", ids(got))
 	}
-	if !matchesQuery(op, "starts a new") {
-		t.Error("expected match on description substring")
+	if got := idx.Search("delete a step"); len(got) == 0 || got[0].OperationID != "deleteById_1" {
+		t.Errorf("delete a step -> %v, want deleteById_1 first", ids(got))
 	}
-	if !matchesQuery(op, "write") {
-		t.Error("expected match on tag")
+	if got := idx.Search("categories"); len(got) != 1 || got[0].OperationID != "findAll_25" {
+		t.Errorf("categories -> %v, want findAll_25", ids(got))
 	}
-	if matchesQuery(op, "totally-unrelated") {
-		t.Error("expected no match")
+	if got := idx.Search("findAll_25"); len(got) == 0 || got[0].OperationID != "findAll_25" {
+		t.Errorf("exact id -> %v", ids(got))
 	}
+	if got := idx.Search("totally unrelated"); len(got) != 0 {
+		t.Errorf("unrelated -> %v, want none", ids(got))
+	}
+}
 
-	if score := scoreMatch(op, "create_launch"); score < 100 {
-		t.Errorf("exact operation id match score = %d, want >= 100", score)
+func ids(ops []*Operation) []string {
+	out := make([]string, len(ops))
+	for i, o := range ops {
+		out[i] = o.OperationID
 	}
-	if score := scoreMatch(op, "create"); score < 50 {
-		t.Errorf("summary-prefix match score = %d, want >= 50 (prefix+contains bonus)", score)
-	}
-	if score := scoreMatch(op, "/api/launch"); score < 10 {
-		t.Errorf("path match score = %d, want >= 10", score)
-	}
-	if score := scoreMatch(op, "nope"); score != 0 {
-		t.Errorf("no-match score = %d, want 0", score)
-	}
+	return out
 }
 
 func TestGetStringValueAndArray(t *testing.T) {

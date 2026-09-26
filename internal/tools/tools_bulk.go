@@ -45,9 +45,8 @@ func (r *Registry) registerBulkTools() {
 
 	r.register(&Tool{
 		Name: "bulk_add_test_case_tags",
-		Description: "Bulk add tags to test cases. Each tag needs an existing id — the API rejects a name-only " +
-			"entry for a tag that doesn't exist yet with 409 (field 'id' must not be null or empty). Use " +
-			"create_test_tag first to create a new tag and get its id.",
+		Description: "Bulk add tags to test cases. Each tag by id or by name — a name that doesn't exist yet creates the tag " +
+			"(confirmed live; tags are global, not per project).",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -122,8 +121,10 @@ func (r *Registry) registerBulkTools() {
 	})
 
 	r.register(&Tool{
-		Name:        "bulk_clone_test_cases",
-		Description: "Duplicate multiple test cases within the same project, copying all steps and metadata. Returns the new test case IDs.",
+		Name: "bulk_clone_test_cases",
+		Description: "Duplicate multiple test cases within the same project, copying steps and metadata (status resets to Draft). " +
+			"Runs as a background task; the server clones asynchronously and does not return the new ids — find the clones with " +
+			"list_test_cases or search_test_cases (a name_suffix makes them easy to spot).",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -138,6 +139,8 @@ func (r *Registry) registerBulkTools() {
 					},
 					"description": "Test case IDs to clone",
 				},
+				"name_suffix": map[string]any{"type": "string", "description": "Text appended to each clone's name, e.g. \" (copy)\" (optional)"},
+				"ignore_tags": map[string]any{"type": "boolean", "description": "Don't copy tags (optional)"},
 			},
 			"required": []string{"project_id", "test_case_ids"},
 		},
@@ -145,8 +148,10 @@ func (r *Registry) registerBulkTools() {
 	})
 
 	r.register(&Tool{
-		Name:        "bulk_assign_test_results",
-		Description: "Assign multiple test results to one or more team members for investigation or fixing.",
+		Name: "bulk_assign_test_results",
+		Description: "Assign multiple test results to team members. With several assignees the results are distributed round-robin (one assignee per result), not co-assigned. " +
+			"Omitting assignees UNASSIGNS the results. Allure ignores assigning results that are already resolved (unassigning still works). " +
+			"Result ids outside launch_id are silently skipped.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -175,8 +180,9 @@ func (r *Registry) registerBulkTools() {
 	})
 
 	r.register(&Tool{
-		Name:        "bulk_mute_test_results",
-		Description: "Mute multiple test results in a launch — muted results are excluded from pass rate and don't trigger alerts. Use for known-flaky or irrelevant failures.",
+		Name: "bulk_mute_test_results",
+		Description: "Mute multiple test results in a launch — muted results are excluded from pass rate and don't trigger alerts. Use for known-flaky or irrelevant failures. " +
+			"Results that have no status yet (not run) are silently skipped by the API — use mute_test_result for those. Each mute also creates a mute record on the test case.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -203,7 +209,7 @@ func (r *Registry) registerBulkTools() {
 
 	r.register(&Tool{
 		Name:        "bulk_unmute_test_results",
-		Description: "Re-enable previously muted test results so they count toward pass rate and trigger alerts again.",
+		Description: "Re-enable previously muted test results so they count toward pass rate and trigger alerts again. Also removes the test cases' mute records, so they leave the project's muted list.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -430,16 +436,16 @@ func (r *Registry) registerBulkTools() {
 
 	r.register(&Tool{
 		Name:        "bulk_run_test_cases_new_launch",
-		Description: "Bulk run multiple test cases in a new launch",
+		Description: "Create a new launch containing the given test cases (a background task; get_task_status reports the new launch_id).",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"project_id":    map[string]any{"type": "integer", "description": "Allure project ID"},
 				"test_case_ids": map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "Test case IDs to run"},
-				"launch_name":   map[string]any{"type": "string", "description": "Name for the new launch (optional)"},
+				"launch_name":   map[string]any{"type": "string", "description": "Name for the new launch"},
 				"assignees":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Usernames to assign (optional)"},
 			},
-			"required": []string{"project_id", "test_case_ids"},
+			"required": []string{"project_id", "test_case_ids", "launch_name"},
 		},
 		Handler: Typed(r.bulkRunTestCasesNewLaunch),
 	})
@@ -464,7 +470,7 @@ func (r *Registry) registerBulkTools() {
 
 	r.register(&Tool{
 		Name:        "bulk_create_test_plan",
-		Description: "Create a test plan from multiple selected test cases",
+		Description: "Create a test plan from the given test cases; returns test_plan_id. Manage plans with list_test_plans, run_test_plan, add_test_plan_to_launch, rename_test_plan and delete_test_plan.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -563,10 +569,10 @@ func (r *Registry) bulkRemoveTestCaseMembersTool(ctx context.Context, args bulkR
 }
 
 type bulkAddTestCaseCustomFieldsArgs struct {
-	ProjectID   int64   `json:"project_id"`
-	TestCaseIDs []int64 `json:"test_case_ids"`
+	ProjectID    int64   `json:"project_id"`
+	TestCaseIDs  []int64 `json:"test_case_ids"`
 	CustomFields []struct {
-		CustomFieldID int64                      `json:"custom_field_id"`
+		CustomFieldID int64                        `json:"custom_field_id"`
 		Values        []allure.CustomFieldValueDto `json:"values"`
 	} `json:"custom_fields"`
 }
@@ -713,7 +719,7 @@ func (r *Registry) bulkAddTestCaseIssues(ctx context.Context, args bulkAddTestCa
 		if iss.IntegrationID <= 0 || strings.TrimSpace(iss.DisplayName) == "" {
 			return nil, fmt.Errorf("issue %d: integration_id and display_name (the issue key, e.g. PROJ-123) are both required — without them the API links every existing issue instead of this one", i)
 		}
-		issues[i] = allure.IssueDto{ID: iss.ID, DisplayName: iss.DisplayName, URL: iss.URL, IntegrationID: iss.IntegrationID}
+		issues[i] = allure.IssueDto{ID: iss.ID, Name: strings.TrimSpace(iss.DisplayName), URL: iss.URL, IntegrationID: iss.IntegrationID}
 	}
 	if err := r.allure.BulkAddTestCaseIssues(ctx, args.ProjectID, args.TestCaseIDs, issues); err != nil {
 		return nil, fmt.Errorf("bulk add issues: %w", err)
@@ -833,16 +839,20 @@ func (r *Registry) bulkRunTestCasesNewLaunch(ctx context.Context, args bulkRunTe
 	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
+	if strings.TrimSpace(args.LaunchName) == "" {
+		return nil, fmt.Errorf("launch_name is required (the API rejects a launch without a name)")
+	}
 	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
 	task, taskCtx := r.taskStore.Create("bulk_run_test_cases_new_launch", ctx)
 	r.taskStore.Run(task.ID, taskCtx, func(taskCtx context.Context) {
-		if err := r.allure.BulkRunTestCasesNewLaunch(taskCtx, args.ProjectID, args.TestCaseIDs, args.LaunchName, args.Assignees); err != nil {
+		launchID, err := r.allure.BulkRunTestCasesNewLaunch(taskCtx, args.ProjectID, args.TestCaseIDs, args.LaunchName, args.Assignees)
+		if err != nil {
 			r.taskStore.Update(task.ID, tasks.StatusFailed, "", nil, err)
 			return
 		}
-		r.taskStore.Update(task.ID, tasks.StatusSucceeded, "", map[string]any{"status": "started", "count": len(args.TestCaseIDs)}, nil)
+		r.taskStore.Update(task.ID, tasks.StatusSucceeded, "", map[string]any{"status": "started", "launch_id": launchID, "count": len(args.TestCaseIDs)}, nil)
 	})
 	return map[string]any{"task_id": task.ID, "message": "Bulk run started. Use get_task_status to track progress."}, nil
 }
@@ -891,10 +901,11 @@ func (r *Registry) bulkCreateTestPlan(ctx context.Context, args bulkCreateTestPl
 	if args.TestPlanName == "" {
 		return nil, fmt.Errorf("test_plan_name is required")
 	}
-	if err := r.allure.BulkCreateTestPlan(ctx, args.ProjectID, args.TestCaseIDs, args.TestPlanName); err != nil {
+	plan, err := r.allure.BulkCreateTestPlan(ctx, args.ProjectID, args.TestCaseIDs, args.TestPlanName)
+	if err != nil {
 		return nil, fmt.Errorf("bulk create test plan: %w", err)
 	}
-	return map[string]any{"status": "created"}, nil
+	return map[string]any{"status": "created", "test_plan_id": plan.ID, "name": plan.Name, "test_cases_count": plan.TestCasesCount}, nil
 }
 
 type bulkMuteTestCasesArgs struct {
@@ -1058,6 +1069,8 @@ func (r *Registry) resolveTagIDs(ctx context.Context, testCaseIDs []int64, tags 
 type bulkCloneTestCasesArgs struct {
 	ProjectID   int64   `json:"project_id"`
 	TestCaseIDs []int64 `json:"test_case_ids"`
+	NameSuffix  string  `json:"name_suffix"`
+	IgnoreTags  bool    `json:"ignore_tags"`
 }
 
 func (r *Registry) bulkCloneTestCases(ctx context.Context, args bulkCloneTestCasesArgs) (any, error) {
@@ -1075,7 +1088,7 @@ func (r *Registry) bulkCloneTestCases(ctx context.Context, args bulkCloneTestCas
 
 	task, taskCtx := r.taskStore.Create("bulk_clone_test_cases", ctx)
 	r.taskStore.Run(task.ID, taskCtx, func(taskCtx context.Context) {
-		if err := r.allure.BulkCloneTestCases(taskCtx, args.ProjectID, args.TestCaseIDs); err != nil {
+		if err := r.allure.BulkCloneTestCases(taskCtx, args.ProjectID, args.TestCaseIDs, args.NameSuffix, args.IgnoreTags); err != nil {
 			r.logger.Error("bulk clone test cases", err, map[string]any{"project_id": args.ProjectID})
 			r.taskStore.Update(task.ID, tasks.StatusFailed, "", nil, err)
 			return
@@ -1153,8 +1166,20 @@ func (r *Registry) bulkUnmuteTestResults(ctx context.Context, args bulkUnmuteTes
 		r.logger.Error("bulk unmute test results", err, map[string]any{"launch_id": args.LaunchID})
 		return nil, fmt.Errorf("bulk unmute: %w", err)
 	}
-
-	return map[string]any{"status": "success", "count": len(args.TestResultIDs)}, nil
+	// The bulk endpoint clears the results' muted flag but leaves the test
+	// cases' mute records, so the cases stay in the project's muted list; the
+	// single-result unmute removes them (confirmed live). Finish with it.
+	var failed []string
+	for _, id := range args.TestResultIDs {
+		if err := r.allure.UnmuteTestResult(ctx, id); err != nil {
+			failed = append(failed, fmt.Sprintf("%d: %v", id, err))
+		}
+	}
+	result := map[string]any{"status": "success", "count": len(args.TestResultIDs)}
+	if len(failed) > 0 {
+		result["test_case_mute_cleanup_failed"] = failed
+	}
+	return result, nil
 }
 
 type bulkResolveTestResultsArgs struct {

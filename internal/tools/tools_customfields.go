@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/MimoJanra/TestOpsMCP/internal/adapters/allure"
@@ -68,7 +69,8 @@ func (r *Registry) registerCustomFieldTools() {
 	r.register(&Tool{
 		Name: "update_custom_field",
 		Description: "Update a custom field definition's name, required flag, single_select flag, or locked " +
-			"state. All fields are optional — only the ones you pass are changed.",
+			"state. All fields are optional — only the ones you pass are changed. Note: locked does NOT block renaming the field " +
+			"or adding/renaming values (confirmed live). Switching to single_select makes each later add replace a test case's value.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -99,8 +101,9 @@ func (r *Registry) registerCustomFieldTools() {
 	})
 
 	r.register(&Tool{
-		Name:        "delete_custom_field",
-		Description: "Permanently delete a custom field definition. Prefer set_custom_field_archived for a reversible removal.",
+		Name: "delete_custom_field",
+		Description: "Permanently delete a custom field definition and all its values. The API refuses while the field is attached to any project " +
+			"(custom-field.in-use.project): clear its values from test cases, remove_custom_field_from_project, then delete. Prefer set_custom_field_archived for a reversible removal.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -185,8 +188,9 @@ func (r *Registry) registerCustomFieldTools() {
 	})
 
 	r.register(&Tool{
-		Name:        "add_custom_fields_to_project",
-		Description: "Attach one or more existing custom field definitions to a project, making them usable on that project's test cases.",
+		Name: "add_custom_fields_to_project",
+		Description: "Attach one or more existing custom field definitions to a project, making them usable on that project's test cases. " +
+			"Ids that don't exist are reported in not_attached (the API itself silently ignores them).",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -206,8 +210,9 @@ func (r *Registry) registerCustomFieldTools() {
 	})
 
 	r.register(&Tool{
-		Name:        "remove_custom_field_from_project",
-		Description: "Detach a custom field from a project. This does not delete the field definition or its values, only the project's use of it.",
+		Name: "remove_custom_field_from_project",
+		Description: "Detach a custom field from a project. This does not delete the field definition or its values, only the project's use of it. " +
+			"The API refuses while any test case in the project has a value for it (custom-field.in-use.test-case) — clear those first with bulk_remove_test_case_custom_fields.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -290,11 +295,10 @@ func (r *Registry) registerCustomFieldTools() {
 
 	r.register(&Tool{
 		Name: "update_custom_field_value",
-		Description: "Rename a custom field value, or change its default/global flag. Existing test cases and " +
-			"test results already assigned this value are unaffected — confirmed live, this is because renaming " +
-			"assigns a NEW value_id under the hood (the API returns no body, so this tool can't report it); " +
-			"call list_custom_field_values afterward to find the value's new id before referencing it again. " +
-			"All fields are optional — only the ones you pass are changed.",
+		Description: "Rename a custom field value, or change its default/global flag. Renaming gives the value a NEW value_id and the old id stops " +
+			"existing; test cases that had the value follow it to the new name (confirmed live). The API returns no body, so call " +
+			"list_custom_field_values afterward to find the new id. global=true shares the value across all projects and cannot be undone. " +
+			"Setting default=false clears the project default. All fields are optional — only the ones you pass are changed.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -376,8 +380,8 @@ type getCustomFieldArgs struct {
 }
 
 func (r *Registry) getCustomField(ctx context.Context, args getCustomFieldArgs) (any, error) {
-	if args.CustomFieldID <= 0 {
-		return nil, fmt.Errorf("custom_field_id must be positive")
+	if args.CustomFieldID == 0 {
+		return nil, fmt.Errorf("custom_field_id is required (built-in fields like Epic/Feature/Story/Suite have negative ids)")
 	}
 
 	r.logger.Info("fetching custom field", map[string]any{"custom_field_id": args.CustomFieldID})
@@ -401,7 +405,7 @@ type updateCustomFieldArgs struct {
 
 func (r *Registry) updateCustomField(ctx context.Context, args updateCustomFieldArgs) (any, error) {
 	if args.CustomFieldID <= 0 {
-		return nil, fmt.Errorf("custom_field_id must be positive")
+		return nil, fmt.Errorf("custom_field_id must be positive — built-in fields (negative ids) can't be changed or removed")
 	}
 	if args.Name == nil && args.Required == nil && args.SingleSelect == nil && args.Locked == nil {
 		return nil, fmt.Errorf("at least one field must be provided")
@@ -429,7 +433,7 @@ type deleteCustomFieldArgs struct {
 
 func (r *Registry) deleteCustomField(ctx context.Context, args deleteCustomFieldArgs) (any, error) {
 	if args.CustomFieldID <= 0 {
-		return nil, fmt.Errorf("custom_field_id must be positive")
+		return nil, fmt.Errorf("custom_field_id must be positive — built-in fields (negative ids) can't be changed or removed")
 	}
 
 	r.logger.Info("deleting custom field", map[string]any{"custom_field_id": args.CustomFieldID})
@@ -449,7 +453,7 @@ type setCustomFieldArchivedArgs struct {
 
 func (r *Registry) setCustomFieldArchived(ctx context.Context, args setCustomFieldArchivedArgs) (any, error) {
 	if args.CustomFieldID <= 0 {
-		return nil, fmt.Errorf("custom_field_id must be positive")
+		return nil, fmt.Errorf("custom_field_id must be positive — built-in fields (negative ids) can't be changed or removed")
 	}
 	if args.Archived == nil {
 		return nil, fmt.Errorf("archived must be specified (true or false)")
@@ -507,8 +511,8 @@ func (r *Registry) getProjectCustomField(ctx context.Context, args getProjectCus
 	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-	if args.CustomFieldID <= 0 {
-		return nil, fmt.Errorf("custom_field_id must be positive")
+	if args.CustomFieldID == 0 {
+		return nil, fmt.Errorf("custom_field_id is required (built-in fields like Epic/Feature/Story/Suite have negative ids)")
 	}
 
 	r.logger.Info("fetching project custom field", map[string]any{
@@ -562,7 +566,22 @@ func (r *Registry) addCustomFieldsToProject(ctx context.Context, args addCustomF
 		return nil, fmt.Errorf("add custom fields to project: %w", err)
 	}
 
-	return map[string]any{"status": "added", "count": len(args.CustomFieldIDs)}, nil
+	// The API answers success even for ids that don't exist and attaches
+	// nothing (confirmed live), so check each one.
+	var missing []int64
+	for _, id := range args.CustomFieldIDs {
+		if _, err := r.allure.GetProjectCustomField(ctx, args.ProjectID, id); errors.Is(err, allure.ErrCustomFieldNotAttached) {
+			missing = append(missing, id)
+		}
+	}
+	if len(missing) == len(args.CustomFieldIDs) {
+		return nil, fmt.Errorf("none of the custom fields were attached — check the ids exist (get_custom_field): %v", missing)
+	}
+	result := map[string]any{"status": "added", "count": len(args.CustomFieldIDs) - len(missing)}
+	if len(missing) > 0 {
+		result["not_attached"] = missing
+	}
+	return result, nil
 }
 
 type removeCustomFieldFromProjectArgs struct {
@@ -575,7 +594,7 @@ func (r *Registry) removeCustomFieldFromProject(ctx context.Context, args remove
 		return nil, fmt.Errorf("project_id must be positive")
 	}
 	if args.CustomFieldID <= 0 {
-		return nil, fmt.Errorf("custom_field_id must be positive")
+		return nil, fmt.Errorf("custom_field_id must be positive — built-in fields (negative ids) can't be changed or removed")
 	}
 
 	r.logger.Info("removing custom field from project", map[string]any{
@@ -606,8 +625,8 @@ func (r *Registry) updateProjectCustomField(ctx context.Context, args updateProj
 	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-	if args.CustomFieldID <= 0 {
-		return nil, fmt.Errorf("custom_field_id must be positive")
+	if args.CustomFieldID == 0 {
+		return nil, fmt.Errorf("custom_field_id is required (built-in fields like Epic/Feature/Story/Suite have negative ids)")
 	}
 	if args.Required == nil && args.Locked == nil && args.DefaultCustomFieldValueID == nil {
 		return nil, fmt.Errorf("at least one field must be provided")
@@ -645,8 +664,8 @@ func (r *Registry) createCustomFieldValue(ctx context.Context, args createCustom
 	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-	if args.CustomFieldID <= 0 {
-		return nil, fmt.Errorf("custom_field_id must be positive")
+	if args.CustomFieldID == 0 {
+		return nil, fmt.Errorf("custom_field_id is required (built-in fields like Epic/Feature/Story/Suite have negative ids)")
 	}
 	if args.Name == "" {
 		return nil, fmt.Errorf("name is required")

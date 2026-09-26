@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 )
@@ -179,6 +180,13 @@ func TestAddCustomFieldsToProject_Handler(t *testing.T) {
 	var gotURL string
 	var gotBody map[string]any
 	r := newTestRegistryWithServer(t, func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodGet {
+			// Attachment check: field 6 attached, field 5 not (empty body).
+			if req.URL.Query().Get("customFieldId") == "6" {
+				_, _ = w.Write([]byte(`{"id":1}`))
+			}
+			return
+		}
 		gotURL = req.URL.String()
 		_ = json.NewDecoder(req.Body).Decode(&gotBody)
 		w.WriteHeader(http.StatusAccepted)
@@ -187,6 +195,9 @@ func TestAddCustomFieldsToProject_Handler(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if nb := res.(map[string]any)["not_attached"]; fmt.Sprint(nb) != "[5]" {
+		t.Errorf("not_attached = %v, want [5]", nb)
+	}
 	if gotURL != "/api/cfproject/add-to-project?projectId=1" {
 		t.Errorf("url = %q, want /api/cfproject/add-to-project?projectId=1", gotURL)
 	}
@@ -194,7 +205,7 @@ func TestAddCustomFieldsToProject_Handler(t *testing.T) {
 	if len(ids) != 2 {
 		t.Errorf("request body ids = %v, want 2 entries", gotBody["ids"])
 	}
-	if res.(map[string]any)["count"] != 2 {
+	if res.(map[string]any)["count"] != 1 {
 		t.Errorf("unexpected result: %v", res)
 	}
 }

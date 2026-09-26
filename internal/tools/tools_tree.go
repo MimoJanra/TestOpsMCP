@@ -54,7 +54,8 @@ func (r *Registry) registerTreeTools() {
 	r.register(&Tool{
 		Name: "get_test_case_tree_folders",
 		Description: "List only the folders directly inside a folder of a test case tree (or the tree root when " +
-			"parent_node_id is omitted). Returns folder node IDs for create_test_case_folder / move_test_cases_to_folder.",
+			"parent_node_id is omitted). Returns folder node IDs for create_test_case_folder / move_test_cases_to_folder. " +
+			"page/size apply to the folder list (the API interleaves folders with test cases, so the tool collects them first).",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -72,8 +73,9 @@ func (r *Registry) registerTreeTools() {
 	r.register(&Tool{
 		Name: "move_test_cases_to_folder",
 		Description: "Move test cases into a folder of a test case tree (omit node_id to move them to the tree root). " +
-			"Moving sets the test case's custom field value for that folder. Asynchronous — the move lands shortly after " +
-			"the call returns.",
+			"Moving sets the test case's custom field value for that folder and replaces every folder the case had in this tree. " +
+			"node_id must be a folder of this tree (checked — a leaf id or another tree's folder would silently strip the folder). " +
+			"Asynchronous — the move lands shortly after the call returns.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -102,6 +104,39 @@ func (r *Registry) registerTreeTools() {
 			"required": []string{"project_id", "name"},
 		},
 		Handler: Typed(r.createTestCaseFolder),
+	})
+
+	r.register(&Tool{
+		Name: "rename_test_case_folder",
+		Description: "Rename a folder of a test case tree in place: it keeps its node id and its test cases follow. " +
+			"Other folders with the same name elsewhere in the tree are not affected.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"project_id": map[string]any{"type": "integer", "description": "Allure project ID"},
+				"tree_id":    treeIDSchema,
+				"node_id":    map[string]any{"type": "integer", "description": "Folder node ID"},
+				"name":       map[string]any{"type": "string", "description": "New folder name"},
+			},
+			"required": []string{"project_id", "node_id", "name"},
+		},
+		Handler: Typed(r.renameTestCaseFolder),
+	})
+
+	r.register(&Tool{
+		Name: "delete_test_case_folder",
+		Description: "Delete a folder of a test case tree. Its test cases are not deleted — they lose this folder assignment. " +
+			"Do NOT use delete_custom_field_value for this: one value can back several same-named folders, and deleting it removes all of them.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"project_id": map[string]any{"type": "integer", "description": "Allure project ID"},
+				"tree_id":    treeIDSchema,
+				"node_id":    map[string]any{"type": "integer", "description": "Folder node ID"},
+			},
+			"required": []string{"project_id", "node_id"},
+		},
+		Handler: Typed(r.deleteTestCaseFolder),
 	})
 }
 
@@ -181,7 +216,7 @@ func (r *Registry) listTreeLevel(ctx context.Context, args browseTestCaseTreeArg
 	testCases = []map[string]any{}
 	for _, c := range node.Children.Content {
 		if c.Type == "GROUP" {
-			folders = append(folders, map[string]any{"id": c.ID, "name": c.Name, "test_case_count": c.Count})
+			folders = append(folders, map[string]any{"id": c.ID, "name": c.Name, "test_case_count": c.Count, "custom_field_value_id": c.CustomFieldValueID})
 			continue
 		}
 		tc := map[string]any{"test_case_id": c.TestCaseID, "leaf_id": c.ID, "name": c.Name, "automated": c.Automated}
@@ -213,18 +248,169 @@ func (r *Registry) browseTestCaseTree(ctx context.Context, args browseTestCaseTr
 type getTestCaseTreeFoldersArgs = browseTestCaseTreeArgs
 
 func (r *Registry) getTestCaseTreeFolders(ctx context.Context, args getTestCaseTreeFoldersArgs) (any, error) {
-	treeID, node, folders, _, err := r.listTreeLevel(ctx, args)
-	if err != nil {
-		return nil, fmt.Errorf("get tree folders: %w", err)
+	if args.ProjectID <= 0 {
+		return nil, fmt.Errorf("project_id must be positive")
 	}
+	treeID, err := r.resolveTreeID(ctx, args.ProjectID, args.TreeID)
+	if err != nil {
+		return nil, err
+	}
+	// Folders and test cases share one name-sorted listing, so a page of it
+	// can hold no folders at all even though later pages do (confirmed live).
+	// Collect every folder of the level, then page over those.
+	folders := []map[string]any{}
+	var nodeID int64
+	var nodeName string
+	for page := 0; page < 200; page++ {
+		node, err := r.allure.GetTestCaseTreeNode(ctx, args.ProjectID, treeID, args.ParentNodeID, "", page, treePageSize)
+		if err != nil {
+			return nil, fmt.Errorf("get tree folders: %w", err)
+		}
+		nodeID, nodeName = node.ID, node.Name
+		for _, c := range node.Children.Content {
+			if c.Type == "GROUP" {
+				folders = append(folders, map[string]any{"id": c.ID, "name": c.Name, "test_case_count": c.Count, "custom_field_value_id": c.CustomFieldValueID})
+			}
+		}
+		if node.Children.Last || len(node.Children.Content) == 0 {
+			break
+		}
+	}
+	size := args.Size
+	if size <= 0 {
+		size = 50
+	}
+	start := min(args.Page*size, len(folders))
+	end := min(start+size, len(folders))
 	return map[string]any{
 		"tree_id": treeID,
-		"node_id": node.ID,
-		"name":    node.Name,
-		"folders": folders,
-		"page":    node.Children.Number,
-		"is_last": node.Children.Last,
+		"node_id": nodeID,
+		"name":    nodeName,
+		"folders": folders[start:end],
+		"page":    args.Page,
+		"total":   len(folders),
+		"is_last": end >= len(folders),
 	}, nil
+}
+
+// requireTreeFolder checks that nodeID is a folder of this tree. The API
+// accepts a leaf id, a bogus id or another tree's folder as a move target and
+// silently strips the test cases' folder instead (confirmed live).
+func (r *Registry) requireTreeFolder(ctx context.Context, projectID, treeID, nodeID int64) error {
+	folders, err := r.treeFolders(ctx, projectID, treeID)
+	if err != nil {
+		return fmt.Errorf("look up folder %d: %w", nodeID, err)
+	}
+	for _, f := range folders {
+		if f.ID == nodeID {
+			return nil
+		}
+	}
+	return fmt.Errorf("node %d is not a folder of tree %d — use a folder id from browse_test_case_tree / get_test_case_tree_folders for this tree", nodeID, treeID)
+}
+
+// treeFolders walks every folder of a tree (breadth-first).
+func (r *Registry) treeFolders(ctx context.Context, projectID, treeID int64) ([]allure.TestCaseTreeNodeDto, error) {
+	var out []allure.TestCaseTreeNodeDto
+	queue := []int64{0}
+	for visited := 0; len(queue) > 0; visited++ {
+		if visited > 5000 {
+			return nil, fmt.Errorf("tree %d has more than 5000 folders", treeID)
+		}
+		parent := queue[0]
+		queue = queue[1:]
+		for page := 0; ; page++ {
+			node, err := r.allure.GetTestCaseTreeNode(ctx, projectID, treeID, parent, "", page, treePageSize)
+			if err != nil {
+				return nil, err
+			}
+			for _, c := range node.Children.Content {
+				if c.Type == "GROUP" {
+					out = append(out, c)
+					queue = append(queue, c.ID)
+				}
+			}
+			if node.Children.Last || len(node.Children.Content) == 0 {
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+type folderNodeArgs struct {
+	ProjectID int64  `json:"project_id"`
+	TreeID    int64  `json:"tree_id"`
+	NodeID    int64  `json:"node_id"`
+	Name      string `json:"name"`
+}
+
+func (r *Registry) renameTestCaseFolder(ctx context.Context, args folderNodeArgs) (any, error) {
+	if args.ProjectID <= 0 || args.NodeID == 0 {
+		return nil, fmt.Errorf("project_id and node_id are required")
+	}
+	if strings.TrimSpace(args.Name) == "" {
+		return nil, fmt.Errorf("name must not be empty")
+	}
+	treeID, err := r.resolveTreeID(ctx, args.ProjectID, args.TreeID)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.requireTreeFolder(ctx, args.ProjectID, treeID, args.NodeID); err != nil {
+		return nil, err
+	}
+	if err := r.allure.RenameTestCaseTreeGroup(ctx, args.ProjectID, args.NodeID, strings.TrimSpace(args.Name)); err != nil {
+		return nil, fmt.Errorf("rename folder: %w", err)
+	}
+	return map[string]any{"status": "renamed", "node_id": args.NodeID, "tree_id": treeID}, nil
+}
+
+func (r *Registry) deleteTestCaseFolder(ctx context.Context, args folderNodeArgs) (any, error) {
+	if args.ProjectID <= 0 || args.NodeID == 0 {
+		return nil, fmt.Errorf("project_id and node_id are required")
+	}
+	treeID, err := r.resolveTreeID(ctx, args.ProjectID, args.TreeID)
+	if err != nil {
+		return nil, err
+	}
+	folders, err := r.treeFolders(ctx, args.ProjectID, treeID)
+	if err != nil {
+		return nil, fmt.Errorf("look up folder %d: %w", args.NodeID, err)
+	}
+	var target *allure.TestCaseTreeNodeDto
+	sharing := 0
+	for i := range folders {
+		if folders[i].ID == args.NodeID {
+			target = &folders[i]
+		}
+	}
+	if target == nil {
+		return nil, fmt.Errorf("node %d is not a folder of tree %d", args.NodeID, treeID)
+	}
+	for _, f := range folders {
+		if f.ID != target.ID && f.CustomFieldValueID == target.CustomFieldValueID {
+			sharing++
+		}
+	}
+
+	// deleteGroup only unassigns the folder's test cases: the folder stays in
+	// the tree, empty (confirmed live). The folder exists as long as its custom
+	// field value does, so drop the value too — unless another folder (a
+	// same-named one under a different parent) is backed by the same value.
+	if err := r.allure.DeleteTestCaseTreeGroup(ctx, args.ProjectID, args.NodeID); err != nil {
+		return nil, fmt.Errorf("delete folder: %w", err)
+	}
+	result := map[string]any{"status": "deleted", "node_id": args.NodeID, "tree_id": treeID}
+	if target.CustomFieldValueID > 0 && sharing == 0 {
+		if err := r.allure.DeleteCustomFieldValue(ctx, args.ProjectID, target.CustomFieldValueID); err != nil {
+			result["status"] = "emptied"
+			result["warning"] = fmt.Sprintf("test cases were unassigned, but removing the folder's value %d failed: %v", target.CustomFieldValueID, err)
+		}
+	} else if sharing > 0 {
+		result["status"] = "emptied"
+		result["warning"] = fmt.Sprintf("test cases were unassigned; the empty folder stays because its value %d also backs %d other folder(s)", target.CustomFieldValueID, sharing)
+	}
+	return result, nil
 }
 
 // resolveTreeLeaves finds the current leaf ids of the given test cases in a
@@ -293,7 +479,11 @@ func (r *Registry) moveTestCasesToFolder(ctx context.Context, args moveTestCases
 		return nil, err
 	}
 	nodeID := args.NodeID
-	if nodeID == 0 {
+	if nodeID != 0 {
+		if err := r.requireTreeFolder(ctx, args.ProjectID, treeID, nodeID); err != nil {
+			return nil, err
+		}
+	} else {
 		root, err := r.allure.GetTestCaseTreeNode(ctx, args.ProjectID, treeID, 0, "", 0, 1)
 		if err != nil {
 			return nil, fmt.Errorf("look up tree root: %w", err)
@@ -347,6 +537,11 @@ func (r *Registry) createTestCaseFolder(ctx context.Context, args createTestCase
 	treeID, err := r.resolveTreeID(ctx, args.ProjectID, args.TreeID)
 	if err != nil {
 		return nil, err
+	}
+	if args.ParentNodeID != 0 {
+		if err := r.requireTreeFolder(ctx, args.ProjectID, treeID, args.ParentNodeID); err != nil {
+			return nil, err
+		}
 	}
 	group, err := r.allure.CreateTestCaseTreeGroup(ctx, args.ProjectID, treeID, args.ParentNodeID, args.Name)
 	if err != nil {

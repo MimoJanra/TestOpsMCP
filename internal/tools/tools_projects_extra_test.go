@@ -35,8 +35,8 @@ func TestListProjects_Success(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"content": []map[string]any{
-				{"id": 1, "name": "Alpha", "code": "ALPHA"},
-				{"id": 2, "name": "Beta", "code": "BETA"},
+				{"id": 1, "name": "Alpha", "abbr": "ALPHA"},
+				{"id": 2, "name": "Beta", "abbr": "BETA"},
 			},
 			"number": 0, "size": 10, "totalElements": 2, "last": true,
 		})
@@ -94,8 +94,8 @@ func TestFindProject_MatchesNameAndCode(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"content": []map[string]any{
-				{"id": 1, "name": "Payments Service", "code": "PAY"},
-				{"id": 2, "name": "Other", "code": "OTHER"},
+				{"id": 1, "name": "Payments Service", "abbr": "PAY"},
+				{"id": 2, "name": "Other", "abbr": "OTHER"},
 			},
 			"last": true,
 		})
@@ -121,7 +121,7 @@ func TestFindProject_PaginatesUntilLimitOrLastPage(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		last := pages >= 2
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"content": []map[string]any{{"id": pages, "name": "match", "code": "m"}},
+			"content": []map[string]any{{"id": pages, "name": "match", "abbr": "m"}},
 			"last":    last,
 		})
 	})
@@ -153,7 +153,7 @@ func TestGetProject_Success(t *testing.T) {
 			t.Errorf("path = %q", req.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"id": 7, "name": "Alpha", "code": "ALPHA", "description": "desc"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": 7, "name": "Alpha", "abbr": "ALPHA", "description": "desc"})
 	})
 	result, err := r.getProject(context.Background(), getProjectArgs{ProjectID: 7})
 	if err != nil {

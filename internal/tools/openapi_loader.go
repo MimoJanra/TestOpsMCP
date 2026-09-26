@@ -40,7 +40,7 @@ type OperationRequestBody struct {
 // OpenAPISpec represents parsed OpenAPI specification
 type OpenAPISpec struct {
 	Paths      map[string]map[string]interface{} `json:"paths"`
-	Components map[string]interface{}             `json:"components"`
+	Components map[string]interface{}            `json:"components"`
 }
 
 // OperationsIndex holds searchable operation index
@@ -105,23 +105,131 @@ func BuildOperationsIndex(spec *OpenAPISpec) (*OperationsIndex, error) {
 
 // Search finds operations matching the query string
 func (idx *OperationsIndex) Search(query string) []*Operation {
-	query = strings.ToLower(query)
-	var results []*Operation
-
+	if op, ok := idx.operations[strings.TrimSpace(query)]; ok {
+		return []*Operation{op} // an exact operation id
+	}
+	terms, verbs := parseSearchQuery(query)
+	type scored struct {
+		op    *Operation
+		score int
+	}
+	var hits []scored
 	for _, op := range idx.operations {
-		if matchesQuery(op, query) {
-			results = append(results, op)
+		if sc := scoreOperation(op, terms, verbs); sc > 0 {
+			hits = append(hits, scored{op, sc})
 		}
 	}
-
-	// Sort by relevance (exact matches first)
-	sort.Slice(results, func(i, j int) bool {
-		iScore := scoreMatch(results[i], query)
-		jScore := scoreMatch(results[j], query)
-		return iScore > jScore
+	sort.Slice(hits, func(i, j int) bool {
+		if hits[i].score != hits[j].score {
+			return hits[i].score > hits[j].score
+		}
+		return hits[i].op.OperationID < hits[j].op.OperationID
 	})
-
+	results := make([]*Operation, len(hits))
+	for i, h := range hits {
+		results[i] = h.op
+	}
 	return results
+}
+
+// verbMethods maps intent verbs to the HTTP methods they usually mean.
+var verbMethods = map[string][]string{
+	"create": {"POST"}, "add": {"POST", "PUT"}, "new": {"POST"}, "run": {"POST"}, "upload": {"POST"},
+	"get": {"GET"}, "list": {"GET"}, "find": {"GET"}, "search": {"GET", "POST"}, "read": {"GET"}, "show": {"GET"}, "download": {"GET"},
+	"update": {"PATCH", "PUT"}, "edit": {"PATCH", "PUT"}, "change": {"PATCH", "PUT"}, "rename": {"PATCH", "PUT"}, "set": {"PATCH", "PUT", "POST"},
+	"delete": {"DELETE"}, "remove": {"DELETE", "POST"},
+}
+
+var searchStopWords = map[string]bool{"a": true, "an": true, "the": true, "to": true, "of": true, "for": true, "in": true, "on": true, "by": true, "from": true, "with": true, "and": true, "or": true, "all": true}
+
+// parseSearchQuery splits an intent like "create test case step" into
+// content terms and verb-implied HTTP methods. The old search matched the
+// whole phrase as one substring, so multi-word intents found nothing.
+func parseSearchQuery(query string) (terms []string, methods map[string]bool) {
+	methods = map[string]bool{}
+	for _, w := range strings.FieldsFunc(strings.ToLower(query), func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9')
+	}) {
+		if searchStopWords[w] {
+			continue
+		}
+		if ms, ok := verbMethods[w]; ok {
+			for _, m := range ms {
+				methods[m] = true
+			}
+			// Verbs still count as terms when they appear in ids/summaries
+			// (e.g. "run", "search"), but aren't required to match.
+			continue
+		}
+		terms = append(terms, singular(w))
+	}
+	if len(terms) == 0 { // query of only verbs/stop words: search the raw words
+		for _, w := range strings.Fields(strings.ToLower(query)) {
+			terms = append(terms, singular(w))
+		}
+	}
+	return terms, methods
+}
+
+func singular(w string) string {
+	switch {
+	case len(w) > 4 && strings.HasSuffix(w, "ies"):
+		return w[:len(w)-3] + "y"
+	case len(w) > 3 && strings.HasSuffix(w, "s") && !strings.HasSuffix(w, "ss"):
+		return w[:len(w)-1]
+	}
+	return w
+}
+
+// scoreOperation returns 0 unless every term appears somewhere in the
+// operation; otherwise a relevance score weighted by where the terms match.
+func scoreOperation(op *Operation, terms []string, methods map[string]bool) int {
+	id := strings.ToLower(op.OperationID)
+	summary := strings.ToLower(op.Summary)
+	desc := strings.ToLower(op.Description)
+	path := strings.ToLower(op.Path)
+	compactPath := strings.NewReplacer("-", "", "_", "").Replace(path)
+	tags := strings.ToLower(strings.Join(op.Tags, " "))
+	segments := map[string]bool{}
+	for _, seg := range strings.Split(compactPath, "/") {
+		segments[singular(seg)] = true
+	}
+	score := 0
+	for _, t := range terms {
+		ts := 0
+		if strings.Contains(path, t) || strings.Contains(compactPath, t) {
+			ts += 10
+		}
+		if segments[t] { // "step" matches /step, not just /sharedstep
+			ts += 8
+		}
+		if strings.Contains(summary, t) {
+			ts += 8
+		}
+		if strings.Contains(id, t) {
+			ts += 6
+		}
+		if strings.Contains(tags, t) {
+			ts += 5
+		}
+		if strings.Contains(desc, t) {
+			ts += 2
+		}
+		if ts == 0 {
+			return 0
+		}
+		score += ts
+	}
+	if len(methods) > 0 && methods[strings.ToUpper(op.Method)] {
+		score += 12
+	}
+	// Prefer v2 endpoints (project rule: v1 counterparts are often broken).
+	if strings.Contains(path, "/v2/") {
+		score += 3
+	}
+	// Shorter paths are usually the primary resource endpoint.
+	score -= strings.Count(path, "/")
+	return score
 }
 
 // Get retrieves a specific operation by ID
@@ -155,13 +263,13 @@ func parseOperation(path string, method string, methodSpec interface{}) *Operati
 	}
 
 	op := &Operation{
-		Path:       path,
-		Method:     strings.ToUpper(method),
+		Path:        path,
+		Method:      strings.ToUpper(method),
 		OperationID: operationID,
-		Summary:    getStringValue(specMap, "summary"),
+		Summary:     getStringValue(specMap, "summary"),
 		Description: getStringValue(specMap, "description"),
-		Tags:       getStringArray(specMap, "tags"),
-		Responses:  make(map[string]interface{}),
+		Tags:        getStringArray(specMap, "tags"),
+		Responses:   make(map[string]interface{}),
 	}
 
 	// Parse parameters
@@ -252,44 +360,6 @@ func getStringArray(m map[string]interface{}, key string) []string {
 		return result
 	}
 	return nil
-}
-
-func matchesQuery(op *Operation, query string) bool {
-	if strings.Contains(strings.ToLower(op.OperationID), query) {
-		return true
-	}
-	if strings.Contains(strings.ToLower(op.Summary), query) {
-		return true
-	}
-	if strings.Contains(strings.ToLower(op.Description), query) {
-		return true
-	}
-	if strings.Contains(strings.ToLower(op.Path), query) {
-		return true
-	}
-	for _, tag := range op.Tags {
-		if strings.Contains(strings.ToLower(tag), query) {
-			return true
-		}
-	}
-	return false
-}
-
-func scoreMatch(op *Operation, query string) int {
-	score := 0
-	if strings.Contains(strings.ToLower(op.OperationID), query) {
-		score += 100
-	}
-	if strings.HasPrefix(strings.ToLower(op.Summary), query) {
-		score += 50
-	}
-	if strings.Contains(strings.ToLower(op.Summary), query) {
-		score += 25
-	}
-	if strings.Contains(strings.ToLower(op.Path), query) {
-		score += 10
-	}
-	return score
 }
 
 // FindSpecFile looks for testops.json in spec folder and common locations

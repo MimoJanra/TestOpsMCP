@@ -73,6 +73,9 @@ server {
     ssl_ciphers HIGH:!aNULL:!MD5;
     ssl_prefer_server_ciphers on;
 
+    # Server limit is 32 MiB per message (attachment uploads)
+    client_max_body_size 32m;
+
     location / {
         proxy_pass http://localhost:3000;
         proxy_set_header X-Forwarded-Proto $scheme;
@@ -97,6 +100,8 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: allure-mcp
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "32m"  # server limit per message
 spec:
   tls:
   - hosts:
@@ -299,7 +304,30 @@ server → Claude: {status: "deleted"}
 | Streamable HTTP (`/mcp`) | ✓ Elicitation dialog shown | Full support |
 | Stdio | ✗ Returns error | Interactive session required for destructive ops |
 
-**Stdio note:** When running in stdio mode (e.g. a Claude Desktop local binary), there is no interactive session capable of elicitation. Delete tools return an error: *"deletion requires user confirmation but no interactive session is available"*. Use the HTTP transport for deployments where destructive operations are needed.
+**Client support:** Confirmation uses MCP elicitation, which works on both transports (stdio and HTTP). If the MCP client did not declare the `elicitation` capability in `initialize`, delete tools fail immediately with an error instead of deleting — they never proceed unconfirmed.
+
+---
+
+## Local File Access
+
+Two parameters touch the server's local disk, and both are only enabled in **stdio mode**, where the server runs on the user's own machine:
+
+| Tool | Parameter | HTTP-mode alternative |
+|------|-----------|-----------------------|
+| `upload_test_case_attachment` | `file_path` — reads a local file | send the file as `content_base64` + `file_name` |
+| `get_test_case_attachment_content` | `save_to` — writes a local file | read `content` / `content_base64` from the response |
+
+In **HTTP mode** both are refused — otherwise any connected client could upload files from the server's disk (config, tokens, keys) into Allure, or write files onto the server. `save_to` opens the target with `O_EXCL`, so even in stdio mode it never overwrites an existing file.
+
+The permission is set from the transport when the server starts, never from the request: HTTP clients control their `Mcp-Session-Id` header, so a client could claim the `"stdio"` session id, and a check based on the session id would be bypassable.
+
+---
+
+## Request Size Limit
+
+One JSON-RPC message is capped at **32 MiB** on both transports (raised from 1 MiB so a 20 MiB attachment fits as base64). HTTP requests over the limit get `413 Request Entity Too Large`; on stdio an oversized line is answered with a JSON-RPC error and the server keeps serving (it used to terminate). Attachment uploads and downloads are capped at 20 MiB.
+
+A reverse proxy in front of the server must allow the same body size, or attachment uploads fail at the proxy — e.g. nginx `client_max_body_size 32m;` (nginx defaults to 1m), or the `nginx.ingress.kubernetes.io/proxy-body-size: "32m"` annotation on a Kubernetes ingress. Don't set it much higher than 32m: the server rejects larger bodies anyway.
 
 ---
 
@@ -374,6 +402,7 @@ Send logs to centralized system:
   - [ ] Firewall rules restrict access
   - [ ] CORS_ALLOWED_ORIGIN is specific (not `*`)
   - [ ] Rate limiting enabled
+  - [ ] Proxy body size allows 32 MiB (`client_max_body_size 32m`) and no more
 
 - [ ] **Secrets**
   - [ ] `.env` not committed to git

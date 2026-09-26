@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/cookiejar"
+	"net/textproto"
 	"net/url"
 	"strings"
 	"sync"
@@ -256,15 +259,38 @@ func (c *Client) GetTestResult(ctx context.Context, testResultID int64) (*TestRe
 	return &result, nil
 }
 
-func (c *Client) AssignTestResult(ctx context.Context, testResultID int64, username string) error {
-	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testresult/%d/assign", testResultID), AssignTestResultRequest{Username: username}, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
+// AssignTestResult assigns a test result and returns the assignee the API
+// actually stored, read back afterwards: on an already-resolved result the
+// call succeeds — even echoing the requested user — but keeps the old
+// assignee (confirmed live), so callers must compare.
+func (c *Client) AssignTestResult(ctx context.Context, testResultID int64, username string) (string, error) {
+	if err := c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testresult/%d/assign", testResultID), AssignTestResultRequest{Username: username}, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...); err != nil {
+		return "", err
+	}
+	tr, err := c.GetTestResult(ctx, testResultID)
+	if err != nil {
+		return "", fmt.Errorf("read back assignee: %w", err)
+	}
+	return tr.Assignee, nil
+}
+
+// muteName is the mute record's name. The DB requires one (NOT NULL, which
+// the spec doesn't mark) and caps it at 255 characters, so it is the reason
+// text cut to fit — a longer reason used as-is 500'd (confirmed live); the
+// reason field itself takes long text.
+func muteName(reason string) string {
+	name := strings.TrimSpace(reason)
+	if name == "" {
+		return "Muted via MCP"
+	}
+	if r := []rune(name); len(r) > 255 {
+		name = string(r[:252]) + "..."
+	}
+	return name
 }
 
 func (c *Client) MuteTestResult(ctx context.Context, testResultID int64, reason string) error {
-	name := reason
-	if name == "" {
-		name = "Muted via MCP"
-	}
+	name := muteName(reason)
 	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testresult/%d/mute", testResultID), MuteTestResultRequest{Name: name, Reason: reason}, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
 }
 
@@ -349,13 +375,9 @@ func (c *Client) GetTestSuccessRateAnalytics(ctx context.Context, projectID int6
 	return result, nil
 }
 
-func (c *Client) CreateTestCase(ctx context.Context, projectID int64, name, description string) (*TestCaseDetailsResponse, error) {
+func (c *Client) CreateTestCase(ctx context.Context, req CreateTestCaseRequest) (*TestCaseDetailsResponse, error) {
 	var result TestCaseDetailsResponse
-	if err := c.doJSON(ctx, http.MethodPost, "/api/testcase", CreateTestCaseRequest{
-		Name:        name,
-		ProjectID:   projectID,
-		Description: description,
-	}, &result, []int{http.StatusOK, http.StatusCreated}...); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, "/api/testcase", req, &result, []int{http.StatusOK, http.StatusCreated}...); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -447,14 +469,32 @@ func (c *Client) ListProjectCustomFields(ctx context.Context, projectID int64, q
 
 // GetProjectCustomField returns a single custom field's project-scoped
 // settings (required, locked, default value).
+// GetProjectCustomField returns a field's project-scoped settings, or
+// ErrCustomFieldNotAttached when the field isn't attached to the project (the
+// API answers that with 200 and an empty body).
 func (c *Client) GetProjectCustomField(ctx context.Context, projectID, customFieldID int64) (*CustomFieldProjectDto, error) {
-	var result CustomFieldProjectDto
 	u := fmt.Sprintf("/api/cfproject?customFieldId=%d&projectId=%d", customFieldID, projectID)
-	if err := c.doJSON(ctx, http.MethodGet, u, nil, &result, []int{http.StatusOK}...); err != nil {
+	resp, err := c.doRaw(ctx, http.MethodGet, u, nil, []int{http.StatusOK}...)
+	if err != nil {
 		return nil, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil, ErrCustomFieldNotAttached
+	}
+	var result CustomFieldProjectDto
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
 	}
 	return &result, nil
 }
+
+// ErrCustomFieldNotAttached reports a custom field that isn't attached to the project.
+var ErrCustomFieldNotAttached = errors.New("custom field is not attached to this project")
 
 // AddCustomFieldsToProject attaches existing custom field definitions to a project.
 func (c *Client) AddCustomFieldsToProject(ctx context.Context, projectID int64, customFieldIDs []int64) error {
@@ -550,12 +590,22 @@ func (c *Client) SetTestCaseIssues(ctx context.Context, testCaseID int64, issues
 // response is a paginated TestCaseExamplePage (not a bare array — that shape
 // is only for the POST body), so decoding straight into [][]TestCaseExampleParam
 // fails with "cannot unmarshal object into Go value of type [][]...".
+// GetTestCaseExamples returns every example row. The endpoint is paged with a
+// default size of 10, so reading one page silently dropped rows 11+ (confirmed
+// live); this walks all pages.
 func (c *Client) GetTestCaseExamples(ctx context.Context, testCaseID int64) ([]TestCaseExampleDto, error) {
-	var page TestCaseExamplePage
-	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/testcase/%d/example", testCaseID), nil, &page, []int{http.StatusOK}...); err != nil {
-		return nil, err
+	var all []TestCaseExampleDto
+	for page := 0; page < 100; page++ {
+		var p TestCaseExamplePage
+		if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/testcase/%d/example?page=%d&size=100", testCaseID, page), nil, &p, []int{http.StatusOK}...); err != nil {
+			return nil, err
+		}
+		all = append(all, p.Content...)
+		if p.Last || len(p.Content) == 0 {
+			break
+		}
 	}
-	return page.Content, nil
+	return all, nil
 }
 
 // SetTestCaseExamples replaces the parametrized examples of a test case.
@@ -598,6 +648,85 @@ func (c *Client) GetTestCaseAttachments(ctx context.Context, testCaseID int64, p
 		return nil, err
 	}
 	return &result, nil
+}
+
+// UploadTestCaseAttachment uploads one file to a test case (multipart POST
+// /api/testcase/attachment — there is no v2 counterpart) and returns the
+// created attachment. It is not yet shown in any step; attach it to one with
+// CreateTestCaseStep(AttachmentID).
+func (c *Client) UploadTestCaseAttachment(ctx context.Context, testCaseID int64, fileName, contentType string, content []byte) (*TestCaseAttachmentRowDto, error) {
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename=%q`, fileName))
+	h.Set("Content-Type", contentType)
+	part, err := mw.CreatePart(h)
+	if err != nil {
+		return nil, fmt.Errorf("build multipart: %w", err)
+	}
+	if _, err := part.Write(content); err != nil {
+		return nil, fmt.Errorf("build multipart: %w", err)
+	}
+	if err := mw.Close(); err != nil {
+		return nil, fmt.Errorf("build multipart: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(fmt.Sprintf("/api/testcase/attachment?testCaseId=%d", testCaseID)), &buf)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, req); err != nil {
+		return nil, fmt.Errorf("set auth: %w", err)
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, errFromResponse(resp)
+	}
+	var rows []TestCaseAttachmentRowDto
+	if err := json.NewDecoder(resp.Body).Decode(&rows); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("upload returned no attachment")
+	}
+	return &rows[0], nil
+}
+
+// DownloadTestCaseAttachment reads an attachment's content. Bodies over
+// maxBytes are refused rather than truncated.
+func (c *Client) DownloadTestCaseAttachment(ctx context.Context, attachmentID int64, maxBytes int64) ([]byte, string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(fmt.Sprintf("/api/testcase/attachment/%d/content", attachmentID)), nil)
+	if err != nil {
+		return nil, "", fmt.Errorf("create request: %w", err)
+	}
+	if err := c.setAuthHeader(ctx, req); err != nil {
+		return nil, "", fmt.Errorf("set auth: %w", err)
+	}
+	req.Header.Set("Accept", "*/*")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", errFromResponse(resp)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
+	if err != nil {
+		return nil, "", fmt.Errorf("read content: %w", err)
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, "", fmt.Errorf("attachment is over the %d byte limit", maxBytes)
+	}
+	return data, resp.Header.Get("Content-Type"), nil
 }
 
 // DeleteTestCaseAttachment deletes a test case attachment by ID.
@@ -649,9 +778,14 @@ func (c *Client) MoveTestCaseStep(ctx context.Context, stepID int64, pos StepPos
 	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testcase/step/%d/move", stepID), pos, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
-// CopyTestCaseStep copies a scenario step to a new position.
-func (c *Client) CopyTestCaseStep(ctx context.Context, stepID int64, pos StepPositionDto) error {
-	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testcase/step/%d/copy", stepID), pos, []int{http.StatusOK, http.StatusNoContent}...)
+// CopyTestCaseStep copies a scenario step to a new position and returns the
+// resulting normalized scenario (the same shape as GetTestCaseSteps).
+func (c *Client) CopyTestCaseStep(ctx context.Context, stepID int64, pos StepPositionDto) (map[string]any, error) {
+	var result map[string]any
+	if err := c.doJSON(ctx, http.MethodPost, fmt.Sprintf("/api/testcase/step/%d/copy", stepID), pos, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // ─── Relations ────────────────────────────────────────────────────────────────
@@ -757,12 +891,21 @@ func (c *Client) GetTestCaseScenarioFromRun(ctx context.Context, testCaseID int6
 
 // ─── Automation ───────────────────────────────────────────────────────────────
 
-// DetachTestCaseAutomation detaches automation from a test case.
-func (c *Client) DetachTestCaseAutomation(ctx context.Context, testCaseID int64, statusID, workflowID int64) error {
-	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testcase/%d/detachautomation", testCaseID), map[string]any{
-		"statusId":   statusID,
-		"workflowId": workflowID,
-	}, []int{http.StatusOK, http.StatusNoContent}...)
+// DetachTestCaseAutomation detaches automation from a test case. Zero
+// statusID/workflowID are omitted: sending 0 makes the API look up status 0
+// and fail, while omitting them keeps the current values (confirmed live).
+func (c *Client) DetachTestCaseAutomation(ctx context.Context, testCaseID int64, statusID, workflowID int64, useScenarioFromTestResult bool) error {
+	body := map[string]any{}
+	if statusID != 0 {
+		body["statusId"] = statusID
+	}
+	if workflowID != 0 {
+		body["workflowId"] = workflowID
+	}
+	if useScenarioFromTestResult {
+		body["useScenarioFromTestResult"] = true
+	}
+	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testcase/%d/detachautomation", testCaseID), body, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
 // ─── Version extras ───────────────────────────────────────────────────────────
@@ -876,12 +1019,18 @@ func (c *Client) BulkDeleteTestCases(ctx context.Context, projectID int64, testC
 }
 
 // BulkRunTestCasesNewLaunch runs multiple test cases in a new launch.
-func (c *Client) BulkRunTestCasesNewLaunch(ctx context.Context, projectID int64, testCaseIDs []int64, launchName string, assignees []string) error {
-	return c.bulkPost(ctx, "/api/v2/test-case/bulk/run/new", BulkRunNewLaunchDto{
+// BulkRunTestCasesNewLaunch creates a launch with the test cases and returns
+// the new launch's id.
+func (c *Client) BulkRunTestCasesNewLaunch(ctx context.Context, projectID int64, testCaseIDs []int64, launchName string, assignees []string) (int64, error) {
+	var launch struct {
+		ID int64 `json:"id"`
+	}
+	err := c.doJSON(ctx, http.MethodPost, "/api/v2/test-case/bulk/run/new", BulkRunNewLaunchDto{
 		Selection:  TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: testCaseIDs},
 		LaunchName: launchName,
 		Assignees:  assignees,
-	})
+	}, &launch, []int{http.StatusOK, http.StatusCreated}...)
+	return launch.ID, err
 }
 
 // BulkRunTestCasesExistingLaunch runs multiple test cases in an existing launch.
@@ -894,20 +1043,72 @@ func (c *Client) BulkRunTestCasesExistingLaunch(ctx context.Context, projectID i
 }
 
 // BulkCreateTestPlan creates a test plan from multiple test cases.
-func (c *Client) BulkCreateTestPlan(ctx context.Context, projectID int64, testCaseIDs []int64, testPlanName string) error {
-	return c.bulkPost(ctx, "/api/v2/test-case/bulk/test-plan/create", BulkCreateTestPlanDto{
+// BulkCreateTestPlan creates a test plan from the test cases and returns it.
+func (c *Client) BulkCreateTestPlan(ctx context.Context, projectID int64, testCaseIDs []int64, testPlanName string) (*TestPlanDto, error) {
+	var plan TestPlanDto
+	if err := c.doJSON(ctx, http.MethodPost, "/api/v2/test-case/bulk/test-plan/create", BulkCreateTestPlanDto{
 		Selection:    TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: testCaseIDs},
 		TestPlanName: testPlanName,
-	})
+	}, &plan, []int{http.StatusOK, http.StatusCreated}...); err != nil {
+		return nil, err
+	}
+	return &plan, nil
+}
+
+// ListTestPlans lists a project's test plans, optionally filtered by name.
+func (c *Client) ListTestPlans(ctx context.Context, projectID int64, name string, page, size int) (*TestPlanListResponse, error) {
+	q := url.Values{}
+	q.Set("projectId", fmt.Sprint(projectID))
+	q.Set("page", fmt.Sprint(page))
+	q.Set("size", fmt.Sprint(size))
+	q.Set("sort", "id,DESC")
+	if name != "" {
+		q.Set("name", name)
+	}
+	var result TestPlanListResponse
+	if err := c.doJSON(ctx, http.MethodGet, "/api/testplan?"+q.Encode(), nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetTestPlan returns one test plan.
+func (c *Client) GetTestPlan(ctx context.Context, testPlanID int64) (*TestPlanDto, error) {
+	var plan TestPlanDto
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/testplan/%d", testPlanID), nil, &plan, []int{http.StatusOK}...); err != nil {
+		return nil, err
+	}
+	return &plan, nil
+}
+
+// RenameTestPlan changes a test plan's name.
+func (c *Client) RenameTestPlan(ctx context.Context, testPlanID int64, name string) error {
+	return c.doRequest(ctx, http.MethodPatch, fmt.Sprintf("/api/testplan/%d", testPlanID), map[string]any{"name": name}, []int{http.StatusOK, http.StatusNoContent}...)
+}
+
+// DeleteTestPlan deletes a test plan (its test cases are not touched).
+func (c *Client) DeleteTestPlan(ctx context.Context, testPlanID int64) error {
+	return c.doRequest(ctx, http.MethodDelete, fmt.Sprintf("/api/testplan/%d", testPlanID), nil, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
+}
+
+// RunTestPlan starts a new launch from a test plan and returns its id.
+func (c *Client) RunTestPlan(ctx context.Context, testPlanID int64, launchName string) (int64, error) {
+	var launch struct {
+		ID int64 `json:"id"`
+	}
+	err := c.doJSON(ctx, http.MethodPost, fmt.Sprintf("/api/testplan/%d/run", testPlanID), map[string]any{"launchName": launchName}, &launch, []int{http.StatusOK, http.StatusCreated, http.StatusAccepted}...)
+	return launch.ID, err
+}
+
+// DeleteLaunch permanently deletes a launch and its results.
+func (c *Client) DeleteLaunch(ctx context.Context, launchID int64) error {
+	return c.doRequest(ctx, http.MethodDelete, fmt.Sprintf("/api/launch/%d", launchID), nil, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
 }
 
 // BulkMuteTestCases mutes multiple test cases. The API requires a non-empty
 // mute reason object (see MuteDto); reason defaults to "Muted via MCP" when empty.
 func (c *Client) BulkMuteTestCases(ctx context.Context, projectID int64, testCaseIDs []int64, reason string) error {
-	name := reason
-	if name == "" {
-		name = "Muted via MCP"
-	}
+	name := muteName(reason)
 	return c.bulkPost(ctx, "/api/v2/test-case/bulk/mute/add", BulkMuteDto{
 		Selection: TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: testCaseIDs},
 		Mute:      MuteDto{Name: name, Reason: reason},
@@ -921,9 +1122,17 @@ func (c *Client) DeleteTestCase(ctx context.Context, testCaseID int64) error {
 }
 
 func (c *Client) CreateTestCaseStep(ctx context.Context, req ScenarioStepCreateRequest, afterID int64) (int64, error) {
+	return c.CreateTestCaseStepAt(ctx, req, afterID, 0)
+}
+
+// CreateTestCaseStepAt creates a scenario step after afterID or before
+// beforeID (at most one should be set; both zero appends to the parent).
+func (c *Client) CreateTestCaseStepAt(ctx context.Context, req ScenarioStepCreateRequest, afterID, beforeID int64) (int64, error) {
 	url := "/api/testcase/step"
 	if afterID > 0 {
 		url += fmt.Sprintf("?afterId=%d", afterID)
+	} else if beforeID > 0 {
+		url += fmt.Sprintf("?beforeId=%d", beforeID)
 	}
 
 	resp, err := c.doRaw(ctx, http.MethodPost, url, req, []int{http.StatusOK}...)
@@ -1052,10 +1261,7 @@ func (c *Client) BulkHideTestResults(ctx context.Context, launchID int64, testRe
 // optional) — omitting it 500s, so name always defaults to the reason text,
 // or "Muted via MCP" if no reason is given.
 func (c *Client) BulkMuteTestResults(ctx context.Context, launchID int64, testResultIDs []int64, reason string) error {
-	name := reason
-	if name == "" {
-		name = "Muted via MCP"
-	}
+	name := muteName(reason)
 	selection := TestResultTreeSelectionDto{
 		LaunchID:     launchID,
 		LeafsInclude: testResultIDs,
@@ -1316,6 +1522,69 @@ func (c *Client) MergeLaunches(ctx context.Context, from, to int64) (int64, erro
 	return result.ID, nil
 }
 
+// ListDefects lists a project's defects. status is "open", "closed" or "".
+func (c *Client) ListDefects(ctx context.Context, projectID int64, nameFilter, status string, page, size int) (*DefectListResponse, error) {
+	q := url.Values{}
+	q.Set("projectId", fmt.Sprint(projectID))
+	q.Set("page", fmt.Sprint(page))
+	q.Set("size", fmt.Sprint(size))
+	q.Set("sort", "id,DESC")
+	if nameFilter != "" {
+		q.Set("nameFilter", nameFilter)
+	}
+	if status != "" {
+		q.Set("status", status)
+	}
+	var result DefectListResponse
+	if err := c.doJSON(ctx, http.MethodGet, "/api/defect?"+q.Encode(), nil, &result, []int{http.StatusOK}...); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetDefect returns one defect.
+func (c *Client) GetDefect(ctx context.Context, defectID int64) (*DefectDto, error) {
+	var d DefectDto
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/defect/%d", defectID), nil, &d, []int{http.StatusOK}...); err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
+// CreateDefect creates a defect in a project.
+func (c *Client) CreateDefect(ctx context.Context, projectID int64, name, description string) (*DefectDto, error) {
+	body := map[string]any{"projectId": projectID, "name": name}
+	if description != "" {
+		body["description"] = description
+	}
+	var d DefectDto
+	if err := c.doJSON(ctx, http.MethodPost, "/api/defect", body, &d, []int{http.StatusOK, http.StatusCreated}...); err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
+// UpdateDefect patches a defect's name, description or closed flag (nil
+// fields are left unchanged).
+func (c *Client) UpdateDefect(ctx context.Context, defectID int64, name, description *string, closed *bool) error {
+	body := map[string]any{}
+	if name != nil {
+		body["name"] = *name
+	}
+	if description != nil {
+		body["description"] = *description
+	}
+	if closed != nil {
+		body["closed"] = *closed
+	}
+	return c.doRequest(ctx, http.MethodPatch, fmt.Sprintf("/api/defect/%d", defectID), body, []int{http.StatusOK, http.StatusNoContent}...)
+}
+
+// DeleteDefect deletes a defect (test cases and results only lose the link).
+func (c *Client) DeleteDefect(ctx context.Context, defectID int64) error {
+	return c.doRequest(ctx, http.MethodDelete, fmt.Sprintf("/api/defect/%d", defectID), nil, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
+}
+
 func (c *Client) AddTestCaseDefect(ctx context.Context, testCaseID, defectID int64) error {
 	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testcase/%d/defect/%d", testCaseID, defectID), nil, []int{http.StatusOK, http.StatusCreated, http.StatusNoContent}...)
 }
@@ -1406,11 +1675,20 @@ func (c *Client) RestoreTestCase(ctx context.Context, testCaseID int64) error {
 	return c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/testcase/%d/restore", testCaseID), nil, []int{http.StatusOK, http.StatusNoContent}...)
 }
 
-func (c *Client) BulkCloneTestCases(ctx context.Context, projectID int64, testCaseIDs []int64) error {
-	selection := TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: testCaseIDs}
-	return c.doRequest(ctx, http.MethodPost, "/api/v2/test-case/bulk/clone", map[string]any{
-		"selection": selection,
-	}, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
+// BulkCloneTestCases clones test cases (asynchronously on the server: the
+// endpoint answers 202 with no body, so the clones' ids are not returned).
+// nameSuffix is appended to each clone's name; ignoreTags skips copying tags.
+func (c *Client) BulkCloneTestCases(ctx context.Context, projectID int64, testCaseIDs []int64, nameSuffix string, ignoreTags bool) error {
+	body := map[string]any{
+		"selection": TestCaseSelectionDtoV2{ProjectID: projectID, TestCasesInclude: testCaseIDs},
+	}
+	if nameSuffix != "" {
+		body["nameSuffix"] = nameSuffix
+	}
+	if ignoreTags {
+		body["ignoreTags"] = true
+	}
+	return c.doRequest(ctx, http.MethodPost, "/api/v2/test-case/bulk/clone", body, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
 }
 
 // Public methods for OpenAPI execution
@@ -1456,7 +1734,10 @@ func (c *Client) ListTestCaseTrees(ctx context.Context, projectID int64) ([]Test
 // Count then counts only matches), which is how leaves are located without
 // walking the whole tree.
 func (c *Client) GetTestCaseTreeNode(ctx context.Context, projectID, treeID, parentNodeID int64, baseAql string, page, size int) (*TestCaseTreeNodeResponse, error) {
-	q := fmt.Sprintf("/api/v2/project/%d/test-case/tree/tree-node?treeId=%d&page=%d&size=%d", projectID, treeID, page, size)
+	// The default sort is name only, which is unstable across pages when names
+	// repeat (items were duplicated or skipped, confirmed live); "id" is not an
+	// accepted sort field, so break ties by createdDate and testCaseId.
+	q := fmt.Sprintf("/api/v2/project/%d/test-case/tree/tree-node?treeId=%d&page=%d&size=%d&sort=name,ASC&sort=createdDate,ASC&sort=testCaseId,ASC", projectID, treeID, page, size)
 	if parentNodeID != 0 {
 		q += fmt.Sprintf("&parentNodeId=%d", parentNodeID)
 	}
@@ -1483,6 +1764,19 @@ func (c *Client) CreateTestCaseTreeGroup(ctx context.Context, projectID, treeID,
 		return nil, err
 	}
 	return &result, nil
+}
+
+// RenameTestCaseTreeGroup renames a folder in place: the node keeps its id
+// and its test cases follow (confirmed live). Other folders sharing the same
+// custom field value are not affected.
+func (c *Client) RenameTestCaseTreeGroup(ctx context.Context, projectID, groupID int64, name string) error {
+	return c.doRequest(ctx, http.MethodPut, fmt.Sprintf("/api/v2/project/%d/test-case/tree/group/%d/name", projectID, groupID), map[string]any{"name": name}, []int{http.StatusOK, http.StatusNoContent}...)
+}
+
+// DeleteTestCaseTreeGroup deletes a folder; its test cases lose that folder
+// assignment but are not deleted.
+func (c *Client) DeleteTestCaseTreeGroup(ctx context.Context, projectID, groupID int64) error {
+	return c.doRequest(ctx, http.MethodDelete, fmt.Sprintf("/api/v2/project/%d/test-case/tree/group/%d", projectID, groupID), nil, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}...)
 }
 
 // MoveTreeLeaves moves tree leaves (by leaf id, not test case id — see

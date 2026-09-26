@@ -101,6 +101,12 @@ type Registry struct {
 	// prompts holds registered MCP prompt templates.
 	prompts   map[string]*RegistryPrompt
 	promptsMu sync.RWMutex
+
+	// localFiles lets tools read the server's own disk (upload_test_case_attachment
+	// file_path). Set from the transport at startup, never from a request: an HTTP
+	// client controls its Mcp-Session-Id header and could otherwise claim the
+	// "stdio" session and exfiltrate server files.
+	localFiles bool
 }
 
 func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
@@ -161,6 +167,9 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 	r.registerAnalysisTools()
 	r.registerTreeTools()
 	r.registerCustomFieldTools()
+	r.registerAttachmentTools()
+	r.registerTestPlanTools()
+	r.registerDefectTools()
 
 	// Configuration tool for per-session token override.
 	// Always registered so that:
@@ -282,9 +291,77 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 }
 
 func (r *Registry) register(tool *Tool) {
+	if schema, ok := tool.InputSchema.(map[string]any); ok && tool.Handler != nil {
+		h := tool.Handler
+		tool.Handler = func(ctx context.Context, input json.RawMessage) (any, error) {
+			if err := validateRequired(schema, input); err != nil {
+				return nil, err
+			}
+			return h(ctx, input)
+		}
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.tools[tool.Name] = tool
+}
+
+// validateRequired enforces the schema's "required" lists (top level and the
+// items of object arrays) before a handler runs. Handlers decode into Go
+// structs where a missing field is just a zero value, so without this an
+// omitted list silently meant "empty" — e.g. set_test_case_relations without
+// relations wiped every relation (confirmed live).
+func validateRequired(schema map[string]any, input json.RawMessage) error {
+	var args map[string]json.RawMessage
+	if err := json.Unmarshal(input, &args); err != nil {
+		return fmt.Errorf("invalid arguments: expected a JSON object: %w", err)
+	}
+	return checkRequired(schema, args, "")
+}
+
+func checkRequired(schema map[string]any, obj map[string]json.RawMessage, prefix string) error {
+	for _, name := range schemaRequired(schema) {
+		v, ok := obj[name]
+		if !ok || string(v) == "null" {
+			return fmt.Errorf("missing required argument %q", prefix+name)
+		}
+	}
+	props, _ := schema["properties"].(map[string]any)
+	for name, raw := range obj {
+		prop, _ := props[name].(map[string]any)
+		if prop == nil || prop["type"] != "array" {
+			continue
+		}
+		items, _ := prop["items"].(map[string]any)
+		if items == nil || len(schemaRequired(items)) == 0 {
+			continue
+		}
+		var elems []map[string]json.RawMessage
+		if json.Unmarshal(raw, &elems) != nil {
+			continue // not an array of objects; the handler reports the type error
+		}
+		for i, el := range elems {
+			if err := checkRequired(items, el, fmt.Sprintf("%s%s[%d].", prefix, name, i)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func schemaRequired(schema map[string]any) []string {
+	switch req := schema["required"].(type) {
+	case []string:
+		return req
+	case []any:
+		out := make([]string, 0, len(req))
+		for _, v := range req {
+			if s, ok := v.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
 }
 
 func (r *Registry) GetTool(name string) *Tool {
@@ -400,7 +477,7 @@ func (r *Registry) GetResource(uri string) *Resource {
 //
 // Naming conventions:
 //   - get_* / list_* / find_* / search_* / suggest_* / validate_* → readOnly
-//   - delete_* / bulk_delete_* / detach_* → destructive write
+//   - delete_* / bulk_delete_* / detach_* / merge_* → destructive write
 //   - everything else → non-destructive write
 func autoAnnotate(name string) map[string]any {
 	// Permanently destructive — deletes data that may be hard to recover.
@@ -408,6 +485,7 @@ func autoAnnotate(name string) map[string]any {
 		"delete_",
 		"bulk_delete_",
 		"detach_",
+		"merge_", // merge_launches deletes every source launch
 	}
 	for _, p := range destructivePrefixes {
 		if strings.HasPrefix(name, p) {
@@ -626,4 +704,10 @@ func (r *Registry) executeTestOpsOperation(ctx context.Context, req ExecuteReque
 	}
 
 	return result, nil
+}
+
+// AllowLocalFiles enables tools that read files from the server's disk. Call it
+// only for the stdio transport, where the server runs on the user's own machine.
+func (r *Registry) AllowLocalFiles() {
+	r.localFiles = true
 }

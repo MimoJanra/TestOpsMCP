@@ -21,8 +21,9 @@ func truncateRunes(s string, n int) string {
 func (r *Registry) registerAnalysisTools() {
 	r.register(&Tool{
 		Name: "analyze_launch_failures",
-		Description: "Analyze failed tests in a launch using AI. " +
-			"Fetches failed test results and asks Claude to identify root causes and suggest fixes.",
+		Description: "Analyze failed and broken tests in a launch using AI. " +
+			"Fetches the failing test results and asks the client's model (MCP sampling) to identify root causes and suggest fixes. " +
+			"If the client doesn't support sampling, returns the collected failures without an analysis.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -69,25 +70,37 @@ func (r *Registry) analyzeLaunchFailures(ctx context.Context, args analyzeLaunch
 
 	r.logger.Info("analyzing launch failures", map[string]any{"launch_id": args.LaunchID})
 
+	// A missing launch used to come back as "No failed tests found".
+	if _, err := r.requireLaunch(ctx, args.LaunchID); err != nil {
+		return nil, err
+	}
 	// The API has no server-side status filter (see Client.ListTestResults),
-	// so this scans the launch's results and filters to "failed" client-side.
+	// so this scans the launch's results client-side. Broken (errored) tests
+	// are failures too and were previously skipped.
 	results, _, _, err := r.filterTestResultsByStatus(ctx, args.LaunchID, "failed", 0, args.MaxFailures)
 	if err != nil {
 		return nil, fmt.Errorf("list failed results: %w", err)
+	}
+	if len(results) < args.MaxFailures {
+		broken, _, _, err := r.filterTestResultsByStatus(ctx, args.LaunchID, "broken", 0, args.MaxFailures-len(results))
+		if err != nil {
+			return nil, fmt.Errorf("list broken results: %w", err)
+		}
+		results = append(results, broken...)
 	}
 
 	if len(results) == 0 {
 		return map[string]any{
 			"launch_id": args.LaunchID,
 			"failures":  0,
-			"analysis":  "No failed tests found in this launch.",
+			"analysis":  "No failed or broken tests found in this launch.",
 		}, nil
 	}
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "Launch #%d — %d failed tests:\n\n", args.LaunchID, len(results))
+	fmt.Fprintf(&sb, "Launch #%d — %d failed/broken tests:\n\n", args.LaunchID, len(results))
 	for i, res := range results {
-		fmt.Fprintf(&sb, "%d. %s\n", i+1, res.Name)
+		fmt.Fprintf(&sb, "%d. [%s] %s\n", i+1, res.Status, res.Name)
 		if res.Message != "" {
 			fmt.Fprintf(&sb, "   Error: %s\n", truncateRunes(res.Message, 300))
 		}

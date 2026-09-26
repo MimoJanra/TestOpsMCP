@@ -202,7 +202,7 @@ type SamplingRequest struct {
 }
 
 type SamplingMessage struct {
-	Role    string             `json:"role"`
+	Role    string                 `json:"role"`
 	Content SamplingMessageContent `json:"content"`
 }
 
@@ -212,9 +212,9 @@ type SamplingMessageContent struct {
 }
 
 type SamplingResult struct {
-	Role       string             `json:"role"`
+	Role       string                 `json:"role"`
 	Content    SamplingMessageContent `json:"content"`
-	StopReason string             `json:"stopReason"`
+	StopReason string                 `json:"stopReason"`
 }
 
 // Resource subscription types.
@@ -233,7 +233,7 @@ type ElicitRequest struct {
 }
 
 type ElicitResult struct {
-	Action  string          `json:"action"`  // "accept" | "reject" | "cancel"
+	Action  string          `json:"action"` // "accept" | "reject" | "cancel"
 	Content json.RawMessage `json:"content,omitempty"`
 }
 

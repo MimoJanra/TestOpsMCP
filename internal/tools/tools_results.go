@@ -335,9 +335,15 @@ func (r *Registry) getTestResult(ctx context.Context, args getTestResultArgs) (a
 		"trace":        result.Trace,
 		"parameters":   paramsList,
 		"assignee":     result.Assignee,
+		"tested_by":    result.TestedBy,
 		"muted":        result.Muted,
 		"flaky":        result.Flaky,
 		"known":        result.Known,
+		"hidden":       result.Hidden,
+		"manual":       result.Manual,
+		"category":     result.Category,
+		"layer":        result.Layer,
+		"links":        result.Links,
 		"tags":         tagsList,
 	}, nil
 }
@@ -360,12 +366,16 @@ func (r *Registry) assignTestResult(ctx context.Context, args assignTestResultAr
 		"username":       args.Username,
 	})
 
-	if err := r.allure.AssignTestResult(ctx, args.TestResultID, args.Username); err != nil {
+	stored, err := r.allure.AssignTestResult(ctx, args.TestResultID, args.Username)
+	if err != nil {
 		r.logger.Error("assign test result", err, map[string]any{"test_result_id": args.TestResultID})
 		return nil, fmt.Errorf("assign test result: %w", err)
 	}
+	if stored != args.Username {
+		return nil, fmt.Errorf("the API accepted the call but kept assignee %q — Allure ignores assigning an already-resolved result (unassigning still works)", stored)
+	}
 
-	return map[string]any{"status": "assigned"}, nil
+	return map[string]any{"status": "assigned", "assignee": stored}, nil
 }
 
 type muteTestResultArgs struct {

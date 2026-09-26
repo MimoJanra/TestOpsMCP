@@ -3,6 +3,8 @@ package tools
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/MimoJanra/TestOpsMCP/internal/adapters/allure"
 )
@@ -35,7 +37,7 @@ func (r *Registry) registerTestCaseExtraTools() {
 				"test_case_id": map[string]any{"type": "integer", "description": "Allure test case ID"},
 				"tags": map[string]any{
 					"type":        "array",
-					"description": "Complete list of tags to set. Each tag needs an existing id — the API rejects a name-only entry for a tag that doesn't exist yet with 409 (field 'id' must not be null or empty). Use create_test_tag first to create a new tag and get its id.",
+					"description": "Complete list of tags to set (pass [] to remove all). Each tag by id or by name — a name that doesn't exist yet creates the tag (tags are global, not per project).",
 					"items": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
@@ -94,11 +96,12 @@ func (r *Registry) registerTestCaseExtraTools() {
 						"type": "object",
 						"properties": map[string]any{
 							"id":             map[string]any{"type": "integer", "description": "Issue ID (if known)"},
-							"display_name":   map[string]any{"type": "string", "description": "Issue display name / key (e.g. PROJ-123)"},
+							"display_name":   map[string]any{"type": "string", "description": "Issue key, e.g. PROJ-123 (required)"},
 							"url":            map[string]any{"type": "string", "description": "Direct URL to the issue"},
-							"integration_id": map[string]any{"type": "integer", "description": "Bug tracker integration ID"},
+							"integration_id": map[string]any{"type": "integer", "description": "Bug tracker integration ID (required)"},
 							"closed":         map[string]any{"type": "boolean"},
 						},
+						"required": []string{"integration_id", "display_name"},
 					},
 				},
 			},
@@ -229,12 +232,12 @@ func (r *Registry) registerTestCaseExtraTools() {
 	r.register(&Tool{
 		Name: "search_test_cases",
 		Description: "Search test cases in a project using an AQL query (per docs.qameta.io/allure-testops/advanced/aql/). " +
-			"String literals MUST be double-quoted — single quotes (e.g. status = 'active') return invalid AQL / a 400. " +
+			"String literals MUST be double-quoted — single quotes return invalid AQL / a 400. " +
+			"Values are case-sensitive and must match exactly as shown in the UI (status = \"Draft\" matches, status = \"draft\" silently returns nothing). " +
 			"Partial match uses ~= (not ~ alone). Custom fields use bracket notation with the field name double-quoted: " +
-			"cf[\"Priority\"] = \"Medium\". Example queries: name ~= \"login\", status = \"active\", tag = \"smoke\", " +
-			"cf[\"Priority\"] = \"Medium\". If a query still 400s, call validate_test_case_query first to check the " +
-			"syntax before assuming the field/operator is wrong — suggest_test_cases is also available as a fallback " +
-			"for natural-language-style lookups.",
+			"cf[\"Priority\"] = \"Medium\". Example queries: name ~= \"login\", status = \"Active\", tag = \"smoke\", " +
+			"cf[\"Priority\"] = \"Medium\", name ~= \"login\" and tag = \"smoke\". If a query 400s, call validate_test_case_query " +
+			"to check the syntax (it also returns the match count). suggest_test_cases matches a name substring, not natural language.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -312,15 +315,17 @@ func (r *Registry) registerTestCaseExtraTools() {
 	})
 
 	r.register(&Tool{
-		Name:        "move_test_case_step",
-		Description: "Reorder, nest, or relocate a step within a scenario: place it before/after a sibling or under a parent. Get step IDs with get_test_case_steps.",
+		Name: "move_test_case_step",
+		Description: "Reorder, nest, or relocate a step within a scenario: place it before/after a sibling or under a parent. At least one of after_id, before_id or parent_id is required. " +
+			"Pass test_case_id with after_id/before_id so the anchor's parent is resolved automatically (the API rejects a nested anchor without it). To move a sub-step to the top level, anchor it to a top-level step. Get step IDs with get_test_case_steps.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"step_id":   map[string]any{"type": "integer", "description": "Step ID to move"},
-				"after_id":  map[string]any{"type": "integer", "description": "Place after this step ID (optional)"},
-				"before_id": map[string]any{"type": "integer", "description": "Place before this step ID (optional)"},
-				"parent_id": map[string]any{"type": "integer", "description": "New parent step ID for nesting (optional)"},
+				"step_id":      map[string]any{"type": "integer", "description": "Step ID to move"},
+				"test_case_id": map[string]any{"type": "integer", "description": "Test case ID (recommended: lets the tool resolve the anchor's parent)"},
+				"after_id":     map[string]any{"type": "integer", "description": "Place after this step ID (optional)"},
+				"before_id":    map[string]any{"type": "integer", "description": "Place before this step ID (optional)"},
+				"parent_id":    map[string]any{"type": "integer", "description": "New parent step ID; alone it appends the step to that parent (optional)"},
 			},
 			"required": []string{"step_id"},
 		},
@@ -329,14 +334,15 @@ func (r *Registry) registerTestCaseExtraTools() {
 
 	r.register(&Tool{
 		Name:        "copy_test_case_step",
-		Description: "Duplicate a step at a new position in the scenario. Get step IDs with get_test_case_steps.",
+		Description: "Duplicate a step (with its sub-steps, expected result and attachments) at a new position in the same test case. Returns the copy's step_id when test_case_id is given. Get step IDs with get_test_case_steps.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"step_id":   map[string]any{"type": "integer", "description": "Step ID to copy"},
-				"after_id":  map[string]any{"type": "integer", "description": "Place copy after this step ID (optional)"},
-				"before_id": map[string]any{"type": "integer", "description": "Place copy before this step ID (optional)"},
-				"parent_id": map[string]any{"type": "integer", "description": "Parent step ID for nesting (optional)"},
+				"step_id":      map[string]any{"type": "integer", "description": "Step ID to copy"},
+				"test_case_id": map[string]any{"type": "integer", "description": "Test case ID (recommended: resolves the anchor's parent and returns the new step_id)"},
+				"after_id":     map[string]any{"type": "integer", "description": "Place copy after this step ID (optional)"},
+				"before_id":    map[string]any{"type": "integer", "description": "Place copy before this step ID (optional)"},
+				"parent_id":    map[string]any{"type": "integer", "description": "Parent step ID for nesting (optional)"},
 			},
 			"required": []string{"step_id"},
 		},
@@ -486,7 +492,7 @@ func (r *Registry) registerTestCaseExtraTools() {
 
 	r.register(&Tool{
 		Name:        "set_test_case_keys",
-		Description: "Set integration test keys for a test case (full replace)",
+		Description: "Set the test case's keys in external systems, e.g. its Jira/TMS key (full replace; [] removes all). Each key needs integration_id and name.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -529,13 +535,14 @@ func (r *Registry) registerTestCaseExtraTools() {
 
 	r.register(&Tool{
 		Name:        "detach_test_case_automation",
-		Description: "Unlink a test case from its automation class, converting it back to a manual test. Optionally set a new status after detaching.",
+		Description: "Unlink a test case from its automation class, converting it back to a manual test. Optionally set a new status/workflow (omit them to keep the current ones) and turn the steps of its latest automated run into the manual scenario.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"test_case_id": map[string]any{"type": "integer", "description": "Allure test case ID"},
-				"status_id":    map[string]any{"type": "integer", "description": "Status ID to set after detach (optional)"},
-				"workflow_id":  map[string]any{"type": "integer", "description": "Workflow ID to apply (optional)"},
+				"test_case_id":                  map[string]any{"type": "integer", "description": "Allure test case ID"},
+				"status_id":                     map[string]any{"type": "integer", "description": "Status ID to set after detach (optional; built-in ids are negative, e.g. -1 Draft)"},
+				"workflow_id":                   map[string]any{"type": "integer", "description": "Workflow ID to apply (optional)"},
+				"use_scenario_from_test_result": map[string]any{"type": "boolean", "description": "Copy the steps of the latest automated run into the manual scenario (optional)"},
 			},
 			"required": []string{"test_case_id"},
 		},
@@ -638,13 +645,24 @@ func (r *Registry) getTestCaseIssues(ctx context.Context, args getTestCaseIssues
 	for i, iss := range issues {
 		items[i] = map[string]any{
 			"id":             iss.ID,
-			"display_name":   iss.DisplayName,
+			"display_name":   issueKey(iss),
+			"summary":        iss.Summary,
+			"status":         iss.Status,
 			"url":            iss.URL,
 			"integration_id": iss.IntegrationID,
 			"closed":         iss.Closed,
 		}
 	}
 	return map[string]any{"issues": items}, nil
+}
+
+// issueKey returns an issue's key. The API keeps it in name; displayName is
+// usually empty (confirmed live), so fall back between the two.
+func issueKey(iss allure.IssueDto) string {
+	if iss.Name != "" {
+		return iss.Name
+	}
+	return iss.DisplayName
 }
 
 type setTestCaseIssuesArgs struct {
@@ -664,9 +682,12 @@ func (r *Registry) setTestCaseIssues(ctx context.Context, args setTestCaseIssues
 	}
 	issues := make([]allure.IssueDto, len(args.Issues))
 	for i, iss := range args.Issues {
+		if iss.IntegrationID <= 0 || strings.TrimSpace(iss.DisplayName) == "" {
+			return nil, fmt.Errorf("issue %d: integration_id and display_name (the issue key, e.g. PROJ-123) are both required", i)
+		}
 		issues[i] = allure.IssueDto{
 			ID:            iss.ID,
-			DisplayName:   iss.DisplayName,
+			Name:          strings.TrimSpace(iss.DisplayName),
 			URL:           iss.URL,
 			IntegrationID: iss.IntegrationID,
 			Closed:        iss.Closed,
@@ -702,7 +723,7 @@ func (r *Registry) getTestCaseExamples(ctx context.Context, args getTestCaseExam
 }
 
 type setTestCaseExamplesArgs struct {
-	TestCaseID int64                          `json:"test_case_id"`
+	TestCaseID int64                           `json:"test_case_id"`
 	Examples   [][]allure.TestCaseExampleParam `json:"examples"`
 }
 
@@ -806,7 +827,7 @@ func (r *Registry) getTestCaseAttachments(ctx context.Context, args getTestCaseA
 			"name":         a.Name,
 			"content_type": a.ContentType,
 			"size":         a.Size,
-			"created_date": a.CreatedDate,
+			"missed":       a.Missed,
 		}
 	}
 	return map[string]any{
@@ -861,9 +882,9 @@ func (r *Registry) searchTestCases(ctx context.Context, args searchTestCasesArgs
 		items[i] = map[string]any{
 			"id":                tc.ID,
 			"name":              tc.Name,
-			"project_id":        tc.ProjectID,
+			"project_id":        args.ProjectID,
 			"status":            tc.Status,
-			"automation_status": tc.AutomationStatus,
+			"automation_status": automationStatus(tc.Automated),
 		}
 	}
 	return map[string]any{
@@ -902,7 +923,7 @@ func (r *Registry) listDeletedTestCases(ctx context.Context, args listDeletedTes
 			"name":              tc.Name,
 			"project_id":        args.ProjectID,
 			"status":            tc.Status,
-			"automation_status": tc.AutomationStatus,
+			"automation_status": automationStatus(tc.Automated),
 		}
 	}
 	return map[string]any{
@@ -962,17 +983,26 @@ func (r *Registry) deleteTestCaseScenario(ctx context.Context, args deleteTestCa
 }
 
 type moveTestCaseStepArgs struct {
-	StepID   int64 `json:"step_id"`
-	AfterID  int64 `json:"after_id"`
-	BeforeID int64 `json:"before_id"`
-	ParentID int64 `json:"parent_id"`
+	StepID     int64 `json:"step_id"`
+	TestCaseID int64 `json:"test_case_id"`
+	AfterID    int64 `json:"after_id"`
+	BeforeID   int64 `json:"before_id"`
+	ParentID   int64 `json:"parent_id"`
 }
 
 func (r *Registry) moveTestCaseStep(ctx context.Context, args moveTestCaseStepArgs) (any, error) {
 	if args.StepID <= 0 {
 		return nil, fmt.Errorf("step_id must be positive")
 	}
-	pos := allure.StepPositionDto{AfterID: args.AfterID, BeforeID: args.BeforeID, ParentID: args.ParentID}
+	// With no position at all the API silently moves the step to the end of
+	// the top level, un-nesting it (confirmed live) — never what was meant.
+	if args.AfterID == 0 && args.BeforeID == 0 && args.ParentID == 0 {
+		return nil, fmt.Errorf("pass after_id, before_id or parent_id — without a position the API moves the step to the end of the top level")
+	}
+	pos, err := r.resolveStepPosition(ctx, args.TestCaseID, args.AfterID, args.BeforeID, args.ParentID)
+	if err != nil {
+		return nil, err
+	}
 	if err := r.allure.MoveTestCaseStep(ctx, args.StepID, pos); err != nil {
 		return nil, fmt.Errorf("move test case step: %w", err)
 	}
@@ -980,21 +1010,128 @@ func (r *Registry) moveTestCaseStep(ctx context.Context, args moveTestCaseStepAr
 }
 
 type copyTestCaseStepArgs struct {
-	StepID   int64 `json:"step_id"`
-	AfterID  int64 `json:"after_id"`
-	BeforeID int64 `json:"before_id"`
-	ParentID int64 `json:"parent_id"`
+	StepID     int64 `json:"step_id"`
+	TestCaseID int64 `json:"test_case_id"`
+	AfterID    int64 `json:"after_id"`
+	BeforeID   int64 `json:"before_id"`
+	ParentID   int64 `json:"parent_id"`
 }
 
 func (r *Registry) copyTestCaseStep(ctx context.Context, args copyTestCaseStepArgs) (any, error) {
 	if args.StepID <= 0 {
 		return nil, fmt.Errorf("step_id must be positive")
 	}
-	pos := allure.StepPositionDto{AfterID: args.AfterID, BeforeID: args.BeforeID, ParentID: args.ParentID}
-	if err := r.allure.CopyTestCaseStep(ctx, args.StepID, pos); err != nil {
+	pos, err := r.resolveStepPosition(ctx, args.TestCaseID, args.AfterID, args.BeforeID, args.ParentID)
+	if err != nil {
+		return nil, err
+	}
+	var before map[string]bool
+	if args.TestCaseID > 0 {
+		if tree, err := r.allure.GetTestCaseSteps(ctx, args.TestCaseID); err == nil {
+			before = stepIDSet(tree)
+		}
+	}
+	tree, err := r.allure.CopyTestCaseStep(ctx, args.StepID, pos)
+	if err != nil {
 		return nil, fmt.Errorf("copy test case step: %w", err)
 	}
-	return map[string]any{"status": "copied"}, nil
+	result := map[string]any{"status": "copied"}
+	if before != nil {
+		// The API returns the whole scenario, not the copy's id: the copy is
+		// the top-most new node (its sub-steps and expected result are new too).
+		if id := newTopStepID(tree, before); id > 0 {
+			result["step_id"] = id
+		}
+	}
+	return result, nil
+}
+
+// resolveStepPosition fills in parent_id from the anchor step when only
+// after_id/before_id is given: the API 404s on a nested anchor unless the
+// anchor's parent is passed too (confirmed live).
+func (r *Registry) resolveStepPosition(ctx context.Context, testCaseID, afterID, beforeID, parentID int64) (allure.StepPositionDto, error) {
+	pos := allure.StepPositionDto{AfterID: afterID, BeforeID: beforeID, ParentID: parentID}
+	if afterID != 0 && beforeID != 0 {
+		return pos, fmt.Errorf("pass after_id or before_id, not both")
+	}
+	anchor := afterID
+	if anchor == 0 {
+		anchor = beforeID
+	}
+	if anchor == 0 || parentID != 0 || testCaseID <= 0 {
+		return pos, nil
+	}
+	tree, err := r.allure.GetTestCaseSteps(ctx, testCaseID)
+	if err != nil {
+		return pos, fmt.Errorf("look up anchor step: %w", err)
+	}
+	parent, found := stepParent(tree, anchor)
+	if !found {
+		return pos, fmt.Errorf("step %d not found under test case %d", anchor, testCaseID)
+	}
+	pos.ParentID = parent
+	return pos, nil
+}
+
+// stepParent returns the id of the node whose children include stepID (0 for
+// the top level).
+func stepParent(tree map[string]any, stepID int64) (int64, bool) {
+	if root, ok := tree["root"].(map[string]any); ok {
+		for _, id := range nodeInt64Array(root, "children") {
+			if id == stepID {
+				return 0, true
+			}
+		}
+	}
+	steps, _ := tree["scenarioSteps"].(map[string]any)
+	for key, v := range steps {
+		node, _ := v.(map[string]any)
+		for _, id := range nodeInt64Array(node, "children") {
+			if id == stepID {
+				parent, _ := strconv.ParseInt(key, 10, 64)
+				return parent, true
+			}
+		}
+	}
+	return 0, false
+}
+
+func stepIDSet(tree map[string]any) map[string]bool {
+	set := map[string]bool{}
+	steps, _ := tree["scenarioSteps"].(map[string]any)
+	for key := range steps {
+		set[key] = true
+	}
+	return set
+}
+
+// newTopStepID returns the node that is new relative to before and is not a
+// descendant or expected-result container of another new node.
+func newTopStepID(tree map[string]any, before map[string]bool) int64 {
+	steps, _ := tree["scenarioSteps"].(map[string]any)
+	fresh := map[int64]bool{}
+	for key := range steps {
+		if !before[key] {
+			id, _ := strconv.ParseInt(key, 10, 64)
+			fresh[id] = true
+		}
+	}
+	for id := range fresh {
+		if parent, _ := stepParent(tree, id); fresh[parent] {
+			continue
+		}
+		owned := false
+		for other := range fresh {
+			if nodeInt64(stepNodeFromTree(tree, other), "expectedResultId") == id {
+				owned = true
+				break
+			}
+		}
+		if !owned {
+			return id
+		}
+	}
+	return 0
 }
 
 type getTestCaseRelationsArgs struct {
@@ -1195,6 +1332,11 @@ func (r *Registry) setTestCaseKeys(ctx context.Context, args setTestCaseKeysArgs
 	}
 	keys := make([]allure.TestKeyDto, len(args.Keys))
 	for i, k := range args.Keys {
+		// A key without integration_id is dropped by the API while the call
+		// still succeeds (confirmed live), so refuse it up front.
+		if k.IntegrationID <= 0 || k.Name == "" {
+			return nil, fmt.Errorf("key %d: integration_id and name are both required", i)
+		}
 		keys[i] = allure.TestKeyDto{ID: k.ID, IntegrationID: k.IntegrationID, Name: k.Name, URL: k.URL}
 	}
 	if err := r.allure.SetTestCaseKeys(ctx, args.TestCaseID, keys); err != nil {
@@ -1219,16 +1361,17 @@ func (r *Registry) getTestCaseScenarioFromRun(ctx context.Context, args getTestC
 }
 
 type detachTestCaseAutomationArgs struct {
-	TestCaseID int64 `json:"test_case_id"`
-	StatusID   int64 `json:"status_id"`
-	WorkflowID int64 `json:"workflow_id"`
+	TestCaseID                int64 `json:"test_case_id"`
+	StatusID                  int64 `json:"status_id"`
+	WorkflowID                int64 `json:"workflow_id"`
+	UseScenarioFromTestResult bool  `json:"use_scenario_from_test_result"`
 }
 
 func (r *Registry) detachTestCaseAutomation(ctx context.Context, args detachTestCaseAutomationArgs) (any, error) {
 	if args.TestCaseID <= 0 {
 		return nil, fmt.Errorf("test_case_id must be positive")
 	}
-	if err := r.allure.DetachTestCaseAutomation(ctx, args.TestCaseID, args.StatusID, args.WorkflowID); err != nil {
+	if err := r.allure.DetachTestCaseAutomation(ctx, args.TestCaseID, args.StatusID, args.WorkflowID, args.UseScenarioFromTestResult); err != nil {
 		return nil, fmt.Errorf("detach automation: %w", err)
 	}
 	return map[string]any{"status": "detached"}, nil

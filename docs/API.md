@@ -14,7 +14,7 @@ Complete reference for Allure MCP Server tools and endpoints.
 
 ## Tools
 
-The server exposes **132 tools** across multiple categories covering launches, test results, test cases, bulk operations, custom fields, analytics, async tasks, and AI analysis. See [llms-full.txt](../llms-full.txt) for the complete reference.
+The server exposes **148 tools** across multiple categories covering launches, test results, test cases, bulk operations, custom fields, analytics, async tasks, and AI analysis. See [llms-full.txt](../llms-full.txt) for the complete reference.
 
 ---
 
@@ -68,10 +68,13 @@ The `launch-dashboard` resource supports **subscriptions** (`resources/subscribe
 | **Version** | `2025-11-25` (negotiated — accepts older client versions) |
 | **Pagination** | `tools/list`, `resources/list`, `prompts/list` paginate at 50 items. Response includes `nextCursor`. |
 | **Completion** | `completion/complete` — `project_id` and `launch_id` arguments return live suggestions from Allure API |
-| **Elicitation** | Server confirms destructive operations via `elicitation/create`. Applied to `delete_test_case`, `bulk_delete_test_cases`. |
+| **Elicitation** | Server confirms destructive operations via `elicitation/create`. Applied to `delete_test_case`, `bulk_delete_test_cases`, `remove_test_cases_from_launch` (mode=delete), `delete_launch`, `delete_test_plan`, `delete_defect`. |
 | **Sampling** | Server can ask Claude via client with `sampling/createMessage`. Used by `analyze_launch_failures`. |
 | **Subscriptions** | `resources/subscribe` / `resources/unsubscribe`. `notifications/resources/updated` on launch status change. |
 | **Capabilities** | `tools`, `resources.subscribe=true`, `prompts`, `logging`, `elicitation` |
+| **Client capabilities** | Tracked from `initialize`. Sampling/elicitation requests to a client that didn't declare them fail immediately instead of waiting for the timeout. |
+| **Argument validation** | Each tool's schema `required` lists (top level and inside array items) are enforced before the tool runs. |
+| **Message size** | Max 32 MiB per JSON-RPC message on stdio and HTTP. On stdio an oversized line gets a JSON-RPC error and the server keeps running. |
 
 ---
 
@@ -131,7 +134,7 @@ curl -X POST http://localhost:3000/messages?sessionId=abc123 \
 
 ### 2. `get_launch_status`
 
-Get current launch status.
+Get whether a launch is open or closed, plus its per-status result counts. (The launch DTO has no status field; this tool used to always return null.)
 
 #### Parameters
 
@@ -139,7 +142,18 @@ Get current launch status.
 |-----------|------|----------|-------------|
 | `launch_id` | integer | ✓ | Launch ID |
 
-#### Response: `CREATED`, `RUNNING`, `PAUSED`, `COMPLETED`, `SUBMITTED`
+#### Response
+
+```json
+{
+  "launch_id": 123,
+  "status": "OPEN",
+  "closed": false,
+  "statistic": {"total": 10, "passed": 7, "failed": 1, "broken": 1, "skipped": 0, "unknown": 1}
+}
+```
+
+`status` is `OPEN` or `CLOSED`.
 
 ---
 
@@ -153,7 +167,7 @@ Get execution statistics for a launch.
 |-----------|------|----------|-------------|
 | `launch_id` | integer | ✓ | Launch ID |
 
-#### Response Fields: `total`, `passed`, `failed`, `broken`, `skipped`
+#### Response Fields: `total`, `passed`, `failed`, `broken`, `skipped`, `unknown`
 
 ---
 
@@ -169,6 +183,8 @@ List launches in a project with pagination.
 | `page` | integer | | Page number (0-based, default: 0) |
 | `size` | integer | | Items per page (default: 10, max: 100) |
 
+Each launch: `id`, `name`, `status` (`OPEN`/`CLOSED`), `closed`, `project_id`, `created_date`, `tags`.
+
 ---
 
 ### 5. `get_launch_details`
@@ -180,6 +196,8 @@ Get comprehensive launch information.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `launch_id` | integer | ✓ | Launch ID |
+
+Returns `id`, `name`, `status` (`OPEN`/`CLOSED`), `closed`, `autoclose`, `external`, `project_id`, `created_date`, `last_modified_date`, `tags`, `links`, `issues`, and `statistic` (per-status counts).
 
 ---
 
@@ -281,6 +299,20 @@ Returns `removed_count`, `removed_result_ids`, `not_found_test_case_ids`, and `t
 
 ---
 
+### 10a. `delete_launch`
+
+Permanently delete a launch and all its test results. Cannot be undone. Asks the user to confirm via elicitation.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `launch_id` | integer | ✓ | Launch ID |
+
+Returns `{"status": "deleted"}`.
+
+---
+
 ## Test Results Management Tools
 
 ### 11. `list_test_results`
@@ -302,7 +334,7 @@ and paginates over the matches — `page`/`size` apply to the filtered list, not
 
 ### 12. `get_test_result`
 
-Get detailed information about a single test result.
+Get detailed information about a single test result, including `tested_by`, `hidden`, `manual`, `category`, `layer` and `links`.
 
 #### Parameters
 
@@ -323,6 +355,8 @@ Assign a test result to a team member.
 | `test_result_id` | integer | ✓ | Test result ID |
 | `username` | string | ✓ | Username to assign to |
 
+The stored assignee is read back after the call; the tool errors when Allure ignores the assignment (e.g. on already resolved results).
+
 ---
 
 ### 14. `mute_test_result`
@@ -336,6 +370,8 @@ Mute a failing test result (mark as known issue).
 | `test_result_id` | integer | ✓ | Test result ID |
 | `reason` | string | | Reason for muting |
 
+The mute name column holds 255 characters: a longer reason is truncated for the name and kept whole as the reason (it used to 500).
+
 ---
 
 ### 14-17. Bulk Test Result Operations
@@ -345,7 +381,7 @@ Mute a failing test result (mark as known issue).
 - **`bulk_unmute_test_results`** — Unmute multiple results
 - **`bulk_resolve_test_results`** — Resolve multiple results
 
-All take: `launch_id`, `test_result_ids` (array), and optional parameters.
+All take: `launch_id`, `test_result_ids` (array), and optional parameters. `bulk_assign_test_results` distributes several assignees round-robin, unassigns when assignees are omitted, and skips not-run results. `bulk_unmute_test_results` also removes the test cases' mute records from the project's muted list.
 
 ---
 
@@ -363,6 +399,8 @@ List test cases in a project.
 | `page` | integer | | Page (0-based) |
 | `size` | integer | | Items per page |
 
+Each item includes `automation_status` (`automated` / `manual`).
+
 ---
 
 ### 19. `get_test_case`
@@ -379,7 +417,7 @@ Get test case details and steps.
 
 ### 20. `create_test_case`
 
-Create a new test case in a project.
+Create a new test case in a project, optionally with all its content in one call.
 
 #### Parameters
 
@@ -387,13 +425,27 @@ Create a new test case in a project.
 |-----------|------|----------|-------------|
 | `project_id` | integer | ✓ | Project ID |
 | `name` | string | ✓ | Test case name |
-| `description` | string | | Description (optional) |
+| `description` | string | | Description (markdown) |
+| `precondition` | string | | Precondition |
+| `expected_result` | string | | Overall expected result |
+| `full_name` | string | | Full name, e.g. the automated test's qualified name |
+| `automated` | boolean | | Mark as automated (default manual) |
+| `status_id` | integer | | Status ID — must be passed together with `workflow_id` |
+| `workflow_id` | integer | | Workflow ID — must be passed together with `status_id` |
+| `test_layer_id` | integer | | Test layer ID |
+| `tags` | array | | `[{id}]` or `[{name}]`; an unknown name creates the tag |
+| `links` | array | | `[{name, type, url}]`, `url` required |
+| `members` | array | | `[{id, name}]`, `id` is a project member id |
+| `custom_fields` | array | | `[{custom_field_id, value_id}]` or `[{custom_field_id, name}]` — `name` finds or creates the value |
+| `steps` | array | | `[{body, expected_result, steps: [...]}]` — `body` required, `steps` are sub-steps of the same shape |
+
+Returns the new test case's id and `steps_created`.
 
 ---
 
 ### 21. `update_test_case`
 
-Update an existing test case.
+Update an existing test case. Only the fields you pass change. `""` clears a text field and `[]` clears tags/members/links; tags, members and links replace the whole list.
 
 #### Parameters
 
@@ -402,6 +454,13 @@ Update an existing test case.
 | `test_case_id` | integer | ✓ | Test case ID |
 | `name` | string | | New name |
 | `description` | string | | New description |
+| `precondition` | string | | Precondition |
+| `expected_result` | string | | Expected result |
+| `full_name` | string | | Full name |
+| `automated` / `external` / `deleted` | boolean | | Flags |
+| `status_id` / `workflow_id` / `test_layer_id` | integer | | Status, workflow, test layer |
+| `tags` / `members` / `links` | array | | Same shapes as `create_test_case` |
+| `manual_scenario` | object | | `{"steps": [{body, expected_result, steps}]}` — REPLACES all steps (and their attachments); `{"steps": []}` removes them. The legacy `{type: "body"\|"expected", body}` entries are still accepted. |
 
 ---
 
@@ -435,6 +494,54 @@ Start a test run for a specific test case.
 - **`bulk_set_test_case_status`** — Update status for multiple cases
 - **`bulk_add_test_case_tags`** — Add tags to multiple cases
 - **`bulk_remove_test_case_tags`** — Remove tags from multiple cases
+- **`bulk_clone_test_cases`** — Clone cases; optional `name_suffix`, `ignore_tags`. The API clones asynchronously and returns no ids — find the clones with `search_test_cases`.
+- **`bulk_run_test_cases_new_launch`** — `launch_name` is required; the task result includes the new `launch_id`.
+- **`bulk_create_test_plan`** — Returns `test_plan_id`, `name`, `test_cases_count`.
+
+---
+
+## Test Case Steps, Folders & Attachments
+
+| Tool | Parameters | Notes |
+|------|------------|-------|
+| `create_test_case_step` | `test_case_id`✓, `body`✓, `expected_result`, `parent_id`, `after_id`, `before_id` | The parent of a nested `after_id`/`before_id` anchor is resolved automatically. |
+| `move_test_case_step` | `step_id`✓, `test_case_id`, `after_id`, `before_id`, `parent_id` | One position is required. Pass `test_case_id` with a nested anchor. |
+| `copy_test_case_step` | `step_id`✓, `test_case_id`, `after_id`, `before_id`, `parent_id` | Returns the copy's `step_id` when `test_case_id` is given. |
+| `detach_test_case_automation` | `test_case_id`✓, `status_id`, `workflow_id`, `use_scenario_from_test_result` | Omitted status/workflow keep the current values. |
+| `add_test_case_members` | `test_case_id`✓, `members`✓ (`[{id, name, role?}]`) | Additive; `role` optional. |
+| `remove_test_case_members` | `test_case_id`✓, `member_ids`✓, `project_id` | `project_id` looked up; a mismatching one is refused. |
+| `rename_test_case_folder` | `project_id`✓, `tree_id`, `node_id`✓, `name`✓ | Folder keeps its node id; test cases follow. |
+| `delete_test_case_folder` | `project_id`✓, `tree_id`, `node_id`✓ | Test cases are unassigned, not deleted. Status `emptied` when the folder's value backs another folder. |
+| `upload_test_case_attachment` | `test_case_id`✓, `file_path` (stdio only) or `content_base64` + `file_name`, `content_type`, `step_id`, `target` | Max 20 MiB. |
+| `get_test_case_attachment_content` | `attachment_id`✓, `save_to` (stdio only) | Text as `content`, binary as `content_base64`; `save_to` never overwrites. Max 20 MiB. |
+
+`tree_id` is optional when the project has exactly one tree (`list_test_case_trees`).
+
+---
+
+## Test Plan Tools
+
+| Tool | Parameters | Notes |
+|------|------------|-------|
+| `list_test_plans` | `project_id`✓, `name`, `page`, `size` (default 20, max 100) | Newest first. |
+| `get_test_plan` | `test_plan_id`✓ | Includes the AQL it selects by (`base_rql`). |
+| `run_test_plan` | `test_plan_id`✓, `launch_name`✓ | Starts a new launch; returns `launch_id`. |
+| `rename_test_plan` | `test_plan_id`✓, `name`✓ | |
+| `delete_test_plan` | `test_plan_id`✓ | Asks for confirmation. Test cases and past launches are not affected. |
+
+Create plans with `bulk_create_test_plan`; add one to an existing launch with `add_test_plan_to_launch`.
+
+---
+
+## Defect Tools
+
+| Tool | Parameters | Notes |
+|------|------------|-------|
+| `list_defects` | `project_id`✓, `name_filter`, `status` (`open`/`closed`), `page`, `size` (default 20, max 100) | Newest first. |
+| `get_defect` | `defect_id`✓ | Name, description, open/closed state, linked issue. |
+| `create_defect` | `project_id`✓, `name`✓, `description` | Link to test cases with `add_test_case_defect`. |
+| `update_defect` | `defect_id`✓, `name`, `description`, `closed` | `closed: true` closes, `false` reopens. |
+| `delete_defect` | `defect_id`✓ | Asks for confirmation. Prefer `update_defect` with `closed: true`. |
 
 ---
 
@@ -825,6 +932,7 @@ asyncio.run(main())
 | `400` | Bad Request | Missing sessionId, invalid JSON |
 | `401` | Unauthorized | Missing or invalid bearer token |
 | `404` | Not Found | Unknown sessionId |
+| `413` | Request Entity Too Large | Body over 32 MiB |
 | `500` | Server Error | Crash, internal bug |
 
 ### JSON-RPC Error Codes
@@ -928,7 +1036,7 @@ Returns `{"status": "cancelled", "task_id": "..."}`. Signals the background goro
 
 ### `analyze_launch_failures`
 
-Fetches failed test results and uses MCP sampling to ask Claude for root-cause analysis.
+Fetches failed and broken test results and uses MCP sampling to ask Claude for root-cause analysis. Errors on a nonexistent launch.
 
 **Requires:** MCP client that supports `sampling/createMessage` (Claude Desktop, claude.ai).
 
@@ -968,7 +1076,9 @@ Three layers: a custom field **definition** (org-wide, e.g. "Priority"), its **p
 |-----------|------|----------|-------------|
 | `custom_field_id` | integer | ✓ | Custom field ID |
 
-`delete_custom_field` is permanent — prefer `set_custom_field_archived` for a reversible removal.
+`delete_custom_field` is permanent — prefer `set_custom_field_archived` for a reversible removal. The API refuses while the field is attached to a project: clear its values from test cases, `remove_custom_field_from_project`, then delete.
+
+Built-in fields (negative ids: Epic/Feature/Story/Suite/Component) are accepted by `get_custom_field`, `get_project_custom_field`, `update_project_custom_field`, `create_custom_field_value` and `list_custom_field_values`.
 
 ### `update_custom_field`
 
@@ -980,7 +1090,7 @@ All fields optional — only the ones passed are changed.
 | `name` | string | | New field name |
 | `required` | boolean | | Whether a value must be set |
 | `single_select` | boolean | | At most one value per test case |
-| `locked` | boolean | | Lock the definition against further changes |
+| `locked` | boolean | | Locked flag. Does not block renaming the field or adding/renaming values (confirmed live). |
 
 ### `set_custom_field_archived`
 
@@ -1005,7 +1115,7 @@ All fields optional — only the ones passed are changed.
 | `project_id` | integer | ✓ | Allure project ID |
 | `custom_field_id` | integer | ✓ | Custom field ID |
 
-Returns the field's project-scoped required/locked/default settings plus the field definition.
+Returns the field's project-scoped required/locked/default settings plus the field definition. A field not attached to the project returns a clear error.
 
 ### `add_custom_fields_to_project`
 
@@ -1014,6 +1124,8 @@ Returns the field's project-scoped required/locked/default settings plus the fie
 | `project_id` | integer | ✓ | Allure project ID |
 | `custom_field_ids` | integer[] | ✓ | IDs of existing custom field definitions to attach |
 
+Reports ids that were not attached (the API silently ignores unknown ids).
+
 ### `remove_custom_field_from_project`
 
 | Parameter | Type | Required | Description |
@@ -1021,7 +1133,7 @@ Returns the field's project-scoped required/locked/default settings plus the fie
 | `project_id` | integer | ✓ | Allure project ID |
 | `custom_field_id` | integer | ✓ | Custom field ID |
 
-Detaches the field from the project only — does not delete the field definition or its values.
+Detaches the field from the project only — does not delete the field definition or its values. The API refuses while any test case in the project has a value for it; clear those first with `bulk_remove_test_case_custom_fields`.
 
 ### `update_project_custom_field`
 
@@ -1048,7 +1160,7 @@ Use `list_custom_field_values` first to check the value doesn't already exist.
 
 ### `update_custom_field_value`
 
-All fields optional — only the ones passed are changed. Existing test cases/results already assigned this value are unaffected.
+All fields optional — only the ones passed are changed. Renaming gives the value a new `value_id` (the old id stops existing); test cases that had the value follow it. The API returns no body — call `list_custom_field_values` for the new id.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -1056,7 +1168,7 @@ All fields optional — only the ones passed are changed. Existing test cases/re
 | `value_id` | integer | ✓ | Custom field value ID |
 | `name` | string | | New display name |
 | `default` | boolean | | Make this the field's default value in this project |
-| `global` | boolean | | Share this value globally rather than scoping it to this project |
+| `global` | boolean | | Share this value across all projects. Cannot be undone. |
 
 ### `delete_custom_field_value`
 

@@ -141,14 +141,24 @@ func TestGetTestResult(t *testing.T) {
 }
 
 func TestAssignTestResult(t *testing.T) {
+	stored := "alice"
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/testresult/1/assign", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/api/testresult/1", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": 1, "assignee": stored})
 	})
 	r := newRelationsTestRegistry(t, mux)
 
 	if _, err := r.assignTestResult(context.Background(), assignTestResultArgs{TestResultID: 1, Username: "alice"}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	// A resolved result keeps its old assignee although the call succeeds.
+	stored = "bob"
+	if _, err := r.assignTestResult(context.Background(), assignTestResultArgs{TestResultID: 1, Username: "alice"}); err == nil {
+		t.Error("expected error when the API keeps a different assignee")
 	}
 	if _, err := r.assignTestResult(context.Background(), assignTestResultArgs{TestResultID: 0, Username: "alice"}); err == nil {
 		t.Error("expected error for non-positive test_result_id")

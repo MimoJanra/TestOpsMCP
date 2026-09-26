@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/MimoJanra/TestOpsMCP/internal/adapters/allure"
 	"github.com/MimoJanra/TestOpsMCP/internal/session"
@@ -80,23 +81,40 @@ func (r *Registry) registerTestCaseTools() {
 	})
 
 	r.register(&Tool{
-		Name:        "create_test_case",
-		Description: "Create a new test case. Only name and project_id are required. Add description, precondition, and steps after creation with update_test_case and create_test_case_step.",
+		Name: "create_test_case",
+		Description: "Create a new test case, optionally with all its content in one call: description, precondition, expected result, " +
+			"status/workflow/layer, tags, links, members, custom fields and the manual scenario (steps with expected results and sub-steps). " +
+			"Only name and project_id are required. Built-in ids are negative (e.g. status -1 Draft; custom fields Epic/Feature/Story/Suite -1..-5).",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"project_id": map[string]any{
-					"type":        "integer",
-					"description": "Allure project ID",
+				"project_id":      map[string]any{"type": "integer", "description": "Allure project ID"},
+				"name":            map[string]any{"type": "string", "description": "Test case name"},
+				"description":     map[string]any{"type": "string", "description": "Description (optional, markdown)"},
+				"precondition":    map[string]any{"type": "string", "description": "Precondition (optional)"},
+				"expected_result": map[string]any{"type": "string", "description": "Overall expected result (optional)"},
+				"full_name":       map[string]any{"type": "string", "description": "Full name, e.g. the automated test's qualified name (optional)"},
+				"automated":       map[string]any{"type": "boolean", "description": "Mark as automated (optional; default manual)"},
+				"status_id":       map[string]any{"type": "integer", "description": "Status ID (optional; requires workflow_id; see get_test_case_workflow)"},
+				"workflow_id":     map[string]any{"type": "integer", "description": "Workflow ID (optional; requires status_id)"},
+				"test_layer_id":   map[string]any{"type": "integer", "description": "Test layer ID (optional)"},
+				"tags":            testTagsSchema,
+				"links":           externalLinksSchema,
+				"members":         membersSchema,
+				"custom_fields": map[string]any{
+					"type":        "array",
+					"description": "Custom field values (optional). Each item sets one value: custom_field_id plus value_id (existing value) or name (found or created by name). Look values up with list_custom_field_values.",
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"custom_field_id": map[string]any{"type": "integer"},
+							"value_id":        map[string]any{"type": "integer"},
+							"name":            map[string]any{"type": "string"},
+						},
+						"required": []string{"custom_field_id"},
+					},
 				},
-				"name": map[string]any{
-					"type":        "string",
-					"description": "Test case name",
-				},
-				"description": map[string]any{
-					"type":        "string",
-					"description": "Test case description (optional)",
-				},
+				"steps": scenarioStepsSchema,
 			},
 			"required": []string{"project_id", "name"},
 		},
@@ -106,13 +124,11 @@ func (r *Registry) registerTestCaseTools() {
 	r.register(&Tool{
 		Name: "update_test_case",
 		Description: "Update any fields of an existing test case: name, description, precondition, " +
-			"expected_result, status, tags, members, links, or test layer. " +
-			"All fields are optional — only the ones you pass are changed. " +
-			"WARNING: writing manual_scenario here has been observed to silently corrupt step text — the call " +
-			"reports success but every step body is stored as the literal string \"<empty>\" instead of the text " +
-			"you sent, with no error. Prefer building the scenario step by step instead: create_test_case_step " +
-			"(and update_test_case_step to set each step's expected_result) reliably persists real text. " +
-			"Only use manual_scenario here if you verify the result afterwards with get_test_case_steps.",
+			"expected_result, status, tags, members, links, test layer, or the whole manual scenario. " +
+			"All fields are optional — only the ones you pass are changed. Pass \"\" to clear a text field and [] to clear tags/members/links; " +
+			"tags, members and links replace the whole list. " +
+			"manual_scenario REPLACES all current steps (including their attachments) with the given steps, built through the step API " +
+			"with real text and expected results; to change one step use update_test_case_step instead.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -164,63 +180,14 @@ func (r *Registry) registerTestCaseTools() {
 					"type":        "integer",
 					"description": "Workflow ID (optional)",
 				},
-				"tags": map[string]any{
-					"type":        "array",
-					"description": "Tags (optional)",
-					"items": map[string]any{
-						"type": "object",
-						"properties": map[string]any{
-							"id": map[string]any{"type": "integer"},
-							"name": map[string]any{"type": "string"},
-						},
-					},
-				},
-				"members": map[string]any{
-					"type":        "array",
-					"description": "Members (optional)",
-					"items": map[string]any{
-						"type": "object",
-						"properties": map[string]any{
-							"id": map[string]any{"type": "integer"},
-							"name": map[string]any{"type": "string"},
-						},
-					},
-				},
-				"links": map[string]any{
-					"type":        "array",
-					"description": "External links (optional)",
-					"items": map[string]any{
-						"type": "object",
-						"properties": map[string]any{
-							"name": map[string]any{"type": "string"},
-							"type": map[string]any{"type": "string"},
-							"url": map[string]any{"type": "string"},
-						},
-					},
-				},
+				"tags":    testTagsSchema,
+				"members": membersSchema,
+				"links":   externalLinksSchema,
 				"manual_scenario": map[string]any{
 					"type":        "object",
-					"description": "The manual test scenario = the list of test steps. Pass {\"steps\": [{\"body\": \"...\"}]} to set all steps at once. This REPLACES the current steps. To add a single step use create_test_case_step.",
+					"description": "Replace the whole manual scenario: {\"steps\": [{\"body\": \"Open the app\", \"expected_result\": \"Login screen shown\", \"steps\": [...sub-steps]}]}. Pass {\"steps\": []} to remove all steps.",
 					"properties": map[string]any{
-						"steps": map[string]any{
-							"type":        "array",
-							"description": "List of manual steps. Each step needs 'type' (required by API) and 'body'. Use type='body' for a regular step action, type='expected' for an expected-result entry.",
-							"items": map[string]any{
-								"type": "object",
-								"properties": map[string]any{
-									"type": map[string]any{
-										"type":        "string",
-										"enum":        []string{"body", "expected"},
-										"description": "Step type: 'body' for action step, 'expected' for expected result",
-									},
-									"body": map[string]any{
-										"type":        "string",
-										"description": "Step text",
-									},
-								},
-								"required": []string{"type", "body"},
-							},
-						},
+						"steps": scenarioStepsSchema,
 					},
 					"required": []string{"steps"},
 				},
@@ -280,7 +247,7 @@ func (r *Registry) registerTestCaseTools() {
 
 	r.register(&Tool{
 		Name: "create_test_case_step",
-		Description: "Add a step to a test case scenario. Appended to the end by default; use after_id to insert after a specific step, or parent_id to nest it inside another step. Get existing step IDs with get_test_case_steps. " +
+		Description: "Add a step to a test case scenario, optionally with its expected result. Appended to the end by default; use after_id/before_id to insert next to a specific step, or parent_id to nest it inside another step. Get existing step IDs with get_test_case_steps. " +
 			"IMPORTANT: check get_test_case's hasManualScenario field first. If it's false, this case's real steps may live only in the legacy `scenario` field (get_test_case), not in the tree this tool writes to. " +
 			"Adding a step here immediately switches the web UI to showing only this tool's step tree — the legacy steps become invisible in the UI, even though they still exist server-side for a while. " +
 			"If hasManualScenario is false and get_test_case's `scenario.steps` is non-empty, recreate ALL of those legacy steps here (with update_test_case_step for each expected_result) in the same pass, rather than adding just the one new step you actually wanted.",
@@ -295,13 +262,21 @@ func (r *Registry) registerTestCaseTools() {
 					"type":        "string",
 					"description": "Step body/description",
 				},
+				"expected_result": map[string]any{
+					"type":        "string",
+					"description": "Expected result for the new step (optional; same as a follow-up update_test_case_step)",
+				},
 				"after_id": map[string]any{
 					"type":        "integer",
-					"description": "Insert after step ID (optional)",
+					"description": "Insert after step ID (optional; its parent is resolved automatically)",
+				},
+				"before_id": map[string]any{
+					"type":        "integer",
+					"description": "Insert before step ID (optional; its parent is resolved automatically)",
 				},
 				"parent_id": map[string]any{
 					"type":        "integer",
-					"description": "Parent step ID (optional)",
+					"description": "Parent step ID to nest under (optional)",
 				},
 			},
 			"required": []string{"test_case_id", "body"},
@@ -522,7 +497,7 @@ func (r *Registry) listTestCases(ctx context.Context, args listTestCasesArgs) (a
 			"name":              tc.Name,
 			"project_id":        args.ProjectID,
 			"status":            tc.Status,
-			"automation_status": tc.AutomationStatus,
+			"automation_status": automationStatus(tc.Automated),
 		}
 	}
 
@@ -603,10 +578,103 @@ func (r *Registry) runTestCase(ctx context.Context, args runTestCaseArgs) (any, 
 	return map[string]any{"status": "started"}, nil
 }
 
+// customFieldValueArg sets one custom field value on create: value_id picks an
+// existing value, name finds or creates one by name.
+type customFieldValueArg struct {
+	CustomFieldID int64  `json:"custom_field_id"`
+	ValueID       int64  `json:"value_id"`
+	Name          string `json:"name"`
+}
+
+// scenarioStepArg is one manual step. type="expected" is the legacy flat form
+// ({type, body} pairs): such an entry becomes the preceding step's expected
+// result rather than a step of its own.
+type scenarioStepArg struct {
+	Type           string            `json:"type"`
+	Body           string            `json:"body"`
+	ExpectedResult string            `json:"expected_result"`
+	Steps          []scenarioStepArg `json:"steps"`
+}
+
+type manualScenarioArg struct {
+	Steps []scenarioStepArg `json:"steps"`
+}
+
+// normalizeScenarioSteps folds legacy type="expected" entries into the
+// preceding step's expected_result and drops empty entries.
+func normalizeScenarioSteps(in []scenarioStepArg) ([]scenarioStepArg, error) {
+	out := make([]scenarioStepArg, 0, len(in))
+	for i, st := range in {
+		if st.Type == "expected" {
+			if len(out) == 0 {
+				return nil, fmt.Errorf("step %d: an expected entry must follow the step it belongs to", i)
+			}
+			prev := &out[len(out)-1]
+			if prev.ExpectedResult != "" {
+				prev.ExpectedResult += "\n"
+			}
+			prev.ExpectedResult += st.Body
+			continue
+		}
+		if strings.TrimSpace(st.Body) == "" {
+			return nil, fmt.Errorf("step %d: body must not be empty", i)
+		}
+		children, err := normalizeScenarioSteps(st.Steps)
+		if err != nil {
+			return nil, fmt.Errorf("step %d: %w", i, err)
+		}
+		st.Steps = children
+		out = append(out, st)
+	}
+	return out, nil
+}
+
+// buildScenario creates steps (with expected results and sub-steps) under
+// parentID through the step API — the only path that reliably stores step
+// text: the scenario field of PATCH /api/testcase stores every body as
+// "<empty>" and turns expected entries into sibling steps (confirmed live).
+func (r *Registry) buildScenario(ctx context.Context, testCaseID, parentID int64, steps []scenarioStepArg) (int, error) {
+	created := 0
+	for _, st := range steps {
+		id, err := r.allure.CreateTestCaseStep(ctx, allure.ScenarioStepCreateRequest{
+			TestCaseID: testCaseID,
+			Body:       st.Body,
+			ParentID:   parentID,
+		}, 0)
+		if err != nil {
+			return created, fmt.Errorf("create step %q: %w", st.Body, err)
+		}
+		created++
+		if st.ExpectedResult != "" {
+			if _, err := r.setExpectedResult(ctx, updateTestCaseStepArgs{StepID: id, TestCaseID: testCaseID, ExpectedResult: st.ExpectedResult}); err != nil {
+				return created, fmt.Errorf("set expected result of step %q: %w", st.Body, err)
+			}
+		}
+		n, err := r.buildScenario(ctx, testCaseID, id, st.Steps)
+		created += n
+		if err != nil {
+			return created, err
+		}
+	}
+	return created, nil
+}
+
 type createTestCaseArgs struct {
-	ProjectID   int64  `json:"project_id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	ProjectID      int64                    `json:"project_id"`
+	Name           string                   `json:"name"`
+	Description    string                   `json:"description"`
+	Precondition   string                   `json:"precondition"`
+	ExpectedResult string                   `json:"expected_result"`
+	FullName       string                   `json:"full_name"`
+	Automated      *bool                    `json:"automated"`
+	StatusID       *int64                   `json:"status_id"`
+	WorkflowID     *int64                   `json:"workflow_id"`
+	TestLayerID    *int64                   `json:"test_layer_id"`
+	Tags           []allure.TestTagDto      `json:"tags"`
+	Links          []allure.ExternalLinkDto `json:"links"`
+	Members        []allure.MemberDto       `json:"members"`
+	CustomFields   []customFieldValueArg    `json:"custom_fields"`
+	Steps          []scenarioStepArg        `json:"steps"`
 }
 
 func (r *Registry) createTestCase(ctx context.Context, args createTestCaseArgs) (any, error) {
@@ -616,64 +684,96 @@ func (r *Registry) createTestCase(ctx context.Context, args createTestCaseArgs) 
 	if args.Name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
+	if (args.StatusID == nil) != (args.WorkflowID == nil) {
+		return nil, fmt.Errorf("status_id and workflow_id must be passed together (the API rejects one without the other); see get_test_case_workflow")
+	}
+	steps, err := normalizeScenarioSteps(args.Steps)
+	if err != nil {
+		return nil, fmt.Errorf("steps: %w", err)
+	}
+	cfs := make([]allure.CustomFieldValueWithCfDto, 0, len(args.CustomFields))
+	for i, cf := range args.CustomFields {
+		// Built-in fields (Epic, Feature, Suite...) have negative ids.
+		if cf.CustomFieldID == 0 {
+			return nil, fmt.Errorf("custom_fields[%d]: custom_field_id is required", i)
+		}
+		if cf.ValueID == 0 && strings.TrimSpace(cf.Name) == "" {
+			return nil, fmt.Errorf("custom_fields[%d]: pass value_id or name", i)
+		}
+		cfs = append(cfs, allure.CustomFieldValueWithCfDto{
+			ID:          cf.ValueID,
+			Name:        strings.TrimSpace(cf.Name),
+			CustomField: allure.CustomFieldRef{ID: cf.CustomFieldID},
+		})
+	}
 
 	r.logger.Info("creating test case", map[string]any{
-		"project_id":  args.ProjectID,
-		"name":        args.Name,
-		"description": args.Description,
+		"project_id": args.ProjectID,
+		"name":       args.Name,
 	})
 
-	tc, err := r.allure.CreateTestCase(ctx, args.ProjectID, args.Name, args.Description)
+	tc, err := r.allure.CreateTestCase(ctx, allure.CreateTestCaseRequest{
+		Name:           args.Name,
+		ProjectID:      args.ProjectID,
+		Description:    args.Description,
+		Precondition:   args.Precondition,
+		ExpectedResult: args.ExpectedResult,
+		FullName:       args.FullName,
+		Automated:      args.Automated,
+		StatusID:       args.StatusID,
+		WorkflowID:     args.WorkflowID,
+		TestLayerID:    args.TestLayerID,
+		Tags:           args.Tags,
+		Links:          args.Links,
+		Members:        args.Members,
+		CustomFields:   cfs,
+	})
 	if err != nil {
 		r.logger.Error("create test case", err, map[string]any{"project_id": args.ProjectID})
 		return nil, fmt.Errorf("create test case: %w", err)
 	}
 
-	return map[string]any{
+	result := map[string]any{
 		"id":                tc.ID,
-		"uuid":              tc.UUID,
 		"name":              tc.Name,
-		"project_id":        tc.ProjectID,
+		"project_id":        args.ProjectID,
 		"description":       tc.Description,
 		"status":            tc.Status,
-		"automation_status": tc.AutomationStatus,
+		"automation_status": automationStatus(tc.Automated),
 		"full_name":         tc.FullName,
-	}, nil
+	}
+	if len(steps) > 0 {
+		n, err := r.buildScenario(ctx, tc.ID, 0, steps)
+		result["steps_created"] = n
+		if err != nil {
+			result["error"] = fmt.Sprintf("test case created, but building its steps failed: %v", err)
+		}
+	}
+	return result, nil
 }
 
 type updateTestCaseArgs struct {
-	TestCaseID     int64                    `json:"test_case_id"`
-	Name           string                   `json:"name"`
-	Description    string                   `json:"description"`
-	FullName       string                   `json:"full_name"`
-	Precondition   string                   `json:"precondition"`
-	ExpectedResult string                   `json:"expected_result"`
-	Automated      *bool                    `json:"automated"`
-	External       *bool                    `json:"external"`
-	Deleted        *bool                    `json:"deleted"`
-	StatusID       *int64                   `json:"status_id"`
-	TestLayerID    *int64                   `json:"test_layer_id"`
-	WorkflowID     *int64                   `json:"workflow_id"`
-	Tags           []allure.TestTagDto      `json:"tags"`
-	Members        []allure.MemberDto       `json:"members"`
-	Links          []allure.ExternalLinkDto `json:"links"`
-	ManualScenario *allure.ScenarioDto      `json:"manual_scenario"`
+	TestCaseID     int64                     `json:"test_case_id"`
+	Name           string                    `json:"name"`
+	Description    *string                   `json:"description"`
+	FullName       *string                   `json:"full_name"`
+	Precondition   *string                   `json:"precondition"`
+	ExpectedResult *string                   `json:"expected_result"`
+	Automated      *bool                     `json:"automated"`
+	External       *bool                     `json:"external"`
+	Deleted        *bool                     `json:"deleted"`
+	StatusID       *int64                    `json:"status_id"`
+	TestLayerID    *int64                    `json:"test_layer_id"`
+	WorkflowID     *int64                    `json:"workflow_id"`
+	Tags           *[]allure.TestTagDto      `json:"tags"`
+	Members        *[]allure.MemberDto       `json:"members"`
+	Links          *[]allure.ExternalLinkDto `json:"links"`
+	ManualScenario *manualScenarioArg        `json:"manual_scenario"`
 }
 
 func (r *Registry) updateTestCase(ctx context.Context, args updateTestCaseArgs) (any, error) {
 	if args.TestCaseID <= 0 {
 		return nil, fmt.Errorf("test_case_id must be positive")
-	}
-
-	hasFields := args.Name != "" || args.Description != "" || args.FullName != "" ||
-		args.Precondition != "" || args.ExpectedResult != "" ||
-		args.Automated != nil || args.External != nil || args.Deleted != nil ||
-		args.StatusID != nil || args.TestLayerID != nil || args.WorkflowID != nil ||
-		len(args.Tags) > 0 || len(args.Members) > 0 || len(args.Links) > 0 ||
-		args.ManualScenario != nil
-
-	if !hasFields {
-		return nil, fmt.Errorf("at least one field must be provided")
 	}
 
 	req := allure.UpdateTestCaseRequest{
@@ -690,20 +790,41 @@ func (r *Registry) updateTestCase(ctx context.Context, args updateTestCaseArgs) 
 		WorkflowID:     args.WorkflowID,
 		Tags:           args.Tags,
 		Members:        args.Members,
-		Scenario:       args.ManualScenario,
+		Links:          args.Links,
 	}
-	if args.Links != nil {
-		req.Links = &args.Links
+	hasFields := req != (allure.UpdateTestCaseRequest{})
+	if !hasFields && args.ManualScenario == nil {
+		return nil, fmt.Errorf("at least one field must be provided")
+	}
+
+	var steps []scenarioStepArg
+	if args.ManualScenario != nil {
+		var err error
+		if steps, err = normalizeScenarioSteps(args.ManualScenario.Steps); err != nil {
+			return nil, fmt.Errorf("manual_scenario: %w", err)
+		}
 	}
 
 	r.logger.Info("updating test case", map[string]any{"test_case_id": args.TestCaseID})
 
-	if err := r.allure.UpdateTestCase(ctx, args.TestCaseID, req); err != nil {
-		r.logger.Error("update test case", err, map[string]any{"test_case_id": args.TestCaseID})
-		return nil, fmt.Errorf("update test case: %w", err)
+	result := map[string]any{"status": "updated"}
+	if hasFields {
+		if err := r.allure.UpdateTestCase(ctx, args.TestCaseID, req); err != nil {
+			r.logger.Error("update test case", err, map[string]any{"test_case_id": args.TestCaseID})
+			return nil, fmt.Errorf("update test case: %w", err)
+		}
 	}
-
-	return map[string]any{"status": "updated"}, nil
+	if args.ManualScenario != nil {
+		if err := r.allure.DeleteTestCaseScenario(ctx, args.TestCaseID); err != nil {
+			return nil, fmt.Errorf("replace scenario: clear current steps: %w", err)
+		}
+		n, err := r.buildScenario(ctx, args.TestCaseID, 0, steps)
+		result["steps_created"] = n
+		if err != nil {
+			return nil, fmt.Errorf("replace scenario: the old steps were removed and %d new ones created before failing: %w", n, err)
+		}
+	}
+	return result, nil
 }
 
 type deleteTestCaseArgs struct {
@@ -783,10 +904,12 @@ func (r *Registry) restoreTestCase(ctx context.Context, args restoreTestCaseArgs
 }
 
 type createTestCaseStepArgs struct {
-	TestCaseID int64  `json:"test_case_id"`
-	Body       string `json:"body"`
-	AfterID    int64  `json:"after_id"`
-	ParentID   int64  `json:"parent_id"`
+	TestCaseID     int64  `json:"test_case_id"`
+	Body           string `json:"body"`
+	ExpectedResult string `json:"expected_result"`
+	AfterID        int64  `json:"after_id"`
+	BeforeID       int64  `json:"before_id"`
+	ParentID       int64  `json:"parent_id"`
 }
 
 func (r *Registry) createTestCaseStep(ctx context.Context, args createTestCaseStepArgs) (any, error) {
@@ -796,11 +919,15 @@ func (r *Registry) createTestCaseStep(ctx context.Context, args createTestCaseSt
 	if args.Body == "" {
 		return nil, fmt.Errorf("body must be provided")
 	}
+	pos, err := r.resolveStepPosition(ctx, args.TestCaseID, args.AfterID, args.BeforeID, args.ParentID)
+	if err != nil {
+		return nil, err
+	}
 
 	req := allure.ScenarioStepCreateRequest{
 		TestCaseID: args.TestCaseID,
 		Body:       args.Body,
-		ParentID:   args.ParentID,
+		ParentID:   pos.ParentID,
 	}
 
 	r.logger.Info("creating test case step", map[string]any{
@@ -808,13 +935,19 @@ func (r *Registry) createTestCaseStep(ctx context.Context, args createTestCaseSt
 		"body":         args.Body,
 	})
 
-	stepID, err := r.allure.CreateTestCaseStep(ctx, req, args.AfterID)
+	stepID, err := r.allure.CreateTestCaseStepAt(ctx, req, pos.AfterID, pos.BeforeID)
 	if err != nil {
 		r.logger.Error("create test case step", err, map[string]any{"test_case_id": args.TestCaseID})
 		return nil, fmt.Errorf("create test case step: %w", err)
 	}
 
-	return map[string]any{"step_id": stepID}, nil
+	result := map[string]any{"step_id": stepID}
+	if args.ExpectedResult != "" {
+		if _, err := r.setExpectedResult(ctx, updateTestCaseStepArgs{StepID: stepID, TestCaseID: args.TestCaseID, ExpectedResult: args.ExpectedResult}); err != nil {
+			result["error"] = fmt.Sprintf("step created, but setting its expected result failed: %v", err)
+		}
+	}
+	return result, nil
 }
 
 type updateTestCaseStepArgs struct {
@@ -851,6 +984,11 @@ func (r *Registry) updateTestCaseStep(ctx context.Context, args updateTestCaseSt
 	node := stepNodeFromTree(tree, args.StepID)
 	if node == nil {
 		return nil, fmt.Errorf("step %d not found under test case %d", args.StepID, args.TestCaseID)
+	}
+	if nodeInt64(node, "attachmentId") > 0 {
+		// A body PATCH on a file/table node silently drops its attachmentId,
+		// turning the attachment into an empty text step (confirmed live).
+		return nil, fmt.Errorf("step %d is a file/table attachment node, not a text step — delete it with delete_test_case_step instead of editing it", args.StepID)
 	}
 	// withExpectedResult=true is only safe to send when the step already has
 	// an expected result to preserve — sending it on a step with none makes
@@ -892,18 +1030,26 @@ func (r *Registry) setExpectedResult(ctx context.Context, args updateTestCaseSte
 		return nil, fmt.Errorf("step %d not found under test case %d", args.StepID, args.TestCaseID)
 	}
 
-	body := args.Body
-	if body == "" {
-		body = nodeString(node, "body")
+	if nodeInt64(node, "attachmentId") > 0 {
+		return nil, fmt.Errorf("step %d is a file/table attachment node and can't have an expected result", args.StepID)
 	}
 
 	containerID := nodeInt64(node, "expectedResultId")
 	if containerID <= 0 {
-		// First expected result on this step: this same call also creates the container.
-		if err := r.allure.UpdateTestCaseStep(ctx, args.StepID, allure.ScenarioStepPatchRequest{
-			Body:           body,
-			ExpectedResult: args.ExpectedResult,
-		}, true); err != nil {
+		// First expected result on this step: this same call also creates the
+		// container. The API needs a body in this PATCH; when the caller didn't
+		// change it, resend the stored rich-text document rather than the plain
+		// body, which would flatten its formatting (confirmed live).
+		patch := allure.ScenarioStepPatchRequest{Body: args.Body, ExpectedResult: args.ExpectedResult}
+		if args.Body == "" {
+			if raw, ok := node["bodyJson"]; ok && raw != nil {
+				patch.BodyJSON, _ = json.Marshal(raw)
+			}
+			if patch.BodyJSON == nil {
+				patch.Body = nodeString(node, "body")
+			}
+		}
+		if err := r.allure.UpdateTestCaseStep(ctx, args.StepID, patch, true); err != nil {
 			return nil, fmt.Errorf("create expected-result container: %w", err)
 		}
 		tree, err = r.allure.GetTestCaseSteps(ctx, args.TestCaseID)
@@ -924,13 +1070,21 @@ func (r *Registry) setExpectedResult(ctx context.Context, args updateTestCaseSte
 		// in this function ever touches the parent step's own body. Without this,
 		// body is silently dropped whenever expected_result is set on a step that
 		// already has one (confirmed live 2026-09-21).
-		if err := r.allure.UpdateTestCaseStep(ctx, args.StepID, allure.ScenarioStepPatchRequest{Body: body}, true); err != nil {
+		if err := r.allure.UpdateTestCaseStep(ctx, args.StepID, allure.ScenarioStepPatchRequest{Body: args.Body}, true); err != nil {
 			return nil, fmt.Errorf("update step body: %w", err)
 		}
 	}
 
-	children := nodeInt64Array(stepNodeFromTree(tree, containerID), "children")
-	if len(children) == 0 {
+	// Replace the first text entry. File/table entries (attachment nodes) are
+	// skipped: patching one with a body silently drops its attachment.
+	textChild := int64(0)
+	for _, id := range nodeInt64Array(stepNodeFromTree(tree, containerID), "children") {
+		if nodeInt64(stepNodeFromTree(tree, id), "attachmentId") == 0 {
+			textChild = id
+			break
+		}
+	}
+	if textChild == 0 {
 		if _, err := r.allure.CreateTestCaseStep(ctx, allure.ScenarioStepCreateRequest{
 			TestCaseID: args.TestCaseID,
 			Body:       args.ExpectedResult,
@@ -939,7 +1093,7 @@ func (r *Registry) setExpectedResult(ctx context.Context, args updateTestCaseSte
 			return nil, fmt.Errorf("create expected-result entry: %w", err)
 		}
 	} else {
-		if err := r.allure.UpdateTestCaseStep(ctx, children[0], allure.ScenarioStepPatchRequest{Body: args.ExpectedResult}, false); err != nil {
+		if err := r.allure.UpdateTestCaseStep(ctx, textChild, allure.ScenarioStepPatchRequest{Body: args.ExpectedResult}, false); err != nil {
 			return nil, fmt.Errorf("update expected-result entry: %w", err)
 		}
 	}
@@ -1238,8 +1392,8 @@ func (r *Registry) listCustomFieldValues(ctx context.Context, args listCustomFie
 	if args.ProjectID <= 0 {
 		return nil, fmt.Errorf("project_id must be positive")
 	}
-	if args.CustomFieldID <= 0 {
-		return nil, fmt.Errorf("custom_field_id must be positive")
+	if args.CustomFieldID == 0 {
+		return nil, fmt.Errorf("custom_field_id is required (built-in fields like Epic/Feature/Story/Suite have negative ids)")
 	}
 	size := args.Size
 	if size <= 0 {
@@ -1284,4 +1438,68 @@ func (r *Registry) getTestCaseHistory(ctx context.Context, args getTestCaseHisto
 	}
 
 	return history, nil
+}
+
+// automationStatus renders the API's automated flag. The API has no
+// automationStatus field (it always decoded as null), only automated.
+func automationStatus(automated bool) string {
+	if automated {
+		return "automated"
+	}
+	return "manual"
+}
+
+var testTagsSchema = map[string]any{
+	"type":        "array",
+	"description": "Tags (optional). Each tag by id or name; an unknown name creates the tag.",
+	"items": map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"id":   map[string]any{"type": "integer"},
+			"name": map[string]any{"type": "string"},
+		},
+	},
+}
+
+var membersSchema = map[string]any{
+	"type":        "array",
+	"description": "Members (optional). id is a project member id from GET /api/member/suggest?projectId=<id> (via execute_testops_operation).",
+	"items": map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"id":   map[string]any{"type": "integer"},
+			"name": map[string]any{"type": "string"},
+		},
+		"required": []string{"id"},
+	},
+}
+
+var externalLinksSchema = map[string]any{
+	"type":        "array",
+	"description": "External links (optional)",
+	"items": map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"name": map[string]any{"type": "string"},
+			"type": map[string]any{"type": "string"},
+			"url":  map[string]any{"type": "string"},
+		},
+		"required": []string{"url"},
+	},
+}
+
+// scenarioStepsSchema describes manual steps. Nesting is recursive: each
+// step's "steps" holds sub-steps of the same shape.
+var scenarioStepsSchema = map[string]any{
+	"type":        "array",
+	"description": "Manual steps in order. Each step: body (required), expected_result (optional), steps (optional sub-steps of the same shape).",
+	"items": map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"body":            map[string]any{"type": "string", "description": "Step action text"},
+			"expected_result": map[string]any{"type": "string", "description": "Expected result of this step"},
+			"steps":           map[string]any{"type": "array", "description": "Sub-steps (same shape)", "items": map[string]any{"type": "object"}},
+		},
+		"required": []string{"body"},
+	},
 }

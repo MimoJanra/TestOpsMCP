@@ -24,7 +24,9 @@ import (
 const (
 	sessionSendBuffer = 64 // increased from 16 to reduce response drops under burst load
 	heartbeatInterval = 25 * time.Second
-	maxMessageBody    = 1 << 20 // 1 MiB
+	// maxMessageBody caps one JSON-RPC message on every transport. It must fit
+	// a base64-encoded upload_test_case_attachment (20 MiB file ≈ 26.7 MiB).
+	maxMessageBody = 32 << 20
 )
 
 // Version is set at build time via -ldflags "-X github.com/MimoJanra/TestOpsMCP/internal/mcp.Version=x.y.z"
@@ -64,6 +66,30 @@ type session struct {
 
 	subsMu        sync.Mutex
 	subscriptions map[string]struct{} // subscribed resource URIs
+
+	// caps is what the client declared in initialize (guarded by pendingMu).
+	// Before initialize, capsKnown is false and server requests are allowed.
+	caps      ClientCapabilities
+	capsKnown bool
+}
+
+// clientSupports reports whether the session's client can take a server
+// request of the given kind. Sending one to a client that never declared the
+// capability just blocks the tool call until its timeout (a 120 s wait for
+// sampling was confirmed live).
+func (sess *session) clientSupports(kind string) bool {
+	sess.pendingMu.Lock()
+	defer sess.pendingMu.Unlock()
+	if !sess.capsKnown {
+		return true
+	}
+	switch kind {
+	case "elicitation":
+		return sess.caps.Elicitation != nil
+	case "sampling":
+		return sess.caps.Sampling != nil
+	}
+	return false
 }
 
 func NewServer(registry *tools.Registry, logger *core.Logger, opts Options) *Server {
@@ -261,7 +287,7 @@ func (s *Server) route(ctx context.Context, req *JSONRPCRequest) *JSONRPCRespons
 
 	switch req.Method {
 	case "initialize":
-		return s.handleInitialize(req)
+		return s.handleInitialize(ctx, req)
 	case "notifications/initialized":
 		s.logger.Info("initialization complete", nil)
 		if notification {
@@ -384,13 +410,18 @@ Safety:
 - Destructive tools (delete_*, bulk_delete_*, and remove_test_cases_from_launch with mode=delete) permanently remove data — confirm intent first and prefer non-destructive options (e.g. remove_test_cases_from_launch with mode=hide) when unsure.
 - If no API token is configured, use configure_allure_token (stored for the session only).`
 
-func (s *Server) handleInitialize(req *JSONRPCRequest) *JSONRPCResponse {
+func (s *Server) handleInitialize(ctx context.Context, req *JSONRPCRequest) *JSONRPCResponse {
 	var initReq InitializeRequest
 	if len(req.Params) > 0 {
 		if err := json.Unmarshal(req.Params, &initReq); err != nil {
 			s.logger.Error("parse initialize params", err, nil)
 			return s.errorResponse(req.ID, ErrCodeInvalidParams, "Invalid params")
 		}
+	}
+	if sess := s.getSession(sessctx.IDFromContext(ctx)); sess != nil {
+		sess.pendingMu.Lock()
+		sess.caps, sess.capsKnown = initReq.Capabilities, true
+		sess.pendingMu.Unlock()
 	}
 
 	// Negotiate protocol version: use client's requested version if we support it,
@@ -680,6 +711,9 @@ func (s *Server) Elicit(ctx context.Context, req ElicitRequest) (*ElicitResult, 
 	if sess == nil {
 		return &ElicitResult{Action: "reject"}, nil
 	}
+	if !sess.clientSupports("elicitation") {
+		return nil, fmt.Errorf("the MCP client did not declare elicitation support, so the server can't ask the user to confirm")
+	}
 
 	elicitID := newSessionID()
 	ch := make(chan *ElicitResult, 1)
@@ -731,6 +765,9 @@ func (s *Server) CreateMessage(ctx context.Context, req SamplingRequest) (*Sampl
 	sess := s.getSession(sessID)
 	if sess == nil {
 		return nil, fmt.Errorf("session not found for sampling")
+	}
+	if !sess.clientSupports("sampling") {
+		return nil, fmt.Errorf("the MCP client did not declare sampling support")
 	}
 
 	samplingID := newSessionID()
