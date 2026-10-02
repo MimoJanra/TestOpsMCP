@@ -72,7 +72,7 @@ docker-compose up -d
 docker-compose logs -f testops-mcp
 ```
 
-**Docker image:** `ghcr.io/MimoJanra/TestOpsMCP:latest` — available on GitHub Container Registry, multi-arch (linux/amd64, linux/arm64). Pin a version with e.g. `:v2.0.3`.
+**Docker image:** `ghcr.io/MimoJanra/TestOpsMCP:latest` — available on GitHub Container Registry, multi-arch (linux/amd64, linux/arm64). Pin a version with e.g. `:v2.5.0`.
 
 Server runs on `http://localhost:3000`
 

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-10-02 - Add Attachments, Test Plans, Defects and Folder Management; Fix Broken and Partial Tools
+
 ### Changed
 
 - **All test-case bulk operations moved from v1 to v2 endpoints** (`/api/testcase/bulk/*` → `/api/v2/test-case/bulk/*`): clone, move, remove, mute, status, layer, tag add/remove, member add/remove, issue add/remove, external links, test plan create, run new/existing (also used by `run_test_case`). v1 has repeatedly returned success while doing nothing or 500'd in this project's Allure instance; each v2 endpoint was verified live on project 408 before switching. Tool parameters are unchanged — only the selection shape differs (`testCasesInclude` instead of `leafsInclude`).
@@ -721,7 +723,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive documentation: Installation, Deployment, API Reference, Security guides
 - `.env.example` configuration template
 
-[Unreleased]: https://github.com/MimoJanra/TestOpsMCP/compare/v2.0.3...HEAD
+[Unreleased]: https://github.com/MimoJanra/TestOpsMCP/compare/v2.5.0...HEAD
+[2.5.0]: https://github.com/MimoJanra/TestOpsMCP/compare/v2.4.0...v2.5.0
+[2.4.0]: https://github.com/MimoJanra/TestOpsMCP/compare/v2.3.1...v2.4.0
+[2.3.1]: https://github.com/MimoJanra/TestOpsMCP/compare/v2.3.0...v2.3.1
+[2.3.0]: https://github.com/MimoJanra/TestOpsMCP/compare/v2.2.2...v2.3.0
+[2.2.2]: https://github.com/MimoJanra/TestOpsMCP/compare/v2.2.1...v2.2.2
+[2.2.1]: https://github.com/MimoJanra/TestOpsMCP/compare/v2.2.0...v2.2.1
+[2.2.0]: https://github.com/MimoJanra/TestOpsMCP/compare/v2.1.9...v2.2.0
+[2.1.9]: https://github.com/MimoJanra/TestOpsMCP/compare/v2.1.8...v2.1.9
+[2.1.8]: https://github.com/MimoJanra/TestOpsMCP/compare/v2.1.7...v2.1.8
+[2.1.7]: https://github.com/MimoJanra/TestOpsMCP/compare/v2.1.6...v2.1.7
+[2.1.6]: https://github.com/MimoJanra/TestOpsMCP/compare/v2.1.5...v2.1.6
+[2.1.5]: https://github.com/MimoJanra/TestOpsMCP/compare/v2.1.4...v2.1.5
+[2.1.4]: https://github.com/MimoJanra/TestOpsMCP/compare/v2.1.3...v2.1.4
+[2.1.3]: https://github.com/MimoJanra/TestOpsMCP/compare/v2.1.2...v2.1.3
+[2.1.2]: https://github.com/MimoJanra/TestOpsMCP/compare/v2.1.1...v2.1.2
+[2.1.1]: https://github.com/MimoJanra/TestOpsMCP/compare/v2.1.0...v2.1.1
+[2.1.0]: https://github.com/MimoJanra/TestOpsMCP/compare/v2.0.3...v2.1.0
 [2.0.3]: https://github.com/MimoJanra/TestOpsMCP/compare/v2.0.2...v2.0.3
 [2.0.2]: https://github.com/MimoJanra/TestOpsMCP/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/MimoJanra/TestOpsMCP/compare/v2.0.0...v2.0.1

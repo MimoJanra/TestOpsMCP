@@ -184,7 +184,7 @@ docker run \
 Or pin a specific version:
 
 ```bash
-docker run ... ghcr.io/MimoJanra/TestOpsMCP:v2.0.3 --http
+docker run ... ghcr.io/MimoJanra/TestOpsMCP:v2.5.0 --http
 ```
 
 ### Option 2: Docker Compose (Recommended for Teams)

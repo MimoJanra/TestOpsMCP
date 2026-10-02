@@ -2,7 +2,15 @@
 
 All pre-built binaries are provided for easy setup without requiring Go installation.
 
-## 🆕 What's New in v2.0.0
+## 🆕 What's New in v2.5.0
+
+- **148 tools** (+14): test plan lifecycle (`list_test_plans`, `get_test_plan`, `run_test_plan`, `rename_test_plan`, `delete_test_plan`), defects (`list_defects`, `get_defect`, `create_defect`, `update_defect`, `delete_defect`), `delete_launch`, folder `rename_test_case_folder` / `delete_test_case_folder`, and attachment download `get_test_case_attachment_content`
+- **Attachments in steps** — `upload_test_case_attachment` (file or table in a step or its expected result, up to 20 MiB) and `add_test_case_step_table`
+- **`create_test_case` in one call** — all fields, custom fields and nested steps with expected results
+- **Reliability fixes** — stdio no longer exits on large messages (limit 32 MiB), issue linking works, `update_test_case` clears fields and writes real scenario text, members are added instead of replaced, rich-text step formatting is preserved, folder moves are validated, launch status/report are correct, schema-required arguments are enforced
+- See [CHANGELOG.md](CHANGELOG.md#250---2026-10-02---add-attachments-test-plans-defects-and-folder-management-fix-broken-and-partial-tools) for the full list
+
+## What's New in v2.0.0
 
 - **MCP protocol 2025-11-25** with version negotiation and stable cursor-based pagination
 - **115 tools** (+ `find_project`, `remove_test_cases_from_launch`, `get_task_status`, `list_running_tasks`, `cancel_task`, `analyze_launch_failures`)
