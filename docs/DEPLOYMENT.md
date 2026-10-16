@@ -310,7 +310,11 @@ server {
         proxy_send_timeout 3600s;
     }
 
-    # Streamable HTTP endpoint (MCP 2025-11-25)
+    # Streamable HTTP endpoint (MCP 2025-11-25).
+    # GET /mcp is a long-lived SSE stream — the channel confirmation prompts
+    # (elicitation) and sampling travel on — so buffering must be off and the
+    # read timeout long, exactly as for /sse. With buffering on, destructive
+    # tools cannot ask the user to confirm.
     location /mcp {
         proxy_pass http://testops_mcp_backend;
         proxy_http_version 1.1;
@@ -319,8 +323,11 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header X-Forwarded-Host $server_name;
         proxy_pass_request_headers on;
-        proxy_read_timeout 60s;
+        proxy_buffering off;
+        proxy_cache off;
         proxy_connect_timeout 10s;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
     }
 
     # Legacy SSE messages endpoint
@@ -491,12 +498,26 @@ curl -f http://localhost:3000/health
 
 ### Horizontal Scaling (Multiple Replicas)
 
-Allure MCP Server is **stateless** and can run multiple replicas behind a load balancer.
+Allure MCP Server keeps no shared database, so replicas scale horizontally — but **MCP sessions live in
+the process that created them**, and every replica has its own. A client must therefore keep talking to
+the same instance for the life of its session:
+
+- an `/sse` stream and the `POST /messages` calls that answer it must reach the same replica;
+- a `Mcp-Session-Id` issued by `POST /mcp` is only known to the replica that issued it — another one
+  answers `404`, and the client re-initializes in a loop;
+- the per-session Allure token (`X-Allure-Token`) and background tasks live there too.
+
+So enable sticky sessions whenever you run more than one replica. A client that sends `X-Allure-Token`
+on every request and never calls `initialize` is unaffected — its token applies per request.
 
 #### With Nginx Load Balancing
 
 ```nginx
 upstream allure_mcp {
+    # Sticky by client address: without it a session created on one backend is
+    # unknown to the next, and the client has to start over on every request.
+    ip_hash;
+
     server localhost:3001;
     server localhost:3002;
     server localhost:3003;
@@ -519,6 +540,16 @@ Scale replicas:
 
 ```bash
 kubectl scale deployment allure-mcp --replicas=3
+```
+
+The bundled `k8s-manifest.yaml` Service sets `sessionAffinity: ClientIP` for the reason above. Behind an
+ingress, enable its own sticky sessions as well — e.g. for ingress-nginx:
+
+```yaml
+annotations:
+  nginx.ingress.kubernetes.io/affinity: "cookie"
+  nginx.ingress.kubernetes.io/session-cookie-name: "allure-mcp"
+  nginx.ingress.kubernetes.io/proxy-buffering: "off"
 ```
 
 #### With Docker Swarm
@@ -678,6 +709,8 @@ location /sse {
 - [ ] Rate limiting enabled
 - [ ] MCP_AUTH_TOKENS configured with strong per-user tokens
 - [ ] Audit log volume mounted and retention days configured
-- [ ] CORS_ALLOWED_ORIGIN restricted (not `*`)
+- [ ] CORS_ALLOWED_ORIGIN left empty, or restricted to one exact origin (never `*`)
+- [ ] `GET /mcp` passes through the proxy unbuffered (`proxy_buffering off`) — without it destructive tools cannot ask for confirmation
+- [ ] With more than one replica: sticky sessions enabled (`sessionAffinity: ClientIP`, or the ingress equivalent) — MCP sessions live in the pod that created them
 - [ ] Reverse proxy body limit allows 32 MiB (`client_max_body_size 32m`) for attachment uploads
 - [ ] Secrets not in `.env` (use secret manager)

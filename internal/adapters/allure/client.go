@@ -22,26 +22,84 @@ type jwtEntry struct {
 	expiresAt time.Time
 }
 
+// maxCachedTokens bounds the per-token caches (JWT + HTTP client). Entries are
+// only ever added when a distinct API token is used, so on a shared server the
+// maps would otherwise grow for the lifetime of the process.
+const maxCachedTokens = 256
+
 type Client struct {
-	baseURL    string
-	userToken  string
+	baseURL   string
+	userToken string
+	timeout   time.Duration
+	transport http.RoundTripper
+	// httpClient is the fallback client (no cookie jar), used where no API
+	// token is in play — currently nothing but tests.
 	httpClient *http.Client
 
-	mu              sync.Mutex
-	jwtCache        map[string]jwtEntry // keyed by API token — each user's JWT is stored separately
+	mu       sync.Mutex
+	jwtCache map[string]jwtEntry // keyed by API token — each user's JWT is stored separately
+	// httpClients holds one client per API token. Each has its own cookie jar:
+	// Allure hands out an XSRF-TOKEN cookie, and with a single shared jar one
+	// user's cookies rode along on every other user's request. They share one
+	// Transport, so connection pooling is unaffected.
+	httpClients     map[string]*http.Client
 	getSessionToken func(ctx context.Context) string
 }
 
 func NewClient(baseURL, token string, timeout time.Duration) *Client {
-	jar, _ := cookiejar.New(nil)
+	transport := http.DefaultTransport
 	return &Client{
-		baseURL:   strings.TrimRight(baseURL, "/"),
-		userToken: token,
-		jwtCache:  make(map[string]jwtEntry),
+		baseURL:     strings.TrimRight(baseURL, "/"),
+		userToken:   token,
+		timeout:     timeout,
+		transport:   transport,
+		jwtCache:    make(map[string]jwtEntry),
+		httpClients: make(map[string]*http.Client),
 		httpClient: &http.Client{
-			Timeout: timeout,
-			Jar:     jar,
+			Timeout:   timeout,
+			Transport: transport,
 		},
+	}
+}
+
+// clientFor returns the HTTP client that carries apiToken's cookie jar.
+func (c *Client) clientFor(apiToken string) *http.Client {
+	if apiToken == "" {
+		return c.httpClient
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if cl, ok := c.httpClients[apiToken]; ok {
+		return cl
+	}
+	jar, _ := cookiejar.New(nil)
+	cl := &http.Client{Timeout: c.timeout, Transport: c.transport, Jar: jar}
+	c.evictLocked()
+	c.httpClients[apiToken] = cl
+	return cl
+}
+
+// clientForCtx returns the HTTP client for the API token this request resolves to.
+func (c *Client) clientForCtx(ctx context.Context) *http.Client {
+	return c.clientFor(c.resolveAPIToken(ctx))
+}
+
+// evictLocked drops cached state for tokens whose JWT has expired, and, if the
+// caches are still at the cap, for an arbitrary token beyond it. c.mu must be held.
+func (c *Client) evictLocked() {
+	now := time.Now()
+	for token, entry := range c.jwtCache {
+		if now.After(entry.expiresAt) {
+			delete(c.jwtCache, token)
+			delete(c.httpClients, token)
+		}
+	}
+	for token := range c.httpClients {
+		if len(c.httpClients) < maxCachedTokens {
+			break
+		}
+		delete(c.httpClients, token)
+		delete(c.jwtCache, token)
 	}
 }
 
@@ -102,6 +160,7 @@ func (c *Client) getJWTToken(ctx context.Context) (string, error) {
 		c.mu.Unlock()
 		return existing.jwt, nil
 	}
+	c.evictLocked()
 	c.jwtCache[apiToken] = jwtEntry{jwt: jwt, expiresAt: expiresAt}
 	c.mu.Unlock()
 
@@ -122,7 +181,7 @@ func (c *Client) fetchJWT(ctx context.Context, apiToken string) (string, int, er
 	httpReq.Header.Set("Accept", "application/json")
 	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := c.clientFor(apiToken).Do(httpReq)
 	if err != nil {
 		return "", 0, fmt.Errorf("http request: %w", err)
 	}
@@ -681,7 +740,7 @@ func (c *Client) UploadTestCaseAttachment(ctx context.Context, testCaseID int64,
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.clientForCtx(ctx).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("http request: %w", err)
 	}
@@ -711,7 +770,7 @@ func (c *Client) DownloadTestCaseAttachment(ctx context.Context, attachmentID in
 	}
 	req.Header.Set("Accept", "*/*")
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.clientForCtx(ctx).Do(req)
 	if err != nil {
 		return nil, "", fmt.Errorf("http request: %w", err)
 	}
@@ -1330,8 +1389,8 @@ func (c *Client) setAuthHeader(ctx context.Context, req *http.Request) error {
 	}
 	req.Header.Set("Authorization", "Bearer "+jwt)
 
-	if c.httpClient.Jar != nil {
-		cookies := c.httpClient.Jar.Cookies(req.URL)
+	if jar := c.clientForCtx(ctx).Jar; jar != nil {
+		cookies := jar.Cookies(req.URL)
 		for _, cookie := range cookies {
 			if cookie.Name == "XSRF-TOKEN" {
 				req.Header.Set("X-XSRF-TOKEN", cookie.Value)
@@ -1370,7 +1429,7 @@ func (c *Client) doRaw(ctx context.Context, method, path string, reqBody any, ok
 	}
 	httpReq.Header.Set("Accept", "application/json")
 
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := c.clientForCtx(ctx).Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("http request: %w", err)
 	}
@@ -1703,9 +1762,10 @@ func (c *Client) SetAuthHeader(ctx context.Context, req *http.Request) error {
 	return c.setAuthHeader(ctx, req)
 }
 
-// GetHTTPClient returns the underlying HTTP client
-func (c *Client) GetHTTPClient() *http.Client {
-	return c.httpClient
+// GetHTTPClient returns the HTTP client to use for this request: the one
+// holding the cookie jar of the API token the request resolves to.
+func (c *Client) GetHTTPClient(ctx context.Context) *http.Client {
+	return c.clientForCtx(ctx)
 }
 
 // HasToken checks if the client has a configured token

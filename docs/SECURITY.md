@@ -300,11 +300,36 @@ server → Claude: {status: "deleted"}
 
 | Transport | Confirmation | Notes |
 |-----------|-------------|-------|
-| HTTP + SSE (`/sse`, `/messages`) | ✓ Elicitation dialog shown | Full support |
-| Streamable HTTP (`/mcp`) | ✓ Elicitation dialog shown | Full support |
-| Stdio | ✗ Returns error | Interactive session required for destructive ops |
+| Stdio | ✓ Elicitation dialog shown | The request travels over stdout, which the server always drains |
+| HTTP + SSE (`/sse`, `/messages`) | ✓ Elicitation dialog shown | The open `/sse` stream carries the request |
+| Streamable HTTP (`/mcp`) | ✓ Elicitation dialog shown, with an open `GET /mcp` stream | A client that never opens the stream cannot be asked |
 
-**Client support:** Confirmation uses MCP elicitation, which works on both transports (stdio and HTTP). If the MCP client did not declare the `elicitation` capability in `initialize`, delete tools fail immediately with an error instead of deleting — they never proceed unconfirmed.
+**Client support:** confirmation uses MCP elicitation. If the client did not declare the `elicitation`
+capability in `initialize`, or there is no server→client stream to deliver the request on, delete tools
+fail immediately with an error instead of deleting — they never proceed unconfirmed.
+
+**Not being asked is not consent, and not a refusal either.** When the server cannot reach the user it
+returns an error that says why. It does not report it as a cancellation: until 2.6.0 a `/mcp` client got
+`{"cancelled": true, "message": "Cancelled."}` for every delete, which read as "the user said no" when
+in fact nobody had been asked.
+
+### Session isolation
+
+A session id is a capability. Whoever presents it drives that session and uses the Allure token stored
+under it, so:
+
+- `initialize` on `POST /mcp` mints the id; it is registered server-side, and any other value is
+  rejected with `404` (the client is expected to `initialize` again).
+- The id is bound to the authenticated user who opened it. The same id presented with a different
+  bearer token is refused with `403`, on `POST`, `GET` and `DELETE`.
+- Sessions expire 30 minutes after their last request if no stream is open, and `DELETE /mcp` ends one
+  immediately. Either way the stored Allure token is cleared — as it is when an `/sse` client
+  disconnects.
+- An `X-Allure-Token` sent without a session applies to that one request only.
+- Background tasks (`list_running_tasks`, `get_task_status`, `cancel_task`) are scoped to the session
+  that started them; another user's task reads as not found.
+- Each Allure API token gets its own cookie jar, so one user's `XSRF-TOKEN` cookie is never sent on
+  another user's request.
 
 ---
 

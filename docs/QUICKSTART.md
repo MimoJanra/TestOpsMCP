@@ -322,7 +322,7 @@ Claude calls `analyze_launch_failures` — fetches failed tests, asks Claude to 
 
 > "Delete test case 456"
 
-Claude calls `delete_test_case` — a confirmation dialog (elicitation) appears asking the user to accept or reject before the deletion proceeds.
+Claude calls `delete_test_case` — a confirmation dialog (elicitation) appears asking the user to accept or reject before the deletion proceeds. It needs a server→client channel: stdio and `/sse` always have one, and on `/mcp` the client must keep its `GET /mcp` stream open (`mcp-remote` and Claude Code do). Without one the tool returns an error and deletes nothing.
 
 ---
 

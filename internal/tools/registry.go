@@ -121,21 +121,25 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 	}
 	r.taskStore.StartJanitor(context.Background())
 
-	// Load OpenAPI spec and build operations index
-	if specPath, err := FindSpecFile(); err == nil {
-		if spec, err := LoadOpenAPI(specPath); err == nil {
-			r.openAPISpec = spec
-			if idx, err := BuildOperationsIndex(spec); err == nil {
-				r.opIndex = idx
-				logger.Info("loaded OpenAPI spec", map[string]any{
-					"spec_file":  specPath,
-					"operations": len(idx.ListAll()),
-				})
-			} else {
-				logger.Info("failed to build operations index", map[string]any{"error": err.Error()})
-			}
+	// Load the OpenAPI spec and build the operations index. The spec is
+	// embedded in the binary, so this works from any working directory and in
+	// the Docker image; a spec file on disk overrides it. Failures are logged
+	// at warn level because they silently cost the caller
+	// search_testops_operations and execute_testops_operation.
+	if spec, source, err := LoadSpec(); err != nil {
+		logger.Warn("failed to load OpenAPI spec — search_testops_operations and execute_testops_operation are unavailable",
+			map[string]any{"error": err.Error()})
+	} else {
+		r.openAPISpec = spec
+		if idx, err := BuildOperationsIndex(spec); err == nil {
+			r.opIndex = idx
+			logger.Info("loaded OpenAPI spec", map[string]any{
+				"spec_source": source,
+				"operations":  len(idx.ListAll()),
+			})
 		} else {
-			logger.Info("failed to load OpenAPI spec", map[string]any{"error": err.Error()})
+			logger.Warn("failed to build operations index — search_testops_operations and execute_testops_operation are unavailable",
+				map[string]any{"error": err.Error()})
 		}
 	}
 
@@ -149,6 +153,11 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 	// for the specific MCP session that originated the request.
 	if allureClient != nil {
 		allureClient.SetSessionTokenFunc(func(ctx context.Context) string {
+			// A token bound to this one request wins over the session's stored
+			// token, so a sessionless HTTP client can pass its own.
+			if tok := session.APITokenFromContext(ctx); tok != "" {
+				return tok
+			}
 			return r.getSessionToken(session.IDFromContext(ctx))
 		})
 	}
@@ -235,7 +244,8 @@ func NewRegistry(allureClient *allure.Client, logger *core.Logger) *Registry {
 				"For operations that require an array or a specific body structure, pass the value under the special key \"body\" " +
 				"(e.g. {\"testCaseId\": 1, \"body\": [{\"customField\": {\"id\": 5}, \"values\": [{\"id\": 12}]}]}). " +
 				"Named path/query parameters are matched by name from the spec; everything else is sent as the request body. " +
-				"Operations that resolve to DELETE, PUT, or PATCH are destructive and are refused unless \"parameters\" also " +
+				"Operations that can destroy data — DELETE/PUT/PATCH, and POST operations whose path or id says remove, " +
+				"delete, hide, cleanup, purge, reset, revoke, truncate or wipe — are refused unless \"parameters\" also " +
 				"includes \"confirm\": true — call once without it to see the confirmation error, then re-call with confirm " +
 				"once you're sure. " +
 				"Renders result in an interactive widget.",
@@ -425,6 +435,15 @@ func (r *Registry) getSessionToken(sessID string) string {
 	r.sessionTokensMu.RLock()
 	defer r.sessionTokensMu.RUnlock()
 	return r.sessionTokens[sessID]
+}
+
+// HasSessionToken reports whether an Allure API token is currently stored for
+// the given MCP session ID. It exposes presence only, never the token itself.
+func (r *Registry) HasSessionToken(sessID string) bool {
+	r.sessionTokensMu.RLock()
+	defer r.sessionTokensMu.RUnlock()
+	_, ok := r.sessionTokens[sessID]
+	return ok
 }
 
 // ClearSessionToken removes the stored API token for the given MCP session ID.

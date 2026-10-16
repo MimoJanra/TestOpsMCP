@@ -122,3 +122,35 @@ func TestFormatParamValue(t *testing.T) {
 		}
 	}
 }
+
+// In this API bulk removal is a POST, so gating only DELETE/PUT/PATCH let
+// execute_testops_operation wipe data with no confirmation at all.
+func TestIsDestructiveOperation(t *testing.T) {
+	cases := []struct {
+		method, path, opID string
+		want               bool
+	}{
+		{"DELETE", "/api/testcase/{id}", "deleteOne", true},
+		{"PUT", "/api/testcase/{id}", "update", true},
+		{"PATCH", "/api/testcase/{id}", "patch", true},
+		{"POST", "/api/v2/test-case/bulk/remove", "deleteAll", true},
+		{"POST", "/api/testresult/bulk/hide", "hide", true},
+		{"POST", "/api/defect/bulk/remove", "remove_2", true},
+		{"POST", "/api/cleanup/launch", "cleanupLaunch", true},
+		{"POST", "/api/account/password/reset", "resetPassword_1", true},
+		{"POST", "/api/testcase/bulk/cfv/remove", "cfvRemove_1", true},
+		// Reversible neighbours must not start demanding a confirmation.
+		{"GET", "/api/testcase/{id}", "getOne", false},
+		{"POST", "/api/rs/launch", "create", false},
+		{"POST", "/api/sharedstep/{id}/unarchive", "unarchive", false},
+		{"POST", "/api/launch/{launchId}/upload/archive", "uploadArchives", false},
+		{"POST", "/api/v2/test-case/tree/bulk/drag-and-drop", "dragAndDrop", false},
+		{"POST", "/api/testcase/bulk/mute/add", "muteAdd_1", false},
+	}
+	for _, c := range cases {
+		op := &Operation{Method: c.method, Path: c.path, OperationID: c.opID}
+		if got := isDestructiveOperation(op); got != c.want {
+			t.Errorf("isDestructiveOperation(%s %s / %s) = %v, want %v", c.method, c.path, c.opID, got, c.want)
+		}
+	}
+}

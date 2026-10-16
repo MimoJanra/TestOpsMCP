@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-10-16 - Fix Streamable HTTP Sessions, Ship the OpenAPI Spec in the Binary, Isolate Users
+
+### Fixed
+
+- **Streamable HTTP (`POST /mcp`) now creates a real session.** The id returned by `initialize` was minted but never registered, so every later lookup for it missed. The visible effects on the transport the docs recommend for shared servers: every destructive tool (`delete_test_case`, `bulk_delete_test_cases`, `delete_launch`, `delete_test_plan`, `delete_defect`, `remove_test_cases_from_launch` with `mode=delete`) answered `{"cancelled": true, "message": "Cancelled."}` without ever asking the user, `analyze_launch_failures` failed with "session not found for sampling", and `resources/subscribe` returned OK while starting no watcher. Sessions are now registered, carry the client capabilities from `initialize`, and are terminated by `DELETE /mcp` or after 30 minutes idle.
+- **`GET /mcp` opens the server→client SSE stream** instead of returning `405`. This is the channel elicitation and sampling requests travel on; without it a confirmation request would be queued with nobody reading it. If no stream is attached, tools that need one now say so instead of waiting for their timeout.
+- **Not being able to ask the user is reported as an error, not as a rejection.** A missing session, a client without elicitation support, or no open stream used to be rendered as "Cancelled.", which told the user they declined something they were never shown.
+- **The OpenAPI spec is embedded in the binary** (`internal/tools/assets/testops.json`). It used to be read from `spec/testops.json` relative to the working directory, so it was found only when the server was started from the repository root: the Docker image and the released binaries ship no spec file, and MCP clients start the binary with an arbitrary working directory. Without it `search_testops_operations` and `execute_testops_operation` were never registered — 146 tools instead of 148, with no log line saying why, while the server's own instructions told the model to use them for anything without a dedicated tool. A `testops.json` on disk still overrides the embedded copy, and a failure to load one is now logged at warn level.
+- **Pagination in `browse_test_case_tree` / folder resolution is capped** at 200 pages per node, like every other paging loop in the codebase; both loops previously relied entirely on the API setting `last`.
+- **The Docker image reports its real version** — it was built without `-ldflags`, so every published image called itself `dev`.
+
+### Security
+
+- **`execute_testops_operation` now gates destructive POST operations.** The confirmation gate only covered DELETE/PUT/PATCH, but in this API bulk removal is a POST: `/api/v2/test-case/bulk/remove`, `/api/testresult/bulk/hide`, `/api/defect/bulk/remove` and `/api/cleanup/*` all deleted data with no confirmation at all. POST operations whose path or operation id contains `remove`, `delete`, `hide`, `cleanup`, `purge`, `reset`, `revoke`, `truncate` or `wipe` now require `parameters.confirm=true`. Matching is on whole words, so `unarchive`, `uploadArchives` and `dragAndDrop` are unaffected.
+- **A session id is bound to the user who opened it.** Both HTTP transports now refuse (`403`) a session id presented by a different authenticated user, and an unknown `Mcp-Session-Id` gets `404` so the client re-initializes. Previously any value in that header was accepted and used as the key for the caller's Allure token.
+- **Background tasks are scoped to the session that started them.** `list_running_tasks`, `get_task_status` and `cancel_task` operate on a process-wide store; on a shared server every user could list, read (results included) and cancel everyone else's work.
+- **Per-user cookie jars.** The Allure client used one shared cookie jar, so the `XSRF-TOKEN` cookie of whichever user authenticated last rode along on every other user's request. Each API token now gets its own jar (sharing one transport, so connection pooling is unchanged).
+- **Stored Allure tokens are cleared when a session ends** — an SSE disconnect left the token in memory for the lifetime of the process. The JWT and HTTP-client caches now evict expired entries and are capped at 256 tokens.
+- **A sessionless `X-Allure-Token` is bound to its own request** instead of being stored in a process-wide slot that the next client would pick up.
+- **`docker-compose.yml` no longer defaults `CORS_ALLOWED_ORIGIN` to `*`** (and neither does `.env.example`); it is empty unless set, matching the server's own default and the security guide.
+
+### Changed
+
+- `list_running_tasks` lists the tasks of the current session only; its description says so.
+- `Makefile` builds `bin/server` on macOS/Linux and `bin/server.exe` on Windows, instead of `.exe` everywhere.
+- `build-release.yml` builds the `./cmd/server` package rather than `./cmd/server/main.go`, and strips debug info like CI already did.
+- **Multi-replica deployments need sticky sessions.** MCP sessions have always lived in the process that created them (an `/sse` stream and its `/messages` calls already had to reach the same instance), but an unknown `Mcp-Session-Id` is now answered with `404` instead of being accepted, so a round-robin load balancer makes a `/mcp` client re-initialize on every request. `k8s-manifest.yaml` now sets `sessionAffinity: ClientIP`, and `docs/DEPLOYMENT.md` shows the nginx (`ip_hash`) and ingress equivalents. Clients that send `X-Allure-Token` on every request without calling `initialize` are unaffected.
+
 ## [2.5.0] - 2026-10-02 - Add Attachments, Test Plans, Defects and Folder Management; Fix Broken and Partial Tools
 
 ### Changed

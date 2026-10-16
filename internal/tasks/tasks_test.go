@@ -22,7 +22,7 @@ func TestCreate(t *testing.T) {
 	parent := context.WithValue(context.Background(), ctxKey{}, "session-123")
 	parent, cancelParent := context.WithCancel(parent)
 
-	task, taskCtx := s.Create("my_tool", parent)
+	task, taskCtx := s.Create("my_tool", "", parent)
 
 	if task.ID == "" {
 		t.Error("expected non-empty task ID")
@@ -52,7 +52,7 @@ func TestCreate(t *testing.T) {
 	default:
 	}
 
-	stored, ok := s.Get(task.ID)
+	stored, ok := s.Get(task.ID, "")
 	if !ok {
 		t.Fatal("task not found in store after Create")
 	}
@@ -65,7 +65,7 @@ func TestCreate_UniqueIDs(t *testing.T) {
 	s := NewStore()
 	seen := make(map[string]bool)
 	for i := 0; i < 50; i++ {
-		task, _ := s.Create("t", context.Background())
+		task, _ := s.Create("t", "", context.Background())
 		if seen[task.ID] {
 			t.Fatalf("duplicate task ID generated: %s", task.ID)
 		}
@@ -75,13 +75,13 @@ func TestCreate_UniqueIDs(t *testing.T) {
 
 func TestUpdate(t *testing.T) {
 	s := NewStore()
-	task, _ := s.Create("t", context.Background())
+	task, _ := s.Create("t", "", context.Background())
 
 	before := task.UpdatedAt
 	time.Sleep(time.Millisecond)
 	s.Update(task.ID, StatusSucceeded, "done", map[string]any{"n": 1}, nil)
 
-	got, ok := s.Get(task.ID)
+	got, ok := s.Get(task.ID, "")
 	if !ok {
 		t.Fatal("task not found")
 	}
@@ -104,11 +104,11 @@ func TestUpdate(t *testing.T) {
 
 func TestUpdate_WithError(t *testing.T) {
 	s := NewStore()
-	task, _ := s.Create("t", context.Background())
+	task, _ := s.Create("t", "", context.Background())
 
 	s.Update(task.ID, StatusFailed, "", nil, errors.New("boom"))
 
-	got, _ := s.Get(task.ID)
+	got, _ := s.Get(task.ID, "")
 	if got.Status != StatusFailed {
 		t.Errorf("Status = %q, want %q", got.Status, StatusFailed)
 	}
@@ -125,19 +125,19 @@ func TestUpdate_UnknownID(t *testing.T) {
 
 func TestGet_NotFound(t *testing.T) {
 	s := NewStore()
-	if _, ok := s.Get("nope"); ok {
+	if _, ok := s.Get("nope", ""); ok {
 		t.Error("expected ok=false for unknown task ID")
 	}
 }
 
 func TestGet_ReturnsCopyNotAlias(t *testing.T) {
 	s := NewStore()
-	task, _ := s.Create("t", context.Background())
+	task, _ := s.Create("t", "", context.Background())
 
-	got, _ := s.Get(task.ID)
+	got, _ := s.Get(task.ID, "")
 	got.Message = "mutated locally"
 
-	again, _ := s.Get(task.ID)
+	again, _ := s.Get(task.ID, "")
 	if again.Message == "mutated locally" {
 		t.Error("Get returned an alias to internal state instead of a copy")
 	}
@@ -145,17 +145,17 @@ func TestGet_ReturnsCopyNotAlias(t *testing.T) {
 
 func TestList(t *testing.T) {
 	s := NewStore()
-	if len(s.List()) != 0 {
+	if len(s.List("")) != 0 {
 		t.Error("expected empty list for a fresh store")
 	}
 
 	ids := map[string]bool{}
 	for i := 0; i < 3; i++ {
-		task, _ := s.Create("t", context.Background())
+		task, _ := s.Create("t", "", context.Background())
 		ids[task.ID] = true
 	}
 
-	list := s.List()
+	list := s.List("")
 	if len(list) != 3 {
 		t.Fatalf("List() len = %d, want 3", len(list))
 	}
@@ -165,7 +165,7 @@ func TestList(t *testing.T) {
 		}
 		task.Message = "mutated"
 	}
-	for _, task := range s.List() {
+	for _, task := range s.List("") {
 		if task.Message == "mutated" {
 			t.Error("List returned aliases to internal state instead of copies")
 		}
@@ -174,13 +174,13 @@ func TestList(t *testing.T) {
 
 func TestCancel(t *testing.T) {
 	s := NewStore()
-	task, taskCtx := s.Create("t", context.Background())
+	task, taskCtx := s.Create("t", "", context.Background())
 
-	if !s.Cancel(task.ID) {
+	if !s.Cancel(task.ID, "") {
 		t.Fatal("expected Cancel to succeed on a working task")
 	}
 
-	got, _ := s.Get(task.ID)
+	got, _ := s.Get(task.ID, "")
 	if got.Status != StatusCancelled {
 		t.Errorf("Status = %q, want %q", got.Status, StatusCancelled)
 	}
@@ -192,21 +192,21 @@ func TestCancel(t *testing.T) {
 	}
 
 	// Cancelling an already-cancelled (no longer working) task is a no-op.
-	if s.Cancel(task.ID) {
+	if s.Cancel(task.ID, "") {
 		t.Error("expected second Cancel on a non-working task to return false")
 	}
 }
 
 func TestCancel_UnknownID(t *testing.T) {
 	s := NewStore()
-	if s.Cancel("nope") {
+	if s.Cancel("nope", "") {
 		t.Error("expected Cancel to return false for unknown task ID")
 	}
 }
 
 func TestRun_Success(t *testing.T) {
 	s := NewStore()
-	task, ctx := s.Create("t", context.Background())
+	task, ctx := s.Create("t", "", context.Background())
 
 	done := make(chan struct{})
 	s.Run(task.ID, ctx, func(ctx context.Context) {
@@ -220,7 +220,7 @@ func TestRun_Success(t *testing.T) {
 		t.Fatal("Run did not execute fn in time")
 	}
 
-	got, _ := s.Get(task.ID)
+	got, _ := s.Get(task.ID, "")
 	if got.Status != StatusSucceeded {
 		t.Errorf("Status = %q, want %q", got.Status, StatusSucceeded)
 	}
@@ -228,7 +228,7 @@ func TestRun_Success(t *testing.T) {
 
 func TestRun_PanicIsRecoveredAsFailed(t *testing.T) {
 	s := NewStore()
-	task, ctx := s.Create("t", context.Background())
+	task, ctx := s.Create("t", "", context.Background())
 
 	s.Run(task.ID, ctx, func(ctx context.Context) {
 		panic("kaboom")
@@ -236,7 +236,7 @@ func TestRun_PanicIsRecoveredAsFailed(t *testing.T) {
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		got, _ := s.Get(task.ID)
+		got, _ := s.Get(task.ID, "")
 		if got.Status == StatusFailed {
 			if got.Error == "" {
 				t.Error("expected Error to be populated after a recovered panic")
@@ -251,13 +251,13 @@ func TestRun_PanicIsRecoveredAsFailed(t *testing.T) {
 func TestPurgeOldTasks(t *testing.T) {
 	s := NewStore()
 
-	oldFinished, _ := s.Create("t", context.Background())
+	oldFinished, _ := s.Create("t", "", context.Background())
 	s.Update(oldFinished.ID, StatusSucceeded, "", nil, nil)
 
-	recentFinished, _ := s.Create("t", context.Background())
+	recentFinished, _ := s.Create("t", "", context.Background())
 	s.Update(recentFinished.ID, StatusSucceeded, "", nil, nil)
 
-	oldWorking, _ := s.Create("t", context.Background())
+	oldWorking, _ := s.Create("t", "", context.Background())
 
 	// Reach into internal state to simulate age without waiting a real hour;
 	// this file lives in package tasks so it can touch unexported fields directly.
@@ -268,13 +268,13 @@ func TestPurgeOldTasks(t *testing.T) {
 
 	s.purgeOldTasks()
 
-	if _, ok := s.Get(oldFinished.ID); ok {
+	if _, ok := s.Get(oldFinished.ID, ""); ok {
 		t.Error("expected old finished task to be purged")
 	}
-	if _, ok := s.Get(recentFinished.ID); !ok {
+	if _, ok := s.Get(recentFinished.ID, ""); !ok {
 		t.Error("expected recent finished task to survive purge")
 	}
-	if _, ok := s.Get(oldWorking.ID); !ok {
+	if _, ok := s.Get(oldWorking.ID, ""); !ok {
 		t.Error("expected old but still-working task to survive purge (only finished tasks expire)")
 	}
 }
@@ -298,16 +298,47 @@ func TestStartJanitor_StopsOnContextCancel(t *testing.T) {
 
 func TestUpdateAfterCancelKeepsCancelled(t *testing.T) {
 	s := NewStore()
-	task, _ := s.Create("t", context.Background())
-	if !s.Cancel(task.ID) {
+	task, _ := s.Create("t", "", context.Background())
+	if !s.Cancel(task.ID, "") {
 		t.Fatal("cancel failed")
 	}
 	s.Update(task.ID, StatusSucceeded, "", map[string]any{"ok": true}, nil)
-	got, _ := s.Get(task.ID)
+	got, _ := s.Get(task.ID, "")
 	if got.Status != StatusCancelled {
 		t.Errorf("status = %s, want cancelled", got.Status)
 	}
 	if !strings.Contains(got.Message, "succeeded") {
 		t.Errorf("message = %q, want it to report the late outcome", got.Message)
+	}
+}
+
+// The store is process-wide, so on a shared HTTP server a task must only be
+// visible to the session that started it — otherwise one user could list, read
+// (results included) and cancel another user's background work.
+func TestTaskOwnerScoping(t *testing.T) {
+	s := NewStore()
+	mine, _ := s.Create("bulk_clone_test_cases", "session-a", context.Background())
+	theirs, _ := s.Create("bulk_clone_test_cases", "session-b", context.Background())
+
+	if _, ok := s.Get(mine.ID, "session-a"); !ok {
+		t.Error("owner cannot read their own task")
+	}
+	if _, ok := s.Get(theirs.ID, "session-a"); ok {
+		t.Error("another session's task must read as not found")
+	}
+
+	list := s.List("session-a")
+	if len(list) != 1 || list[0].ID != mine.ID {
+		t.Errorf("List returned %d tasks, want only the caller's own", len(list))
+	}
+
+	if s.Cancel(theirs.ID, "session-a") {
+		t.Error("another session's task must not be cancellable")
+	}
+	if got, _ := s.Get(theirs.ID, "session-b"); got.Status != StatusWorking {
+		t.Errorf("status = %q, want still working", got.Status)
+	}
+	if !s.Cancel(mine.ID, "session-a") {
+		t.Error("owner could not cancel their own task")
 	}
 }

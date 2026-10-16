@@ -58,6 +58,22 @@ func ElicitFromContext(ctx context.Context) (ElicitFunc, bool) {
 type idKey struct{}
 type userKey struct{}
 type remoteAddrKey struct{}
+type apiTokenKey struct{}
+
+// WithAPIToken returns a context carrying the Allure API token supplied for
+// this single request (the X-Allure-Token header on a sessionless Streamable
+// HTTP call). It takes precedence over any token stored per session, and never
+// outlives the request — so a client without an MCP session can still pass its
+// own token without it leaking into anyone else's calls.
+func WithAPIToken(ctx context.Context, token string) context.Context {
+	return context.WithValue(ctx, apiTokenKey{}, token)
+}
+
+// APITokenFromContext returns the per-request Allure API token, or "" if none.
+func APITokenFromContext(ctx context.Context) string {
+	token, _ := ctx.Value(apiTokenKey{}).(string)
+	return token
+}
 
 // StdioID is the fixed session identifier used in stdio mode (single user).
 const StdioID = "stdio"

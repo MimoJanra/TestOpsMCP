@@ -12,7 +12,10 @@ metadata:
 data:
   LOG_LEVEL: "INFO"
   REQUEST_TIMEOUT: "30"
-  CORS_ALLOWED_ORIGIN: "*"
+  # Empty sends no CORS headers, which is what non-browser MCP clients need.
+  # Set one exact origin (e.g. https://claude.ai) for browser clients; "*"
+  # would let any site drive this server.
+  CORS_ALLOWED_ORIGIN: ""
 ---
 apiVersion: v1
 kind: Secret
@@ -159,7 +162,15 @@ spec:
     port: 80
     targetPort: 3000
     protocol: TCP
-  sessionAffinity: None
+  # MCP sessions live in the process that created them (the SSE stream and the
+  # Streamable HTTP session id both belong to one pod), so with replicas > 1 a
+  # client must keep hitting the same pod. Without affinity a session created on
+  # one pod is answered with 404 by another, and the client re-initializes in a
+  # loop. Use ClientIP here, or sticky sessions on the ingress.
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler

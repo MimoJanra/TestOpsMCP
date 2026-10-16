@@ -26,7 +26,12 @@ const (
 )
 
 type Task struct {
-	ID        string    `json:"id"`
+	ID string `json:"id"`
+	// Owner is the MCP session the task was started from. Tasks are visible
+	// and cancellable only to their owner: on a shared HTTP server the store
+	// is process-wide, so without this every user could list, read and cancel
+	// everyone else's background work (and read its results).
+	Owner     string    `json:"-"`
 	Tool      string    `json:"tool"`
 	Status    Status    `json:"status"`
 	Message   string    `json:"message,omitempty"`
@@ -47,16 +52,17 @@ func NewStore() *Store {
 	return &Store{tasks: make(map[string]*Task)}
 }
 
-// Create registers a new task and returns a context that carries values from
-// parentCtx (e.g. session ID for token resolution) but is not cancelled when
-// parentCtx is cancelled. A 30-minute hard timeout is applied.
-func (s *Store) Create(toolName string, parentCtx context.Context) (*Task, context.Context) {
+// Create registers a new task owned by owner and returns a context that
+// carries values from parentCtx (e.g. session ID for token resolution) but is
+// not cancelled when parentCtx is cancelled. A 30-minute hard timeout is applied.
+func (s *Store) Create(toolName, owner string, parentCtx context.Context) (*Task, context.Context) {
 	// context.WithoutCancel propagates all key-value pairs (session ID, etc.)
 	// without inheriting the parent's cancellation signal.
 	base := context.WithoutCancel(parentCtx)
 	taskCtx, cancel := context.WithTimeout(base, taskTimeout)
 	t := &Task{
 		ID:        newTaskID(),
+		Owner:     owner,
 		Tool:      toolName,
 		Status:    StatusWorking,
 		CreatedAt: time.Now(),
@@ -111,36 +117,41 @@ func (s *Store) Update(id string, status Status, msg string, result any, taskErr
 	t.UpdatedAt = time.Now()
 }
 
-// Get returns a copy of the task so callers can read fields without racing
-// against concurrent Update calls.
-func (s *Store) Get(id string) (*Task, bool) {
+// Get returns a copy of owner's task so callers can read fields without racing
+// against concurrent Update calls. A task belonging to another owner is
+// reported as not found.
+func (s *Store) Get(id, owner string) (*Task, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	t, ok := s.tasks[id]
-	if !ok {
+	if !ok || t.Owner != owner {
 		return nil, false
 	}
 	cp := *t
 	return &cp, true
 }
 
-// List returns copies of all tasks for the same reason as Get.
-func (s *Store) List() []*Task {
+// List returns copies of owner's tasks for the same reason as Get.
+func (s *Store) List(owner string) []*Task {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	list := make([]*Task, 0, len(s.tasks))
 	for _, t := range s.tasks {
+		if t.Owner != owner {
+			continue
+		}
 		cp := *t
 		list = append(list, &cp)
 	}
 	return list
 }
 
-func (s *Store) Cancel(id string) bool {
+// Cancel cancels owner's task. Another owner's task is reported as not found.
+func (s *Store) Cancel(id, owner string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	t, ok := s.tasks[id]
-	if !ok || t.Status != StatusWorking {
+	if !ok || t.Owner != owner || t.Status != StatusWorking {
 		return false
 	}
 	t.Status = StatusCancelled

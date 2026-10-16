@@ -11,7 +11,10 @@ services:
     environment:
       PORT: 3000
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      CORS_ALLOWED_ORIGIN: ${CORS_ALLOWED_ORIGIN:-*}
+      # Empty by default: CORS is only needed when a browser talks to the
+      # server directly. Set it to the exact origin (e.g. https://claude.ai)
+      # rather than "*", which would let any site drive this server.
+      CORS_ALLOWED_ORIGIN: ${CORS_ALLOWED_ORIGIN:-}
       AUDIT_LOG_PATH: /app/audit
       AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-30}
 

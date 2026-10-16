@@ -99,6 +99,69 @@ var destructiveHTTPMethods = map[string]bool{
 	http.MethodPatch:  true,
 }
 
+// destructiveOpWords gate POST operations, because in this API bulk removal is
+// a POST, not a DELETE: /api/v2/test-case/bulk/remove, /api/testresult/bulk/hide,
+// /api/defect/bulk/remove and /api/cleanup/* all delete data behind a POST and
+// used to run with no confirmation at all.
+//
+// Matching is on whole words (path segments and camelCase operationId parts),
+// not substrings, so reversible neighbours keep working without a confirmation:
+// "unarchive", "uploadArchives" and "dragAndDrop" are not matches.
+var destructiveOpWords = map[string]bool{
+	"remove":   true,
+	"delete":   true,
+	"hide":     true,
+	"cleanup":  true,
+	"purge":    true,
+	"reset":    true,
+	"revoke":   true,
+	"truncate": true,
+	"wipe":     true,
+}
+
+// isDestructiveOperation reports whether op needs parameters.confirm=true.
+func isDestructiveOperation(op *Operation) bool {
+	if destructiveHTTPMethods[strings.ToUpper(op.Method)] {
+		return true
+	}
+	if !strings.EqualFold(op.Method, http.MethodPost) {
+		return false
+	}
+	for _, w := range splitOpWords(op.Path + " " + op.OperationID) {
+		if destructiveOpWords[w] {
+			return true
+		}
+	}
+	return false
+}
+
+// splitOpWords lowercases and splits a path + operationId into words, breaking
+// on non-letters and on camelCase boundaries: "/api/v2/test-case/bulk/remove
+// deleteAll" → [api v2 test case bulk remove delete all].
+func splitOpWords(s string) []string {
+	var words []string
+	var cur []rune
+	flush := func() {
+		if len(cur) > 0 {
+			words = append(words, strings.ToLower(string(cur)))
+			cur = cur[:0]
+		}
+	}
+	for _, rn := range s {
+		switch {
+		case rn >= 'a' && rn <= 'z', rn >= '0' && rn <= '9':
+			cur = append(cur, rn)
+		case rn >= 'A' && rn <= 'Z':
+			flush()
+			cur = append(cur, rn)
+		default:
+			flush()
+		}
+	}
+	flush()
+	return words
+}
+
 // executeOperation executes a discovered operation against TestOps API
 func (r *Registry) executeOperation(ctx context.Context, op *Operation, params interface{}) (any, error) {
 	var paramMap map[string]interface{}
@@ -108,12 +171,12 @@ func (r *Registry) executeOperation(ctx context.Context, op *Operation, params i
 		}
 	}
 
-	if destructiveHTTPMethods[op.Method] {
+	if isDestructiveOperation(op) {
 		confirmed, _ := paramMap["confirm"].(bool)
 		if !confirmed {
 			return nil, fmt.Errorf(
-				"operation %q uses %s and is destructive; re-call execute_testops_operation with parameters.confirm=true to proceed",
-				op.OperationID, op.Method,
+				"operation %q (%s %s) can destroy data; re-call execute_testops_operation with parameters.confirm=true to proceed",
+				op.OperationID, op.Method, op.Path,
 			)
 		}
 	}
@@ -209,7 +272,7 @@ func (r *Registry) executeOperation(ctx context.Context, op *Operation, params i
 	req.Header.Set("Accept", "application/json")
 
 	// Execute request
-	resp, err := r.allure.GetHTTPClient().Do(req)
+	resp, err := r.allure.GetHTTPClient(ctx).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("http request: %w", err)
 	}

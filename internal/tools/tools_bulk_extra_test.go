@@ -42,7 +42,7 @@ func waitForTask(t *testing.T, r *Registry, taskID string) *tasks.Task {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		task, ok := r.taskStore.Get(taskID)
+		task, ok := r.taskStore.Get(taskID, "")
 		if !ok {
 			t.Fatalf("task %s not found", taskID)
 		}

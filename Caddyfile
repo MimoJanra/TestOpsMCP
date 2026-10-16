@@ -9,6 +9,11 @@ allure-mcp.local {
         header_up X-Real-IP {remote}
         header_up X-Forwarded-For {remote}
         header_up X-Forwarded-Proto {scheme}
+
+        # GET /mcp and GET /sse are long-lived SSE streams: the confirmation
+        # prompts for destructive tools travel on them. -1 flushes immediately
+        # instead of buffering, so the prompt reaches the client.
+        flush_interval -1
     }
 
     # Rate limiting (10 requests per second, burst of 20)

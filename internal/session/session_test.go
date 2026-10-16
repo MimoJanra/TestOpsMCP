@@ -133,3 +133,13 @@ func TestContextValuesAreIndependent(t *testing.T) {
 		t.Errorf("RemoteAddrFromContext = %q, want %q", got, "10.0.0.1:80")
 	}
 }
+
+func TestAPITokenContext(t *testing.T) {
+	if got := APITokenFromContext(context.Background()); got != "" {
+		t.Errorf("APITokenFromContext on a bare context = %q, want empty", got)
+	}
+	ctx := WithAPIToken(context.Background(), "per-request-token")
+	if got := APITokenFromContext(ctx); got != "per-request-token" {
+		t.Errorf("APITokenFromContext = %q, want per-request-token", got)
+	}
+}

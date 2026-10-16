@@ -3,30 +3,78 @@ package tools
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-func TestFindSpecFile_Found(t *testing.T) {
+// The spec ships inside the binary; a spec/testops.json next to the server is
+// an override, so that a newer API spec can be dropped in without a rebuild.
+func TestFindSpecFile_FindsAnOverride(t *testing.T) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	repoRoot := filepath.Join(cwd, "..", "..")
-	if _, err := os.Stat(filepath.Join(repoRoot, "spec", "testops.json")); err != nil {
-		t.Skip("spec/testops.json not present at repo root in this checkout")
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "spec"), 0o755); err != nil {
+		t.Fatal(err)
 	}
-
-	if err := os.Chdir(repoRoot); err != nil {
+	override := filepath.Join(dir, "spec", "testops.json")
+	if err := os.WriteFile(override, []byte(`{"paths":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
 	path, err := FindSpecFile()
 	if err != nil {
-		t.Fatalf("FindSpecFile() from repo root: unexpected error: %v", err)
+		t.Fatalf("FindSpecFile(): unexpected error: %v", err)
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Errorf("FindSpecFile() returned %q which does not exist: %v", path, err)
+	}
+
+	// LoadSpec must use the override, not the embedded copy.
+	spec, source, err := LoadSpec()
+	if err != nil {
+		t.Fatalf("LoadSpec(): %v", err)
+	}
+	if source == "embedded" {
+		t.Error("LoadSpec ignored the on-disk override")
+	}
+	if len(spec.Paths) != 0 {
+		t.Errorf("loaded %d paths, want the empty override spec", len(spec.Paths))
+	}
+}
+
+// A broken override must not cost the server every operation.
+func TestLoadSpec_BrokenOverrideFallsBackToEmbedded(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "spec"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "spec", "testops.json"), []byte("not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	spec, source, err := LoadSpec()
+	if err != nil {
+		t.Fatalf("LoadSpec(): %v", err)
+	}
+	if !strings.HasPrefix(source, "embedded") {
+		t.Errorf("source = %q, want the embedded spec", source)
+	}
+	if len(spec.Paths) == 0 {
+		t.Error("fell back to an empty spec")
 	}
 }
 
@@ -344,5 +392,42 @@ func TestGetStringValueAndArray(t *testing.T) {
 	}
 	if arr := getStringArray(m, "missing"); arr != nil {
 		t.Errorf("getStringArray(missing) = %v, want nil", arr)
+	}
+}
+
+// The spec is embedded so that the Docker image, the released binaries and a
+// client that starts the server from an arbitrary directory all still get
+// search_testops_operations and execute_testops_operation.
+func TestLoadSpec_EmbeddedWorksFromAnyDirectory(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(cwd); err != nil {
+			t.Fatalf("restore cwd: %v", err)
+		}
+	}()
+
+	if _, err := FindSpecFile(); err == nil {
+		t.Fatal("expected no spec file in an empty temp directory")
+	}
+
+	spec, source, err := LoadSpec()
+	if err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	if source != "embedded" {
+		t.Errorf("source = %q, want embedded", source)
+	}
+	idx, err := BuildOperationsIndex(spec)
+	if err != nil {
+		t.Fatalf("BuildOperationsIndex: %v", err)
+	}
+	if n := len(idx.ListAll()); n < 500 {
+		t.Errorf("embedded spec yielded %d operations, want the full set", n)
 	}
 }

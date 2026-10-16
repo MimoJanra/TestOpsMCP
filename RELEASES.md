@@ -2,7 +2,16 @@
 
 All pre-built binaries are provided for easy setup without requiring Go installation.
 
-## 🆕 What's New in v2.5.0
+## 🆕 What's New in v2.6.0
+
+- **Destructive tools work on the `/mcp` transport again** — `initialize` now registers a real session, and `GET /mcp` carries the confirmation prompt. Every `delete_*` used to answer "Cancelled." on that transport without ever asking, and `analyze_launch_failures` failed outright
+- **The OpenAPI spec ships inside the binary** — `search_testops_operations` and `execute_testops_operation` (the 600+ endpoint fallback) were silently missing whenever the server was started from anywhere but the repository root, which includes every released binary and the Docker image
+- **`execute_testops_operation` asks before destructive POSTs** — bulk removal in this API is a POST, and those ran unconfirmed
+- **Multi-user isolation** — session ids are bound to the user who opened them, background tasks are private to their session, each Allure token gets its own cookie jar, and stored tokens are cleared when a session ends
+- **Multi-replica deployments need sticky sessions** (`sessionAffinity: ClientIP` / `ip_hash`) — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#scaling)
+- See [CHANGELOG.md](CHANGELOG.md#260---2026-10-16---fix-streamable-http-sessions-ship-the-openapi-spec-in-the-binary-isolate-users) for the full list
+
+## What's New in v2.5.0
 
 - **148 tools** (+14): test plan lifecycle (`list_test_plans`, `get_test_plan`, `run_test_plan`, `rename_test_plan`, `delete_test_plan`), defects (`list_defects`, `get_defect`, `create_defect`, `update_defect`, `delete_defect`), `delete_launch`, folder `rename_test_case_folder` / `delete_test_case_folder`, and attachment download `get_test_case_attachment_content`
 - **Attachments in steps** — `upload_test_case_attachment` (file or table in a step or its expected result, up to 20 MiB) and `add_test_case_step_table`

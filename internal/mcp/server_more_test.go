@@ -89,7 +89,7 @@ func TestHandleMessages_Unauthorized(t *testing.T) {
 
 func TestHandleMessages_BodyTooLarge(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	sess := s.newSession(context.Background(), newSessionID())
+	sess := s.newSession(context.Background(), newSessionID(), "")
 	defer s.closeSession(sess)
 
 	big := strings.Repeat("a", maxMessageBody+10)
@@ -102,7 +102,7 @@ func TestHandleMessages_BodyTooLarge(t *testing.T) {
 
 func TestHandleMessages_MalformedJSONStillAccepted(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	sess := s.newSession(context.Background(), newSessionID())
+	sess := s.newSession(context.Background(), newSessionID(), "")
 	defer s.closeSession(sess)
 
 	w := httptest.NewRecorder()
@@ -126,7 +126,7 @@ func TestHandleMessages_MalformedJSONStillAccepted(t *testing.T) {
 
 func TestHandleMessages_InvalidJSONRPCVersion(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	sess := s.newSession(context.Background(), newSessionID())
+	sess := s.newSession(context.Background(), newSessionID(), "")
 	defer s.closeSession(sess)
 
 	body := `{"jsonrpc":"1.0","id":1,"method":"initialize"}`
@@ -145,7 +145,7 @@ func TestHandleMessages_InvalidJSONRPCVersion(t *testing.T) {
 
 func TestHandleMessages_HappyPathSetsAllureToken(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	sess := s.newSession(context.Background(), newSessionID())
+	sess := s.newSession(context.Background(), newSessionID(), "")
 	defer s.closeSession(sess)
 
 	body := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`
@@ -182,7 +182,7 @@ func TestRoute_NotificationsInitialized(t *testing.T) {
 
 func TestRoute_EmptyMethodDispatchesJSONRPCResponse_Elicit(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	sess := s.newSession(context.Background(), newSessionID())
+	sess := s.newSession(context.Background(), newSessionID(), "")
 	defer s.closeSession(sess)
 
 	ch := make(chan *ElicitResult, 1)
@@ -211,7 +211,7 @@ func TestRoute_EmptyMethodDispatchesJSONRPCResponse_Elicit(t *testing.T) {
 
 func TestRoute_EmptyMethodDispatchesJSONRPCResponse_Sampling(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	sess := s.newSession(context.Background(), newSessionID())
+	sess := s.newSession(context.Background(), newSessionID(), "")
 	defer s.closeSession(sess)
 
 	ch := make(chan *SamplingResult, 1)
@@ -238,7 +238,7 @@ func TestRoute_EmptyMethodDispatchesJSONRPCResponse_Sampling(t *testing.T) {
 
 func TestRoute_EmptyMethodNotificationDoesNotDispatch(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	sess := s.newSession(context.Background(), newSessionID())
+	sess := s.newSession(context.Background(), newSessionID(), "")
 	defer s.closeSession(sess)
 
 	ch := make(chan *ElicitResult, 1)
@@ -438,9 +438,9 @@ func TestHandleComplete(t *testing.T) {
 
 func TestSubscribeUnsubscribeAndPublish(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	subscribed := s.newSession(context.Background(), newSessionID())
+	subscribed := s.newSession(context.Background(), newSessionID(), "")
 	defer s.closeSession(subscribed)
-	other := s.newSession(context.Background(), newSessionID())
+	other := s.newSession(context.Background(), newSessionID(), "")
 	defer s.closeSession(other)
 
 	const uri = "allure://docs/quickstart"
@@ -490,24 +490,43 @@ func TestSubscribeUnsubscribeAndPublish(t *testing.T) {
 
 // --- Elicit / CreateMessage ---
 
-func TestElicit_NoActiveSession(t *testing.T) {
+// Not being able to ask the user is an error, not a rejection: reporting it as
+// a reject made every delete_* tool answer "Cancelled." as if the user had
+// declined something they were never shown.
+func TestElicit_NoActiveSessionIsError(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	result, err := s.Elicit(context.Background(), ElicitRequest{Message: "confirm?"})
-	if err != nil || result.Action != "reject" {
-		t.Errorf("result=%+v err=%v, want reject/nil", result, err)
+	if _, err := s.Elicit(context.Background(), ElicitRequest{Message: "confirm?"}); err == nil {
+		t.Error("expected an error with no session id")
 	}
 
 	ctx := sessctx.WithID(context.Background(), "unknown")
-	result, err = s.Elicit(ctx, ElicitRequest{Message: "confirm?"})
-	if err != nil || result.Action != "reject" {
-		t.Errorf("unknown session: result=%+v err=%v, want reject/nil", result, err)
+	if _, err := s.Elicit(ctx, ElicitRequest{Message: "confirm?"}); err == nil {
+		t.Error("expected an error with an unknown session id")
+	}
+}
+
+// Without a server→client stream the elicitation request would sit in the
+// session buffer with nobody reading it until the 5-minute timeout.
+func TestElicit_NoStreamIsError(t *testing.T) {
+	s := newServerForTest(t, Options{})
+	sess := s.newSession(context.Background(), newSessionID(), "")
+	defer s.closeSession(sess)
+	ctx := sessctx.WithID(context.Background(), sess.id)
+	if _, err := s.Elicit(ctx, ElicitRequest{Message: "confirm?"}); err == nil {
+		t.Error("expected an error when no stream is attached")
+	}
+	if _, err := s.CreateMessage(ctx, SamplingRequest{}); err == nil {
+		t.Error("expected a sampling error when no stream is attached")
 	}
 }
 
 func TestElicit_ActiveSessionRoundTrip(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	sess := s.newSession(context.Background(), newSessionID())
+	sess := s.newSession(context.Background(), newSessionID(), "")
 	defer s.closeSession(sess)
+	// Stand in for the transport that drains sess.send.
+	sess.attachStream()
+	defer sess.detachStream()
 	ctx := sessctx.WithID(context.Background(), sess.id)
 
 	resultCh := make(chan *ElicitResult, 1)
@@ -553,8 +572,11 @@ func TestElicit_ActiveSessionRoundTrip(t *testing.T) {
 
 func TestElicit_ClosedSessionReturnsCancel(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	sess := s.newSession(context.Background(), newSessionID())
+	sess := s.newSession(context.Background(), newSessionID(), "")
 	defer s.closeSession(sess)
+	// Stand in for the transport that drains sess.send.
+	sess.attachStream()
+	defer sess.detachStream()
 	// Fill the send buffer so the "send" case in Elicit's first select can
 	// never be ready, forcing the sess.ctx.Done() branch deterministically.
 	for i := 0; i < sessionSendBuffer; i++ {
@@ -577,7 +599,7 @@ func TestElicit_ClosedSessionReturnsCancel(t *testing.T) {
 
 func TestElicit_ContextCancelled(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	sess := s.newSession(context.Background(), newSessionID())
+	sess := s.newSession(context.Background(), newSessionID(), "")
 	defer s.closeSession(sess)
 
 	ctx, cancel := context.WithCancel(sessctx.WithID(context.Background(), sess.id))
@@ -602,8 +624,11 @@ func TestCreateMessage_NoActiveSession(t *testing.T) {
 
 func TestCreateMessage_ActiveSessionRoundTrip(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	sess := s.newSession(context.Background(), newSessionID())
+	sess := s.newSession(context.Background(), newSessionID(), "")
 	defer s.closeSession(sess)
+	// Stand in for the transport that drains sess.send.
+	sess.attachStream()
+	defer sess.detachStream()
 	ctx := sessctx.WithID(context.Background(), sess.id)
 
 	resultCh := make(chan *SamplingResult, 1)
@@ -646,8 +671,11 @@ func TestCreateMessage_ActiveSessionRoundTrip(t *testing.T) {
 
 func TestCreateMessage_ClientErrorLeavesCallerWaiting(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	sess := s.newSession(context.Background(), newSessionID())
+	sess := s.newSession(context.Background(), newSessionID(), "")
 	defer s.closeSession(sess)
+	// Stand in for the transport that drains sess.send.
+	sess.attachStream()
+	defer sess.detachStream()
 	ctx := sessctx.WithID(context.Background(), sess.id)
 
 	go func() {
@@ -688,7 +716,7 @@ func TestCreateMessage_ClientErrorLeavesCallerWaiting(t *testing.T) {
 
 func TestCreateMessage_ClosedSession(t *testing.T) {
 	s := newServerForTest(t, Options{})
-	sess := s.newSession(context.Background(), newSessionID())
+	sess := s.newSession(context.Background(), newSessionID(), "")
 	defer s.closeSession(sess)
 	for i := 0; i < sessionSendBuffer; i++ {
 		sess.send <- []byte("x")
@@ -794,12 +822,21 @@ func TestHandleMCP_OptionsAndUnauthorized(t *testing.T) {
 	}
 }
 
-func TestHandleMCP_GetNotSupported(t *testing.T) {
+func TestHandleMCP_GetRequiresKnownSession(t *testing.T) {
 	s := newServerForTest(t, Options{})
+
 	w := httptest.NewRecorder()
 	s.HandleMCP(w, httptest.NewRequest(http.MethodGet, "/mcp", nil))
-	if w.Code != http.StatusMethodNotAllowed {
-		t.Errorf("status = %d, want 405", w.Code)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("no session header: status = %d, want 400", w.Code)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	req.Header.Set("Mcp-Session-Id", "nope")
+	w = httptest.NewRecorder()
+	s.HandleMCP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("unknown session: status = %d, want 404", w.Code)
 	}
 }
 

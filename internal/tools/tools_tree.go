@@ -144,6 +144,11 @@ func (r *Registry) registerTreeTools() {
 
 const treePageSize = 100
 
+// treeMaxPagesPerNode caps how many pages are pulled for a single tree node.
+// Every other paging loop in the codebase has a cap; these two relied purely
+// on the API setting `last`, so a server that never does would spin forever.
+const treeMaxPagesPerNode = 200
+
 // resolveTreeID returns treeID when set, otherwise the project's only tree.
 // With several trees there is no safe default, so it errors listing them.
 func (r *Registry) resolveTreeID(ctx context.Context, projectID, treeID int64) (int64, error) {
@@ -319,7 +324,7 @@ func (r *Registry) treeFolders(ctx context.Context, projectID, treeID int64) ([]
 		}
 		parent := queue[0]
 		queue = queue[1:]
-		for page := 0; ; page++ {
+		for page := 0; page < treeMaxPagesPerNode; page++ {
 			node, err := r.allure.GetTestCaseTreeNode(ctx, projectID, treeID, parent, "", page, treePageSize)
 			if err != nil {
 				return nil, err
@@ -332,6 +337,9 @@ func (r *Registry) treeFolders(ctx context.Context, projectID, treeID int64) ([]
 			}
 			if node.Children.Last || len(node.Children.Content) == 0 {
 				break
+			}
+			if page == treeMaxPagesPerNode-1 {
+				return nil, fmt.Errorf("folder %d of tree %d has more than %d pages of children", parent, treeID, treeMaxPagesPerNode)
 			}
 		}
 	}
@@ -434,7 +442,7 @@ func (r *Registry) resolveTreeLeaves(ctx context.Context, projectID, treeID int6
 		if depth > 50 {
 			return fmt.Errorf("test case tree is deeper than 50 levels")
 		}
-		for page := 0; ; page++ {
+		for page := 0; page < treeMaxPagesPerNode; page++ {
 			node, err := r.allure.GetTestCaseTreeNode(ctx, projectID, treeID, parent, aql, page, treePageSize)
 			if err != nil {
 				return err
@@ -452,7 +460,11 @@ func (r *Registry) resolveTreeLeaves(ctx context.Context, projectID, treeID int6
 			if node.Children.Last || len(node.Children.Content) == 0 {
 				return nil
 			}
+			if page == treeMaxPagesPerNode-1 {
+				return fmt.Errorf("folder %d of tree %d has more than %d pages of children", parent, treeID, treeMaxPagesPerNode)
+			}
 		}
+		return nil
 	}
 	if err := walk(0, 0); err != nil {
 		return nil, err

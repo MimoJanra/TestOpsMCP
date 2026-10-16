@@ -289,6 +289,12 @@ claude mcp list
 - **`Authorization`** — each user's named bearer token from `MCP_AUTH_TOKENS`. Omit the `--header "Authorization:..."` arg if the server has no auth configured.
 - **`X-Allure-Token`** — each person's own Allure API token. Actions in Allure are performed under that account.
 
+Each client gets its own MCP session (`Mcp-Session-Id`, returned by `initialize`), bound to its bearer
+token: another user presenting the same session id is refused. Tools that ask the user to confirm
+(every `delete_*`) and `analyze_launch_failures` need the client's server→client stream — `GET /mcp`,
+which `mcp-remote` and Claude Code keep open — so make sure a reverse proxy in front of the server does
+not buffer it (see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
+
 Each person needs to:
 1. Get their personal Allure API token (Settings → API tokens in Allure TestOps)
 2. Add it to their config as `X-Allure-Token`
@@ -320,7 +326,7 @@ If you prefer running without Docker:
 - **`search_testops_operations`** — Search for any API operation by keyword
   - Example: `"list projects"`, `"create launch"`, `"get test results"`
   - Covers all 600+ TestOps endpoints
-- **`execute_testops_operation`** — Execute any discovered operation (supports `body` key for array payloads)
+- **`execute_testops_operation`** — Execute any discovered operation (supports `body` key for array payloads). Operations that can destroy data — DELETE/PUT/PATCH and POST removals like `/api/v2/test-case/bulk/remove` — need `"confirm": true` in `parameters`.
 - **`configure_allure_token`** — Set token in chat (if not in config)
 
 ### Launch Management

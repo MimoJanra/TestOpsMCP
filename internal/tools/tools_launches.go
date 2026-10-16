@@ -367,7 +367,7 @@ func (r *Registry) runAllureLaunch(ctx context.Context, args runAllureLaunchArgs
 		"launch_name": args.LaunchName,
 	})
 
-	task, taskCtx := r.taskStore.Create("run_allure_launch", ctx)
+	task, taskCtx := r.taskStore.Create("run_allure_launch", session.IDFromContext(ctx), ctx)
 	r.taskStore.Run(task.ID, taskCtx, func(taskCtx context.Context) {
 		launch, err := r.allure.CreateLaunch(taskCtx, args.ProjectID, args.LaunchName)
 		if err != nil {
@@ -676,7 +676,7 @@ func (r *Registry) copyLaunch(ctx context.Context, args copyLaunchArgs) (any, er
 
 	r.logger.Info("copying launch async", map[string]any{"launch_id": args.LaunchID})
 
-	task, taskCtx := r.taskStore.Create("copy_launch", ctx)
+	task, taskCtx := r.taskStore.Create("copy_launch", session.IDFromContext(ctx), ctx)
 	r.taskStore.Run(task.ID, taskCtx, func(taskCtx context.Context) {
 		launchName := args.LaunchName
 		if launchName == "" {
@@ -738,7 +738,7 @@ func (r *Registry) mergeLaunches(ctx context.Context, args mergeLaunchesArgs) (a
 		"count":        len(args.FromLaunchIDs),
 	})
 
-	task, taskCtx := r.taskStore.Create("merge_launches", ctx)
+	task, taskCtx := r.taskStore.Create("merge_launches", session.IDFromContext(ctx), ctx)
 	r.taskStore.Run(task.ID, taskCtx, func(taskCtx context.Context) {
 		to := args.ToLaunchID
 		var merged []int64

@@ -33,6 +33,10 @@ func (sh *StdioHandler) Run() error {
 	sess, ctx := sh.registry.StdioSession(context.Background())
 	defer sh.registry.closeSession(sess)
 
+	// stdout is this session's server→client channel for as long as Run lives.
+	sess.attachStream()
+	defer sess.detachStream()
+
 	// Drain server-initiated messages (elicitation/create, sampling/createMessage
 	// requests) and write them to stdout, through the same locked writer used
 	// for ordinary responses so lines never interleave.

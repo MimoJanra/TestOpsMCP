@@ -28,10 +28,8 @@ func repoRoot(t *testing.T) string {
 
 // fullyConfiguredToolCount builds a Registry the way the real server does
 // (non-nil Allure client, real OpenAPI spec) and returns len(ListTools()).
-// FindSpecFile only checks a handful of relative paths, none of which reach
-// <repo>/spec/testops.json from the internal/tools package directory that
-// `go test` uses as its working directory — so this temporarily chdirs to
-// the repo root, matching how the compiled binary is actually run.
+// The spec is embedded, so this works from any directory; it still chdirs to
+// the repo root so the count is taken exactly as a release binary would.
 func fullyConfiguredToolCount(t *testing.T) int {
 	t.Helper()
 	root := repoRoot(t)
@@ -53,7 +51,7 @@ func fullyConfiguredToolCount(t *testing.T) int {
 	r := NewRegistry(client, core.NewLogger(core.LevelError))
 
 	if r.opIndex == nil {
-		t.Fatal("opIndex is nil — spec/testops.json was not found from the repo root; " +
+		t.Fatal("opIndex is nil — the embedded OpenAPI spec failed to load; " +
 			"this test can't establish the real fully-configured tool count")
 	}
 	return len(r.ListTools())

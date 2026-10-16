@@ -118,7 +118,10 @@ Multi-arch image: linux/amd64, linux/arm64. Pin versions: `ghcr.io/MimoJanra/Tes
 ```
 macOS/Linux: `"command": "npx", "args": ["-y","mcp-remote",...]`
 
-- Endpoints: `GET /health` (no auth, liveness probe), `POST /mcp` (streamable), `GET /sse` + `POST /messages` (legacy SSE)
+- Endpoints: `GET /health` (no auth, liveness probe), `POST /mcp` (streamable; `initialize` returns `Mcp-Session-Id`, resend it on every later request), `GET /mcp` (server→client SSE stream — required for confirmation prompts and sampling), `DELETE /mcp` (end session), `GET /sse` + `POST /messages` (legacy SSE)
+- Session ids are bound to the authenticated user (`403` otherwise), unknown/expired ids get `404`, idle sessions expire after 30 min
+- Sessions live in the process that created them: run multiple replicas only with sticky sessions (`sessionAffinity: ClientIP` / nginx `ip_hash`)
+- Background tasks are visible only to the session that started them
 - Named user auth via `MCP_AUTH_TOKENS=alice:tok1,bob:tok2` on the server
 - All requests logged to daily JSONL audit files under `AUDIT_LOG_PATH`
 - Max 32 MiB per JSON-RPC message (stdio line or HTTP body); a reverse proxy must allow it (`client_max_body_size 32m`) for attachment uploads (max 20 MiB file)

@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/MimoJanra/TestOpsMCP/internal/audit"
@@ -24,6 +25,12 @@ import (
 const (
 	sessionSendBuffer = 64 // increased from 16 to reduce response drops under burst load
 	heartbeatInterval = 25 * time.Second
+	// streamableSessionIdleTimeout bounds the lifetime of a Streamable HTTP
+	// session. Unlike an SSE or stdio session it is not tied to an open
+	// connection, so nothing else would ever free it (or the Allure token
+	// stored under its id) if the client goes away without DELETE /mcp.
+	streamableSessionIdleTimeout = 30 * time.Minute
+	sessionJanitorPeriod         = time.Minute
 	// maxMessageBody caps one JSON-RPC message on every transport. It must fit
 	// a base64-encoded upload_test_case_attachment (20 MiB file ≈ 26.7 MiB).
 	maxMessageBody = 32 << 20
@@ -52,13 +59,31 @@ type Server struct {
 
 	mu       sync.RWMutex
 	sessions map[string]*session
+
+	janitorOnce sync.Once
 }
 
 type session struct {
-	id     string
+	id string
+	// user is the authenticated user this session was opened by. Every later
+	// request carrying the session id must come from the same user, otherwise
+	// one user could drive another user's session (and their Allure token).
+	user   string
 	send   chan []byte
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	// streams counts attached server→client channels (an SSE stream, or the
+	// stdio writer). Server-initiated requests — elicitation and sampling —
+	// are only deliverable while at least one is attached; without this they
+	// were queued into send with nobody reading, and the tool call just sat
+	// there until its timeout.
+	streams atomic.Int32
+	// lastSeen (unix nanos) drives idle expiry of streamable-HTTP sessions.
+	lastSeen atomic.Int64
+	// expirable marks sessions with no connection of their own (streamable
+	// HTTP). SSE and stdio sessions live exactly as long as their transport.
+	expirable bool
 
 	pendingMu sync.Mutex
 	pending   map[string]chan *ElicitResult
@@ -90,6 +115,24 @@ func (sess *session) clientSupports(kind string) bool {
 		return sess.caps.Sampling != nil
 	}
 	return false
+}
+
+// attachStream marks a server→client channel as attached for this session.
+// Called by whichever transport is draining sess.send.
+func (sess *session) attachStream() { sess.streams.Add(1) }
+
+// detachStream undoes attachStream when that channel goes away.
+func (sess *session) detachStream() { sess.streams.Add(-1) }
+
+// hasStream reports whether anything is currently reading sess.send.
+func (sess *session) hasStream() bool { return sess.streams.Load() > 0 }
+
+// touch records activity for idle expiry.
+func (sess *session) touch() { sess.lastSeen.Store(time.Now().UnixNano()) }
+
+// idleSince reports how long the session has been idle at now.
+func (sess *session) idleSince(now time.Time) time.Duration {
+	return now.Sub(time.Unix(0, sess.lastSeen.Load()))
 }
 
 func NewServer(registry *tools.Registry, logger *core.Logger, opts Options) *Server {
@@ -150,8 +193,11 @@ func (s *Server) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 
 	sessCtx := sessctx.WithRemoteAddr(sessctx.WithUser(r.Context(), authUser), r.RemoteAddr)
-	sess := s.newSession(sessCtx, newSessionID())
+	sess := s.newSession(sessCtx, newSessionID(), authUser)
 	defer s.closeSession(sess)
+	// This handler is the session's server→client channel for as long as it runs.
+	sess.attachStream()
+	defer sess.detachStream()
 
 	// If the client supplies their Allure token as a header, store it for this session
 	// so all tool calls use it automatically — no need to call configure_allure_token.
@@ -222,6 +268,12 @@ func (s *Server) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown session", http.StatusNotFound)
 		return
 	}
+	if sess.user != msgUser {
+		s.logger.Warn("session id used by a different user", map[string]any{"session": sessionID})
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	sess.touch()
 
 	// Read at most maxMessageBody+1 bytes so we can detect oversized requests.
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxMessageBody+1))
@@ -703,16 +755,22 @@ func (s *Server) handleComplete(ctx context.Context, req *JSONRPCRequest) *JSONR
 // It returns the user's choice: "accept", "reject", or "cancel".
 // If the client doesn't support elicitation or no session is active, returns a reject.
 func (s *Server) Elicit(ctx context.Context, req ElicitRequest) (*ElicitResult, error) {
+	// A missing or unknown session used to be reported as a plain "reject",
+	// which callers render as "Cancelled." — telling the user they declined
+	// something they were never asked. Not being able to ask is an error.
 	sessID := sessctx.IDFromContext(ctx)
 	if sessID == "" {
-		return &ElicitResult{Action: "reject"}, nil
+		return nil, fmt.Errorf("this action needs the user to confirm, but the request carries no MCP session to ask through")
 	}
 	sess := s.getSession(sessID)
 	if sess == nil {
-		return &ElicitResult{Action: "reject"}, nil
+		return nil, fmt.Errorf("this action needs the user to confirm, but session %q is unknown or expired — send initialize to start a new one", sessID)
 	}
 	if !sess.clientSupports("elicitation") {
 		return nil, fmt.Errorf("the MCP client did not declare elicitation support, so the server can't ask the user to confirm")
+	}
+	if !sess.hasStream() {
+		return nil, fmt.Errorf("the MCP client has no open server-to-client stream (streamable HTTP: GET /mcp), so the server can't ask the user to confirm")
 	}
 
 	elicitID := newSessionID()
@@ -768,6 +826,9 @@ func (s *Server) CreateMessage(ctx context.Context, req SamplingRequest) (*Sampl
 	}
 	if !sess.clientSupports("sampling") {
 		return nil, fmt.Errorf("the MCP client did not declare sampling support")
+	}
+	if !sess.hasStream() {
+		return nil, fmt.Errorf("the MCP client has no open server-to-client stream (streamable HTTP: GET /mcp), so the server can't request sampling")
 	}
 
 	samplingID := newSessionID()
@@ -856,7 +917,7 @@ func (s *Server) elicitFuncForSession(ctx context.Context) sessctx.ElicitFunc {
 // and DELETE methods:
 //
 //	POST /mcp   — send a JSON-RPC message; receives an inline JSON response
-//	GET  /mcp   — reserved for server-initiated SSE (returns 405 for now)
+//	GET  /mcp   — open the server→client SSE stream for this session
 //	DELETE /mcp — explicit session termination (clears stored tokens)
 //
 // This transport coexists with the legacy HTTP+SSE endpoints (/sse, /messages)
@@ -881,10 +942,7 @@ func (s *Server) HandleMCP(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		s.handleMCPPost(w, r)
 	case http.MethodGet:
-		// Server-initiated SSE is not yet implemented.
-		// Per spec, returning 405 is valid.
-		w.Header().Set("Allow", "POST, DELETE, OPTIONS")
-		http.Error(w, "server-initiated SSE not supported; use POST for requests", http.StatusMethodNotAllowed)
+		s.handleMCPGet(w, r)
 	case http.MethodDelete:
 		s.handleMCPDelete(w, r)
 	default:
@@ -926,19 +984,48 @@ func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// For initialization, generate the session ID before dispatching so that
-	// an X-Allure-Token present on the same request can be stored under the
-	// new session ID immediately.
+	// Resolve the session. initialize creates a real one (registered in
+	// s.sessions, like the SSE transport does) so that elicitation, sampling
+	// and resource subscriptions work on this transport at all: previously the
+	// id was only minted and handed back, every lookup for it missed, and every
+	// tool that asks the user to confirm answered "Cancelled." on its own.
 	sessID := r.Header.Get("Mcp-Session-Id")
-	if req.Method == "initialize" {
-		sessID = newSessionID()
+	user := sessctx.UserFromContext(r.Context())
+	var sess *session
+	switch {
+	case req.Method == "initialize":
+		s.startSessionJanitor()
+		// The session outlives this POST, so it must not inherit the
+		// request's cancellation — only its values (user, remote addr).
+		sess = s.newSession(context.WithoutCancel(r.Context()), newSessionID(), user)
+		sess.expirable = true
+		sessID = sess.id
+	case sessID != "":
+		if sess = s.getSession(sessID); sess == nil {
+			// Per the Streamable HTTP spec a 404 tells the client its session
+			// is gone and it should start a new one with initialize.
+			writeMCPError(w, req.ID, ErrCodeInvalidRequest, "unknown or expired session; send initialize to start a new one", http.StatusNotFound)
+			return
+		}
+		if sess.user != user {
+			s.logger.Warn("session id used by a different user", map[string]any{"session": sessID})
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		sess.touch()
 	}
 
-	// Persist per-user Allure token whenever the client sends it.
-	// This can arrive on any request (most commonly on initialize or the first
-	// tool call), so we store it every time the header is present.
-	if tok := r.Header.Get("X-Allure-Token"); tok != "" && sessID != "" {
-		s.registry.SetSessionToken(sessID, tok)
+	// Per-user Allure token. It is bound to this request's context so that a
+	// client without a session (a plain stateless POST) gets its own token for
+	// this call only, instead of it landing in a process-wide slot that the
+	// next client would pick up. With a session it is also stored under that
+	// session id, so later requests need not repeat the header.
+	baseCtx := sessctx.WithID(r.Context(), sessID)
+	if tok := r.Header.Get("X-Allure-Token"); tok != "" {
+		baseCtx = sessctx.WithAPIToken(baseCtx, tok)
+		if sess != nil {
+			s.registry.SetSessionToken(sess.id, tok)
+		}
 	}
 
 	s.logger.Debug("streamable-HTTP request", map[string]any{
@@ -946,7 +1033,6 @@ func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request) {
 		"session": sessID,
 	})
 
-	baseCtx := sessctx.WithID(r.Context(), sessID)
 	ctx := sessctx.WithSampling(sessctx.WithElicit(baseCtx, s.elicitFuncForSession(baseCtx)), s.samplingFuncForSession(baseCtx))
 	resp := s.dispatch(ctx, &req)
 
@@ -970,11 +1056,92 @@ func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request) {
 // handleMCPDelete terminates a session and clears any stored per-session state.
 func (s *Server) handleMCPDelete(w http.ResponseWriter, r *http.Request) {
 	sessID := r.Header.Get("Mcp-Session-Id")
-	if sessID != "" {
-		s.registry.ClearSessionToken(sessID)
-		s.logger.Info("streamable-HTTP session terminated", map[string]any{"session": sessID})
+	if sessID == "" {
+		w.WriteHeader(http.StatusOK)
+		return
 	}
+	if sess := s.getSession(sessID); sess != nil {
+		if sess.user != sessctx.UserFromContext(r.Context()) {
+			s.logger.Warn("session id used by a different user", map[string]any{"session": sessID})
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		// closeSession cancels the session (dropping any open stream) and
+		// clears its stored token.
+		s.closeSession(sess)
+	} else {
+		s.registry.ClearSessionToken(sessID)
+	}
+	s.logger.Info("streamable-HTTP session terminated", map[string]any{"session": sessID})
 	w.WriteHeader(http.StatusOK)
+}
+
+// handleMCPGet opens the server→client SSE stream of an existing session, as
+// the Streamable HTTP transport defines it. Server-initiated requests
+// (elicitation/create, sampling/createMessage) and resource notifications are
+// delivered here; without an open stream the server has no way to reach the
+// client, and says so instead of waiting.
+func (s *Server) handleMCPGet(w http.ResponseWriter, r *http.Request) {
+	sessID := r.Header.Get("Mcp-Session-Id")
+	if sessID == "" {
+		http.Error(w, "Mcp-Session-Id header required; send initialize first", http.StatusBadRequest)
+		return
+	}
+	sess := s.getSession(sessID)
+	if sess == nil {
+		http.Error(w, "unknown or expired session; send initialize to start a new one", http.StatusNotFound)
+		return
+	}
+	if sess.user != sessctx.UserFromContext(r.Context()) {
+		s.logger.Warn("session id used by a different user", map[string]any{"session": sessID})
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	sess.attachStream()
+	defer sess.detachStream()
+	sess.touch()
+	s.logger.Info("streamable-HTTP stream opened", map[string]any{"session": sessID})
+
+	heartbeat := time.NewTicker(heartbeatInterval)
+	defer heartbeat.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			s.logger.Info("streamable-HTTP stream closed", map[string]any{"session": sessID})
+			return
+		case <-sess.ctx.Done():
+			return
+		case msg, ok := <-sess.send:
+			if !ok {
+				return
+			}
+			if _, err := fmt.Fprintf(w, "event: message\ndata: %s\n\n", msg); err != nil {
+				return
+			}
+			flusher.Flush()
+			sess.touch()
+		case <-heartbeat.C:
+			if _, err := io.WriteString(w, ": ping\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
+		}
+	}
 }
 
 // writeMCPError writes a JSON-RPC error response with the specified HTTP status code.
@@ -1033,10 +1200,11 @@ func resultToJSON(result any) string {
 
 // --- sessions ---
 
-func (s *Server) newSession(parent context.Context, id string) *session {
+func (s *Server) newSession(parent context.Context, id, user string) *session {
 	ctx, cancel := context.WithCancel(parent)
 	sess := &session{
 		id:            id,
+		user:          user,
 		send:          make(chan []byte, sessionSendBuffer),
 		ctx:           ctx,
 		cancel:        cancel,
@@ -1044,10 +1212,45 @@ func (s *Server) newSession(parent context.Context, id string) *session {
 		sampling:      make(map[string]chan *SamplingResult),
 		subscriptions: make(map[string]struct{}),
 	}
+	sess.touch()
 	s.mu.Lock()
 	s.sessions[sess.id] = sess
 	s.mu.Unlock()
 	return sess
+}
+
+// startSessionJanitor starts the idle-session sweeper once, on first use. It is
+// lazy so that a server that only ever serves stdio or SSE — including every
+// server built in a test — doesn't carry a background goroutine it never needs.
+func (s *Server) startSessionJanitor() {
+	s.janitorOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(sessionJanitorPeriod)
+			defer ticker.Stop()
+			for range ticker.C {
+				s.expireIdleSessions(time.Now())
+			}
+		}()
+	})
+}
+
+// expireIdleSessions closes streamable-HTTP sessions that have been idle past
+// streamableSessionIdleTimeout with no stream attached.
+func (s *Server) expireIdleSessions(now time.Time) int {
+	s.mu.RLock()
+	var stale []*session
+	for _, sess := range s.sessions {
+		if sess.expirable && !sess.hasStream() && sess.idleSince(now) > streamableSessionIdleTimeout {
+			stale = append(stale, sess)
+		}
+	}
+	s.mu.RUnlock()
+
+	for _, sess := range stale {
+		s.logger.Info("expiring idle session", map[string]any{"session": sess.id})
+		s.closeSession(sess)
+	}
+	return len(stale)
 }
 
 // StdioSession creates the single fixed-ID session used by the stdio transport
@@ -1059,7 +1262,7 @@ func (s *Server) newSession(parent context.Context, id string) *session {
 // the session via sessctx.IDFromContext, so the session must exist and the ID
 // must be on the context before any tool call is dispatched.
 func (s *Server) StdioSession(parent context.Context) (*session, context.Context) {
-	sess := s.newSession(parent, sessctx.StdioID)
+	sess := s.newSession(parent, sessctx.StdioID, sessctx.UserFromContext(parent))
 	ctx := sessctx.WithID(sess.ctx, sess.id)
 	ctx = sessctx.WithElicit(ctx, s.elicitFuncForSession(ctx))
 	ctx = sessctx.WithSampling(ctx, s.samplingFuncForSession(ctx))
@@ -1071,6 +1274,12 @@ func (s *Server) closeSession(sess *session) {
 	delete(s.sessions, sess.id)
 	s.mu.Unlock()
 	sess.cancel()
+	// Drop the Allure API token stored for this session. Without this a token
+	// handed over on an SSE connect stayed in memory for the lifetime of the
+	// process, long after the client disconnected.
+	if s.registry != nil {
+		s.registry.ClearSessionToken(sess.id)
+	}
 }
 
 func (s *Server) getSession(id string) *session {

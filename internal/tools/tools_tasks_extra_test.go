@@ -9,7 +9,7 @@ import (
 
 func TestGetTaskStatus(t *testing.T) {
 	r := newTestRegistry(t)
-	task, _ := r.taskStore.Create("some_tool", context.Background())
+	task, _ := r.taskStore.Create("some_tool", "", context.Background())
 
 	result, err := r.getTaskStatus(context.Background(), getTaskStatusArgs{TaskID: task.ID})
 	if err != nil {
@@ -30,8 +30,8 @@ func TestGetTaskStatus(t *testing.T) {
 
 func TestListRunningTasks(t *testing.T) {
 	r := newTestRegistry(t)
-	working, _ := r.taskStore.Create("tool_a", context.Background())
-	done, _ := r.taskStore.Create("tool_b", context.Background())
+	working, _ := r.taskStore.Create("tool_a", "", context.Background())
+	done, _ := r.taskStore.Create("tool_b", "", context.Background())
 	r.taskStore.Update(done.ID, tasks.StatusSucceeded, "", map[string]any{"ok": true}, nil)
 
 	result, err := r.listRunningTasks(context.Background(), listRunningTasksArgs{})
@@ -50,7 +50,7 @@ func TestListRunningTasks(t *testing.T) {
 
 func TestCancelTask(t *testing.T) {
 	r := newTestRegistry(t)
-	task, _ := r.taskStore.Create("some_tool", context.Background())
+	task, _ := r.taskStore.Create("some_tool", "", context.Background())
 
 	result, err := r.cancelTask(context.Background(), cancelTaskArgs{TaskID: task.ID})
 	if err != nil {
@@ -61,7 +61,7 @@ func TestCancelTask(t *testing.T) {
 		t.Errorf("status = %v, want cancelled", out["status"])
 	}
 
-	got, _ := r.taskStore.Get(task.ID)
+	got, _ := r.taskStore.Get(task.ID, "")
 	if got.Status != tasks.StatusCancelled {
 		t.Errorf("task store status = %v, want cancelled", got.Status)
 	}

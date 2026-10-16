@@ -260,7 +260,10 @@ func TestBuildSearchResults_LimitHandling(t *testing.T) {
 }
 
 func TestSearchTestOpsOperationsHandler(t *testing.T) {
-	r := newTestRegistry(t) // opIndex nil
+	r := newTestRegistry(t)
+	// The spec is embedded, so a registry always has an index now; drop it
+	// to exercise the "operations index not available" path.
+	r.opIndex = nil
 	if _, err := r.searchTestOpsOperations(context.Background(), SearchRequest{Intent: ""}); err == nil {
 		t.Error("expected error for empty intent")
 	}
@@ -283,7 +286,10 @@ func TestSearchTestOpsOperationsHandler(t *testing.T) {
 }
 
 func TestExecuteTestOpsOperationHandler(t *testing.T) {
-	r := newTestRegistry(t) // opIndex nil
+	r := newTestRegistry(t)
+	// The spec is embedded, so a registry always has an index now; drop it
+	// to exercise the "operations index not available" path.
+	r.opIndex = nil
 	if _, err := r.executeTestOpsOperation(context.Background(), ExecuteRequest{OperationID: ""}); err == nil {
 		t.Error("expected error for empty operation_id")
 	}

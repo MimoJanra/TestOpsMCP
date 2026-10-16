@@ -1,6 +1,10 @@
 # Multi-stage build for Allure MCP Server
 FROM golang:1.27-alpine AS builder
 
+# Version reported by --version and in the MCP initialize response. The release
+# workflow passes the tag; without it an image would report itself as "dev".
+ARG VERSION=dev
+
 WORKDIR /build
 
 # Install build dependencies
@@ -10,7 +14,9 @@ RUN apk add --no-cache git make
 COPY . .
 
 # Build the binary (explicit output name without .exe for Linux)
-RUN go build -o bin/server ./cmd/server
+RUN CGO_ENABLED=0 go build \
+    -ldflags "-s -w -X github.com/MimoJanra/TestOpsMCP/internal/mcp.Version=${VERSION}" \
+    -o bin/server ./cmd/server
 
 # Runtime stage - minimal image
 FROM alpine:3.21

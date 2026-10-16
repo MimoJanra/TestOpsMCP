@@ -3,25 +3,28 @@
 # Build the server binary
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS := -ldflags "-X github.com/MimoJanra/TestOpsMCP/internal/mcp.Version=$(VERSION)"
+# .exe only where it means something; the same Makefile is used on macOS/Linux.
+BINEXT := $(if $(filter Windows_NT,$(OS)),.exe,)
+BIN := bin/server$(BINEXT)
 
 build:
 	@echo "Building Allure MCP server ($(VERSION))..."
 	mkdir -p bin
-	go build $(LDFLAGS) -o bin/server.exe ./cmd/server
-	@echo "✓ Server built successfully at bin/server.exe"
+	go build $(LDFLAGS) -o $(BIN) ./cmd/server
+	@echo "✓ Server built successfully at $(BIN)"
 
 # Run server in stdio mode (default)
 run: build
 	@echo "Running server in stdio mode..."
 	@echo "Make sure environment variables are set:"
 	@echo "  ALLURE_BASE_URL, ALLURE_TOKEN"
-	@./bin/server.exe
+	@./$(BIN)
 
 # Run server in HTTP mode (for testing)
 run-http: build
 	@echo "Running server in HTTP mode on :3000..."
 	@echo "Loading environment from .env..."
-	@if [ -f .env ]; then set -a; . ./.env; set +a; fi; ./bin/server.exe --http
+	@if [ -f .env ]; then set -a; . ./.env; set +a; fi; ./$(BIN) --http
 
 # Run tests
 test:

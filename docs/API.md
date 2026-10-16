@@ -648,7 +648,67 @@ curl http://localhost:3000/health
 
 ---
 
+### `POST /mcp`
+
+Streamable HTTP transport (MCP spec 2025-03-26) — the recommended endpoint for shared servers.
+
+Send one JSON-RPC message, get the response inline. `initialize` returns a session id in the
+`Mcp-Session-Id` response header; include that header on every later request.
+
+```bash
+SESSION=$(curl -si http://localhost:3000/mcp   -H "Authorization: Bearer $MY_TOKEN"   -H "Content-Type: application/json"   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{"elicitation":{}}}}'   | grep -i '^Mcp-Session-Id:' | cut -d' ' -f2 | tr -d '
+')
+
+curl http://localhost:3000/mcp   -H "Authorization: Bearer $MY_TOKEN"   -H "Content-Type: application/json"   -H "Mcp-Session-Id: $SESSION"   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+```
+
+**Headers:**
+- `Authorization: Bearer <your-token>` — required when `MCP_AUTH_TOKENS` is configured
+- `Content-Type: application/json`
+- `Mcp-Session-Id: <id>` — required after `initialize`
+- `X-Allure-Token: <token>` — optional per-user Allure token. With a session it is remembered for
+  that session; without one it applies to that single request.
+
+A session belongs to the user who opened it: the same id presented with a different bearer token is
+refused with `403`. An unknown or expired id gets `404`, which tells the client to `initialize` again.
+Sessions expire after 30 minutes with no requests and no open stream.
+
+---
+
+### `GET /mcp`
+
+Opens the server→client SSE stream of an existing session. Requires `Mcp-Session-Id`.
+
+This is the channel server-initiated requests travel on: **elicitation** (the confirmation dialog for
+destructive tools) and **sampling** (`analyze_launch_failures`), plus `notifications/resources/updated`.
+A client that does not keep this stream open cannot be asked to confirm anything — tools that need it
+return an error saying so rather than waiting.
+
+```bash
+curl -N http://localhost:3000/mcp   -H "Authorization: Bearer $MY_TOKEN"   -H "Mcp-Session-Id: $SESSION"
+```
+
+```
+event: message
+data: {"jsonrpc":"2.0","id":"a1b2…","method":"elicitation/create","params":{"message":"Permanently delete…"}}
+
+: ping
+```
+
+The client answers with a normal `POST /mcp` carrying a JSON-RPC response with the same `id`.
+
+---
+
+### `DELETE /mcp`
+
+Terminates the session named by `Mcp-Session-Id`: closes any open stream and clears the Allure token
+stored for it. Another user's session id is refused with `403`.
+
+---
+
 ### `GET /sse`
+
+Legacy HTTP+SSE transport (MCP spec 2024-11-05), kept for existing configurations.
 
 Opens a Server-Sent Events (SSE) stream for receiving async responses.
 
@@ -736,7 +796,7 @@ The server implements **MCP Protocol 2025-11-25** (JSON-RPC 2.0 subset).
 ### Initialization Sequence
 
 ```
-1. Client opens GET /sse
+1. Client opens GET /sse  (legacy SSE transport; on /mcp, POST initialize instead)
    ↓
 2. Server sends: event: endpoint, data: /messages?sessionId=...
    ↓
@@ -927,12 +987,14 @@ asyncio.run(main())
 
 | Code | Meaning | Example |
 |------|---------|---------|
-| `200` | OK (SSE stream opened) | GET /sse |
-| `202` | Accepted (request queued) | POST /messages |
+| `200` | OK (inline response, or SSE stream opened) | POST /mcp, GET /mcp, GET /sse |
+| `202` | Accepted (request queued or notification) | POST /messages, POST /mcp |
 | `400` | Bad Request | Missing sessionId, invalid JSON |
 | `401` | Unauthorized | Missing or invalid bearer token |
-| `404` | Not Found | Unknown sessionId |
+| `403` | Forbidden | Session id presented by a different user |
+| `404` | Not Found | Unknown or expired session id |
 | `413` | Request Entity Too Large | Body over 32 MiB |
+| `415` | Unsupported Media Type | `Content-Type` is not `application/json` |
 | `500` | Server Error | Crash, internal bug |
 
 ### JSON-RPC Error Codes
@@ -1020,7 +1082,9 @@ Get the current status of a background task.
 
 ### `list_running_tasks`
 
-No parameters. Returns `{"tasks": [...], "count": N}` — only tasks with `status=working`.
+No parameters. Returns `{"tasks": [...], "count": N}` — only tasks with `status=working`, and only
+those started in the current session. `get_task_status` and `cancel_task` are scoped the same way:
+another session's task reads as not found.
 
 ### `cancel_task`
 

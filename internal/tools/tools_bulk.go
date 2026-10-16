@@ -845,7 +845,7 @@ func (r *Registry) bulkRunTestCasesNewLaunch(ctx context.Context, args bulkRunTe
 	if len(args.TestCaseIDs) == 0 {
 		return nil, fmt.Errorf("test_case_ids must not be empty")
 	}
-	task, taskCtx := r.taskStore.Create("bulk_run_test_cases_new_launch", ctx)
+	task, taskCtx := r.taskStore.Create("bulk_run_test_cases_new_launch", session.IDFromContext(ctx), ctx)
 	r.taskStore.Run(task.ID, taskCtx, func(taskCtx context.Context) {
 		launchID, err := r.allure.BulkRunTestCasesNewLaunch(taskCtx, args.ProjectID, args.TestCaseIDs, args.LaunchName, args.Assignees)
 		if err != nil {
@@ -874,7 +874,7 @@ func (r *Registry) bulkRunTestCasesExistingLaunch(ctx context.Context, args bulk
 	if args.LaunchID <= 0 {
 		return nil, fmt.Errorf("launch_id must be positive")
 	}
-	task, taskCtx := r.taskStore.Create("bulk_run_test_cases_existing_launch", ctx)
+	task, taskCtx := r.taskStore.Create("bulk_run_test_cases_existing_launch", session.IDFromContext(ctx), ctx)
 	r.taskStore.Run(task.ID, taskCtx, func(taskCtx context.Context) {
 		if err := r.allure.BulkRunTestCasesExistingLaunch(taskCtx, args.ProjectID, args.TestCaseIDs, args.LaunchID, args.Assignees); err != nil {
 			r.taskStore.Update(task.ID, tasks.StatusFailed, "", nil, err)
@@ -1086,7 +1086,7 @@ func (r *Registry) bulkCloneTestCases(ctx context.Context, args bulkCloneTestCas
 		"count":      len(args.TestCaseIDs),
 	})
 
-	task, taskCtx := r.taskStore.Create("bulk_clone_test_cases", ctx)
+	task, taskCtx := r.taskStore.Create("bulk_clone_test_cases", session.IDFromContext(ctx), ctx)
 	r.taskStore.Run(task.ID, taskCtx, func(taskCtx context.Context) {
 		if err := r.allure.BulkCloneTestCases(taskCtx, args.ProjectID, args.TestCaseIDs, args.NameSuffix, args.IgnoreTags); err != nil {
 			r.logger.Error("bulk clone test cases", err, map[string]any{"project_id": args.ProjectID})

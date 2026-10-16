@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -581,3 +582,62 @@ func TestMergeLaunches_MultiLineMarshaledBody(t *testing.T) {
 		t.Errorf("request body = %v, want from=1 to=2", gotBody)
 	}
 }
+
+// Allure issues an XSRF-TOKEN cookie on the JWT exchange, which setAuthHeader
+// mirrors into X-XSRF-TOKEN. With one shared cookie jar, the cookie of
+// whichever user authenticated last rode along on every other user's request.
+func TestCookieJarIsPerAPIToken(t *testing.T) {
+	var mu sync.Mutex
+	seen := map[string]string{} // request path marker -> X-XSRF-TOKEN sent
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/oauth/token") {
+			_ = r.ParseForm()
+			apiToken := r.Form.Get("token")
+			http.SetCookie(w, &http.Cookie{Name: "XSRF-TOKEN", Value: "xsrf-for-" + apiToken, Path: "/"})
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"jwt-` + apiToken + `","expires_in":3600}`))
+			return
+		}
+		mu.Lock()
+		seen[r.URL.Query().Get("who")] = r.Header.Get("X-XSRF-TOKEN")
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "", 5*time.Second)
+	// Resolve the API token the way the registry does: from the request context.
+	c.SetSessionTokenFunc(func(ctx context.Context) string {
+		tok, _ := ctx.Value(testTokenKey{}).(string)
+		return tok
+	})
+
+	call := func(marker, user string) {
+		t.Helper()
+		ctx := context.WithValue(context.Background(), testTokenKey{}, user+"-token")
+		if err := c.doJSON(ctx, http.MethodGet, "/api/ping?who="+marker, nil, nil, http.StatusOK); err != nil {
+			t.Fatalf("%s: %v", marker, err)
+		}
+	}
+	// alice authenticates, then bob — whose cookie would overwrite alice's in a
+	// shared jar — and only then does alice make another call.
+	call("alice-first", "alice")
+	call("bob", "bob")
+	call("alice-second", "alice")
+
+	mu.Lock()
+	defer mu.Unlock()
+	for marker, want := range map[string]string{
+		"alice-first":  "xsrf-for-alice-token",
+		"bob":          "xsrf-for-bob-token",
+		"alice-second": "xsrf-for-alice-token",
+	} {
+		if seen[marker] != want {
+			t.Errorf("%s sent X-XSRF-TOKEN %q, want %q", marker, seen[marker], want)
+		}
+	}
+}
+
+type testTokenKey struct{}

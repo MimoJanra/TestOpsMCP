@@ -2,11 +2,8 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
-
-	"github.com/MimoJanra/TestOpsMCP/internal/session"
 )
 
 // registerTestPlanTools registers the test plan lifecycle (bulk_create_test_plan
@@ -235,27 +232,4 @@ func (r *Registry) deleteLaunch(ctx context.Context, args deleteLaunchArgs) (any
 		return nil, fmt.Errorf("delete launch: %w", err)
 	}
 	return map[string]any{"status": "deleted"}, nil
-}
-
-// confirmDestructive asks the user via elicitation. ok is false when the
-// action must not proceed; resp/err then hold what the tool should return.
-func confirmDestructive(ctx context.Context, message string) (ok bool, resp any, err error) {
-	elicit, has := session.ElicitFromContext(ctx)
-	if !has {
-		return false, nil, fmt.Errorf("this action requires user confirmation but no interactive session is available")
-	}
-	schema, _ := json.Marshal(map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"confirmed": map[string]any{"type": "boolean", "description": "Confirm"},
-		},
-	})
-	result, err := elicit(ctx, message, schema)
-	if err != nil {
-		return false, nil, fmt.Errorf("confirmation failed: %w", err)
-	}
-	if result.Action != "accept" {
-		return false, map[string]any{"cancelled": true, "message": "Cancelled."}, nil
-	}
-	return true, nil, nil
 }

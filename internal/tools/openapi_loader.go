@@ -1,6 +1,7 @@
 package tools
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -8,6 +9,20 @@ import (
 	"sort"
 	"strings"
 )
+
+// embeddedSpec is the TestOps OpenAPI spec compiled into the binary.
+//
+// It used to be read from spec/testops.json relative to the process's working
+// directory, which meant it was found only when the server happened to be
+// started from the repository root: the Docker image and the released binaries
+// ship no spec file at all, and Claude Desktop starts the binary with an
+// arbitrary working directory. Without it search_testops_operations and
+// execute_testops_operation are never registered — and that happened silently,
+// so the 600+ endpoint fallback the server advertises simply did not exist in
+// most real installations.
+//
+//go:embed assets/testops.json
+var embeddedSpec []byte
 
 // Operation represents a single OpenAPI operation
 type Operation struct {
@@ -49,19 +64,47 @@ type OperationsIndex struct {
 	byTag      map[string][]*Operation
 }
 
-// LoadOpenAPI loads and parses the testops.json OpenAPI spec
+// LoadOpenAPI loads and parses an on-disk testops.json OpenAPI spec.
 func LoadOpenAPI(specPath string) (*OpenAPISpec, error) {
 	data, err := os.ReadFile(specPath)
 	if err != nil {
 		return nil, fmt.Errorf("read spec file: %w", err)
 	}
+	return ParseOpenAPI(data)
+}
 
+// ParseOpenAPI parses raw OpenAPI JSON.
+func ParseOpenAPI(data []byte) (*OpenAPISpec, error) {
 	var spec OpenAPISpec
 	if err := json.Unmarshal(data, &spec); err != nil {
 		return nil, fmt.Errorf("parse spec: %w", err)
 	}
-
 	return &spec, nil
+}
+
+// LoadSpec returns the OpenAPI spec the server runs with and a human-readable
+// label for where it came from. A spec file next to the server (see
+// FindSpecFile) wins, so a newer API spec can be dropped in without rebuilding;
+// otherwise the embedded copy is used, which always exists.
+func LoadSpec() (*OpenAPISpec, string, error) {
+	if path, err := FindSpecFile(); err == nil {
+		spec, err := LoadOpenAPI(path)
+		if err == nil {
+			return spec, path, nil
+		}
+		// A broken override must not silently cost the caller every operation:
+		// fall through to the embedded spec, and say what happened.
+		spec, embErr := ParseOpenAPI(embeddedSpec)
+		if embErr != nil {
+			return nil, "", fmt.Errorf("spec file %s is unusable (%v) and the embedded spec failed to parse: %w", path, err, embErr)
+		}
+		return spec, fmt.Sprintf("embedded (ignored unusable %s: %v)", path, err), nil
+	}
+	spec, err := ParseOpenAPI(embeddedSpec)
+	if err != nil {
+		return nil, "", fmt.Errorf("parse embedded spec: %w", err)
+	}
+	return spec, "embedded", nil
 }
 
 // BuildOperationsIndex creates a searchable index from OpenAPI spec
@@ -362,7 +405,9 @@ func getStringArray(m map[string]interface{}, key string) []string {
 	return nil
 }
 
-// FindSpecFile looks for testops.json in spec folder and common locations
+// FindSpecFile looks for a testops.json override in the spec folder and other
+// common locations, relative to the process's working directory. Callers should
+// prefer LoadSpec, which falls back to the embedded spec when none is found.
 func FindSpecFile() (string, error) {
 	locations := []string{
 		"spec/testops.json",
